@@ -11,9 +11,21 @@
     header h1 { font-size: 16px; margin: 0; }
     header .meta { color: #8aa0b3; }
     #wrap { display: grid; grid-template-columns: 1fr; place-items: center; padding: 18px; }
-    canvas { width: min(960px, 96vw); height: auto; border: 1px solid #1e2a36; border-radius: 14px; background: #0f1620; box-shadow: 0 12px 40px rgba(0,0,0,.35); image-rendering: pixelated; }
+    canvas { width: min(960px, 96vw); height: auto; border: 1px solid #1e2a36; border-radius: 14px; background: #0f1620; box-shadow: 0 12px 40px rgba(0,0,0,.35); image-rendering: pixelated; touch-action: none; }
     .hint { margin-top: 12px; color: #8aa0b3; text-align:center; max-width: min(960px, 96vw); }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding: 2px 6px; border: 1px solid #2a3a4b; border-bottom-color: #16202b; border-radius: 6px; background: #0f1620; color: #cfe6ff; }
+
+    #touch-ui { position:absolute; inset: 10px 10px auto 10px; display:none; align-items:flex-end; justify-content:space-between; gap: 14px; pointer-events:none; }
+    #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
+    #touch-ui .row { display:flex; gap:10px; justify-content:center; margin-top:10px; }
+    #touch-ui .btn { width:54px; height:54px; border-radius:14px; border:1px solid #2a3a4b; background: rgba(15,22,32,0.9); color:#e8edf2; font: 700 16px system-ui; }
+    #touch-ui .btn:active { transform: translateY(1px); border-color:#38bdf8; }
+    #touch-ui .btn.big { width:64px; height:64px; font-size: 20px; }
+    #touch-ui .actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; max-width: 260px; }
+
+    @media (pointer: coarse) {
+      #touch-ui { display:flex; }
+    }
   </style>
 </head>
 <body>
@@ -21,10 +33,30 @@
     <h1>The Charter Road</h1>
     <div class="meta">Top-down 2D trading prototype — tiles + free roam</div>
   </header>
-  <div id="wrap">
+  <div id="wrap" style="position:relative;">
     <canvas id="game" width="960" height="540" aria-label="The Charter Road game canvas"></canvas>
+
+    <!-- Mobile controls (shown on coarse pointers) -->
+    <div id="touch-ui" aria-label="Touch controls">
+      <div class="pad">
+        <button data-vkey="ArrowUp" class="btn">▲</button>
+        <div class="row">
+          <button data-vkey="ArrowLeft" class="btn">◀</button>
+          <button data-vkey="ArrowDown" class="btn">▼</button>
+          <button data-vkey="ArrowRight" class="btn">▶</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button data-vkey="KeyE" class="btn big">E</button>
+        <button data-vkey="Tab" class="btn">Tab</button>
+        <button data-vkey="Enter" class="btn">Enter</button>
+        <button data-vkey="Escape" class="btn">Esc</button>
+      </div>
+    </div>
+
     <div class="hint">
-      Move: <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> / Arrows · Interact: <span class="kbd">E</span> at market · In market: <span class="kbd">Tab</span> buy/sell, <span class="kbd">Enter</span> trade
+      Desktop: WASD/Arrows · E market · Tab buy/sell · Enter trade · Esc close<br/>
+      Mobile: use on-screen buttons
     </div>
   </div>
 

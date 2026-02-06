@@ -19,11 +19,56 @@
 
   // --- Input
   const keys = new Set();
+  const vkeys = new Set(); // virtual keys (touch UI)
+  const isDown = (code) => keys.has(code) || vkeys.has(code);
+
   window.addEventListener('keydown', (e) => {
     keys.add(e.code);
-    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) e.preventDefault();
   }, { passive: false });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+  const consumeVKey = (code) => {
+    if (!vkeys.has(code)) return false;
+    vkeys.delete(code);
+    return true;
+  };
+
+  // Touch UI -> virtual keys
+  const touchUi = document.getElementById('touch-ui');
+  if (touchUi) {
+    const press = (code) => {
+      vkeys.add(code);
+      // auto-release for "tap" keys
+      if (['KeyE','Tab','Enter','Escape','Space'].includes(code)) {
+        setTimeout(() => vkeys.delete(code), 60);
+      }
+    };
+    const holdStart = (code) => vkeys.add(code);
+    const holdEnd = (code) => vkeys.delete(code);
+
+    for (const btn of touchUi.querySelectorAll('[data-vkey]')) {
+      const code = btn.getAttribute('data-vkey');
+      if (!code) continue;
+
+      const isHold = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'].includes(code);
+
+      const onDown = (e) => {
+        e.preventDefault();
+        if (isHold) holdStart(code);
+        else press(code);
+      };
+      const onUp = (e) => {
+        e.preventDefault();
+        if (isHold) holdEnd(code);
+      };
+
+      btn.addEventListener('pointerdown', onDown);
+      btn.addEventListener('pointerup', onUp);
+      btn.addEventListener('pointercancel', onUp);
+      btn.addEventListener('pointerleave', onUp);
+    }
+  }
 
   // --- Tiles
   // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market
@@ -141,6 +186,7 @@
     toastT: 6,
     selection: 0,
     mode: 'buy', // buy|sell
+    navT: 0,
   };
 
   // --- Player
@@ -188,8 +234,8 @@
 
   function moveWithCollision(dt) {
     if (ui.marketOpen) return;
-    const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const ay = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
+    const ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
+    const ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
     const mag = Math.hypot(ax, ay);
     const nx = mag > 0 ? ax / mag : 0;
     const ny = mag > 0 ? ay / mag : 0;
@@ -282,7 +328,6 @@
         } else {
           const have = player.inv[it.id] || 0;
           if (have <= 0) { toast('You have none to sell.', 2); return; }
-          // apply city tax on sell
           const gross = p;
           const net = Math.max(1, Math.round(gross * (1 - CITY_RULES[c.id].taxRate)));
           player.inv[it.id] = have - 1;
@@ -541,6 +586,56 @@
     last = now;
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
+
+    // Virtual (touch) button actions
+    if (consumeVKey('KeyE')) {
+      const c = currentCity();
+      if (c && nearMarketTile()) {
+        ui.marketOpen = !ui.marketOpen;
+        ui.selection = 0;
+        ui.mode = 'buy';
+        toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
+      } else {
+        toast('Find the market stall inside a city (gold tile).', 2.5);
+      }
+    }
+
+    if (ui.marketOpen) {
+      if (consumeVKey('Escape')) { ui.marketOpen = false; toast('Market closed', 2); }
+      if (consumeVKey('Tab')) { ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
+
+      // selection via touch/hold arrows
+      ui.navT -= dt;
+      if (ui.navT <= 0) {
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = (ui.selection + ITEMS.length - 1) % ITEMS.length; ui.navT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = (ui.selection + 1) % ITEMS.length; ui.navT = 0.14; }
+      }
+
+      if (consumeVKey('Enter') || consumeVKey('Space')) {
+        const c = currentCity();
+        if (c) {
+          const it = ITEMS[ui.selection];
+          const p = priceFor(c.id, it);
+          if (ui.mode === 'buy') {
+            const w = invWeight();
+            if (w + it.weight > player.capacity) toast('No space in pack.', 2);
+            else if (player.gold < p) toast('Not enough gold.', 2);
+            else { player.gold -= p; player.inv[it.id] = (player.inv[it.id] || 0) + 1; toast(`Bought 1 ${it.name} (-${p}g)`, 2); }
+          } else {
+            const have = player.inv[it.id] || 0;
+            if (have <= 0) toast('You have none to sell.', 2);
+            else {
+              const net = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
+              player.inv[it.id] = have - 1;
+              player.gold += net;
+              toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
+            }
+          }
+        }
+      }
+
+      // allow touch selection via holding arrows too (handled in key checks below)
+    }
 
     moveWithCollision(dt);
 
