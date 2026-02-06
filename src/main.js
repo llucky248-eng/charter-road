@@ -26,7 +26,7 @@
   window.addEventListener('keyup', (e) => keys.delete(e.code));
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market
   const SOLID = new Set([2, 3]);
 
   function makeMap() {
@@ -66,6 +66,12 @@
           m[yy*MAP_W + xx] = 4;
         }
       }
+
+      // market stall (simple interaction point)
+      const mx = c.x + 4;
+      const my = c.y + 4;
+      m[my*MAP_W + mx] = 6;
+      m[my*MAP_W + (mx+1)] = 6;
       // simple wall border
       for (let xx = c.x; xx < c.x + c.w; xx++) {
         m[(c.y-1)*MAP_W + xx] = 3;
@@ -118,6 +124,25 @@
     }
   };
 
+  const ITEMS = [
+    { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
+    { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
+    { id: 'herbs', name: 'Moon Herbs', base: 16, weight: 1 },
+    { id: 'potion', name: 'Minor Potion', base: 34, weight: 1 },
+    { id: 'relic', name: 'Old Relic', base: 55, weight: 2 },
+    { id: 'ink', name: 'Demon Ink', base: 70, weight: 1, contrabandName: 'Demon Ink' },
+  ];
+
+  // --- UI / time
+  let stateTime = 0;
+  const ui = {
+    marketOpen: false,
+    toast: 'Walk into a city. Find the market tile and press E.',
+    toastT: 6,
+    selection: 0,
+    mode: 'buy', // buy|sell
+  };
+
   // --- Player
   const player = {
     x: (world.cityA.x + world.cityA.w/2) * TILE,
@@ -126,6 +151,10 @@
     vx: 0,
     vy: 0,
     speed: 120,
+
+    gold: 120,
+    capacity: 18,
+    inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
   };
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
@@ -135,6 +164,22 @@
     return world.m[ty * MAP_W + tx];
   }
 
+  function invWeight() {
+    let w = 0;
+    for (const it of ITEMS) w += (player.inv[it.id] || 0) * it.weight;
+    return w;
+  }
+
+  function priceFor(cityId, item) {
+    // Simple city multipliers (data-driven later)
+    const mult = cityId === 'sunspire'
+      ? (item.id === 'potion' ? 0.8 : item.id === 'ore' ? 1.2 : 1.0)
+      : (item.id === 'relic' ? 1.25 : item.id === 'food' ? 0.85 : 1.05);
+    // tiny wobble so it feels alive
+    const wob = 0.95 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.04;
+    return Math.max(1, Math.round(item.base * mult * wob));
+  }
+
   function isSolidAt(px, py) {
     const tx = Math.floor(px / TILE);
     const ty = Math.floor(py / TILE);
@@ -142,6 +187,7 @@
   }
 
   function moveWithCollision(dt) {
+    if (ui.marketOpen) return;
     const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const ay = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
     const mag = Math.hypot(ax, ay);
@@ -187,6 +233,66 @@
     return null;
   }
 
+  function nearMarketTile() {
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (tileAt(tx + ox, ty + oy) === 6) return true;
+      }
+    }
+    return false;
+  }
+
+  function toast(msg, seconds = 3) {
+    ui.toast = msg;
+    ui.toastT = seconds;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyE') {
+      const c = currentCity();
+      if (c && nearMarketTile()) {
+        ui.marketOpen = !ui.marketOpen;
+        ui.selection = 0;
+        ui.mode = 'buy';
+        toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
+      } else {
+        toast('Find the market stall inside a city (tan tile).', 2.5);
+      }
+    }
+
+    if (ui.marketOpen) {
+      if (e.code === 'Escape') { ui.marketOpen = false; toast('Market closed', 2); }
+      if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + ITEMS.length - 1) % ITEMS.length;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % ITEMS.length;
+      if (e.code === 'Enter' || e.code === 'Space') {
+        const c = currentCity();
+        if (!c) return;
+        const it = ITEMS[ui.selection];
+        const p = priceFor(c.id, it);
+        if (ui.mode === 'buy') {
+          const w = invWeight();
+          if (w + it.weight > player.capacity) { toast('No space in pack.', 2); return; }
+          if (player.gold < p) { toast('Not enough gold.', 2); return; }
+          player.gold -= p;
+          player.inv[it.id] = (player.inv[it.id] || 0) + 1;
+          toast(`Bought 1 ${it.name} (-${p}g)`, 2);
+        } else {
+          const have = player.inv[it.id] || 0;
+          if (have <= 0) { toast('You have none to sell.', 2); return; }
+          // apply city tax on sell
+          const gross = p;
+          const net = Math.max(1, Math.round(gross * (1 - CITY_RULES[c.id].taxRate)));
+          player.inv[it.id] = have - 1;
+          player.gold += net;
+          toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
+        }
+      }
+    }
+  }, { passive: false });
+
   // --- Render
   function drawTile(id, x, y) {
     // simple procedural tiles (no external assets)
@@ -230,6 +336,16 @@
       ctx.fillRect(x+2, y+4, TILE-4, TILE-8);
       ctx.fillStyle = '#2a1f14';
       ctx.fillRect(x+5, y+6, TILE-10, TILE-12);
+    } else if (id === 6) {
+      // market stall
+      ctx.fillStyle = '#5b4b3a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
+      ctx.fillStyle = '#0b0f14';
+      ctx.fillRect(x+4, y+6, TILE-8, 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x+3, y+3, TILE-6, 1);
     }
   }
 
@@ -307,13 +423,26 @@
     ctx.font = '600 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
     ctx.fillText(c ? `${c.name}` : 'On the road', 14, 22);
 
+    // gold/capacity
+    ctx.fillStyle = '#cfe6ff';
+    ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    const w = invWeight();
+    ctx.fillText(`Gold: ${player.gold}g   Pack: ${w}/${player.capacity}`, 180, 22);
+
     ctx.fillStyle = '#8aa0b3';
     ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 
     if (rules) {
-      ctx.fillText(`Tax: ${(rules.taxRate*100).toFixed(0)}%   Inspection: ${(rules.inspectionChance*100).toFixed(0)}%   Contraband: ${rules.contraband.join(', ')}`, 14, 44);
+      const hint = (nearMarketTile() ? 'Press E: Market' : 'Find market (gold tile)');
+      ctx.fillText(`Tax: ${(rules.taxRate*100).toFixed(0)}%   Inspection: ${(rules.inspectionChance*100).toFixed(0)}%   Contraband: ${rules.contraband.join(', ')}   · ${hint}`, 14, 44);
     } else {
       ctx.fillText('Travel between cities. Different rules apply inside city walls.', 14, 44);
+    }
+
+    // toast
+    if (ui.toastT > 0) {
+      ctx.fillStyle = 'rgba(138,160,179,0.95)';
+      ctx.fillText(ui.toast, 14, 70);
     }
 
     // minimap-ish coords
@@ -323,12 +452,95 @@
     ctx.fillText(`(${tx}, ${ty})`, VIEW_W - 76, 22);
   }
 
+  function drawMarket() {
+    if (!ui.marketOpen) return;
+    const c = currentCity();
+    if (!c) return;
+    const rules = CITY_RULES[c.id];
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 56, VIEW_W, VIEW_H - 56);
+
+    const boxW = 520;
+    const boxH = 360;
+    const bx = Math.floor((VIEW_W - boxW) / 2);
+    const by = Math.floor((VIEW_H - boxH) / 2);
+
+    ctx.fillStyle = 'rgba(15, 22, 32, 0.96)';
+    ctx.strokeStyle = 'rgba(46, 64, 82, 1)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect?.(bx, by, boxW, boxH, 14);
+    if (!ctx.roundRect) {
+      // fallback
+      ctx.rect(bx, by, boxW, boxH);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#e8edf2';
+    ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(`${c.name} Market`, bx + 18, by + 34);
+
+    ctx.fillStyle = '#8aa0b3';
+    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(`${rules.vibe}  ·  Tab: switch Buy/Sell  ·  Enter/Space: confirm  ·  Esc: close`, bx + 18, by + 56);
+
+    ctx.fillStyle = ui.mode === 'buy' ? '#38bdf8' : '#cbd5e1';
+    ctx.font = '700 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(ui.mode.toUpperCase(), bx + 18, by + 82);
+
+    const startY = by + 110;
+    for (let i = 0; i < ITEMS.length; i++) {
+      const it = ITEMS[i];
+      const y = startY + i * 32;
+      const selected = i === ui.selection;
+
+      if (selected) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.fillRect(bx + 12, y - 18, boxW - 24, 28);
+      }
+
+      const p = priceFor(c.id, it);
+      const have = player.inv[it.id] || 0;
+      const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
+
+      ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
+      ctx.font = selected ? '600 14px system-ui' : '14px system-ui';
+      ctx.fillText(it.name, bx + 22, y);
+
+      ctx.fillStyle = '#8aa0b3';
+      ctx.fillText(`w${it.weight}`, bx + 260, y);
+
+      ctx.fillStyle = '#cfe6ff';
+      ctx.fillText(`${p}g`, bx + 310, y);
+
+      ctx.fillStyle = '#8aa0b3';
+      ctx.fillText(`you: ${have}`, bx + 380, y);
+
+      if (contra) {
+        ctx.fillStyle = '#f97316';
+        ctx.fillText('CONTRABAND', bx + 450, y);
+      }
+    }
+
+    // footer
+    const w = invWeight();
+    ctx.fillStyle = '#cfe6ff';
+    ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
+    ctx.fillStyle = '#8aa0b3';
+    ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 140, by + boxH - 22);
+  }
+
   // --- Game loop
   let last = performance.now();
   function tick() {
     const now = performance.now();
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
+    stateTime += dt * 1000;
+    if (ui.toastT > 0) ui.toastT -= dt;
 
     moveWithCollision(dt);
 
@@ -345,6 +557,7 @@
     drawWorld();
     drawPlayer();
     drawHUD();
+    drawMarket();
 
     requestAnimationFrame(tick);
   }
