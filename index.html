@@ -15,6 +15,10 @@
     .hint { margin-top: 12px; color: #8aa0b3; text-align:center; max-width: min(960px, 96vw); }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding: 2px 6px; border: 1px solid #2a3a4b; border-bottom-color: #16202b; border-radius: 6px; background: #0f1620; color: #cfe6ff; }
 
+    .devlog { margin-top: 12px; width: min(960px, 96vw); border: 1px solid #1e2a36; border-radius: 14px; background: rgba(15,22,32,0.75); backdrop-filter: blur(8px); padding: 12px 14px; color: #cbd5e1; }
+    .devlog-title { font-weight: 700; color: #e8edf2; margin-bottom: 6px; }
+    .devlog-body { color: #a8bdcf; font-size: 13px; white-space: pre-line; }
+
     /* Touch controls pinned to bottom corners so they don't cover the HUD */
     #touch-ui { position:absolute; inset: auto 12px 12px 12px; display:none; align-items:flex-end; justify-content:space-between; gap: 14px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
@@ -58,6 +62,13 @@
     <div class="hint">
       Desktop: WASD/Arrows · E market · Tab buy/sell · Enter trade · Esc close<br/>
       Mobile: use on-screen buttons
+    </div>
+
+    <div id="devlog" class="devlog" aria-label="Iteration notes">
+      <div class="devlog-title">Iteration Notes</div>
+      <div class="devlog-body" id="devlog-body">
+        Loading…
+      </div>
     </div>
   </div>
 

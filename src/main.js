@@ -159,12 +159,16 @@
       taxRate: 0.18,
       inspectionChance: 0.65,
       contraband: ['Cursed Relics', 'Demon Ink'],
+      fineBase: 18,
+      finePerItem: 6,
       vibe: 'Orderly. Safe. Expensive.'
     },
     gloomwharf: {
       taxRate: 0.05,
       inspectionChance: 0.15,
       contraband: ['Blessed Water'],
+      fineBase: 8,
+      finePerItem: 3,
       vibe: 'Lawless. Profitable. Risky.'
     }
   };
@@ -180,6 +184,20 @@
 
   // --- UI / time
   let stateTime = 0;
+
+  // Iteration notes (rendered into the bottom textbox)
+  const ITERATION = {
+    whatsNew: [
+      'Mobile touch buttons moved to bottom corners (HUD stays visible).',
+      'NEW: City gate inspections on entry (chance-based). Contraband can be confiscated + you may be fined.',
+    ],
+    whatsNext: [
+      'Road encounters (bandits/tolls/storms) while traveling between cities.',
+      'Reputation + penalties (not just gold fines).',
+      'Contracts / quests for city-specific trading goals.',
+    ],
+  };
+
   const ui = {
     marketOpen: false,
     toast: 'Walk into a city. Find the market tile and press E.',
@@ -188,6 +206,13 @@
     mode: 'buy', // buy|sell
     navT: 0,
   };
+
+  // Render iteration notes into the bottom textbox (if present)
+  const devlogBody = document.getElementById('devlog-body');
+  if (devlogBody) {
+    devlogBody.textContent =
+      `What’s new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat’s coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
+  }
 
   // --- Player
   const player = {
@@ -201,6 +226,8 @@
     gold: 120,
     capacity: 18,
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
+
+    lastCityId: null,
   };
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
@@ -288,6 +315,34 @@
       }
     }
     return false;
+  }
+
+  function contrabandCountForCity(cityId) {
+    const rules = CITY_RULES[cityId];
+    if (!rules) return 0;
+    let n = 0;
+    for (const it of ITEMS) {
+      if (!it.contrabandName) continue;
+      if (!rules.contraband.includes(it.contrabandName)) continue;
+      n += (player.inv[it.id] || 0);
+    }
+    return n;
+  }
+
+  function confiscateContraband(cityId) {
+    const rules = CITY_RULES[cityId];
+    if (!rules) return 0;
+    let removed = 0;
+    for (const it of ITEMS) {
+      if (!it.contrabandName) continue;
+      if (!rules.contraband.includes(it.contrabandName)) continue;
+      const have = player.inv[it.id] || 0;
+      if (have > 0) {
+        removed += have;
+        player.inv[it.id] = 0;
+      }
+    }
+    return removed;
   }
 
   function toast(msg, seconds = 3) {
@@ -586,6 +641,33 @@
     last = now;
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
+
+    // City entry inspection (runs when crossing into a city region)
+    {
+      const cNow = currentCity();
+      const nowId = cNow ? cNow.id : null;
+      if (nowId && player.lastCityId !== nowId) {
+        const rules = CITY_RULES[nowId];
+        if (rules) {
+          const roll = Math.random();
+          if (roll < rules.inspectionChance) {
+            const contraN = contrabandCountForCity(nowId);
+            if (contraN > 0) {
+              const removed = confiscateContraband(nowId);
+              const fine = rules.fineBase + removed * rules.finePerItem;
+              const paid = Math.min(player.gold, fine);
+              player.gold -= paid;
+              toast(`Inspection! Contraband confiscated (${removed}). Fine: ${paid}g`, 3.2);
+            } else {
+              toast('Gate inspection: cleared.', 2.2);
+            }
+          } else {
+            toast('You slip through the gate uninspected.', 2.2);
+          }
+        }
+      }
+      player.lastCityId = nowId;
+    }
 
     // Virtual (touch) button actions
     if (consumeVKey('KeyE')) {
