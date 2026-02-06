@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Charter Road (Prototype)</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0b0f14; color: #e8edf2; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    header { padding: 14px 16px; border-bottom: 1px solid #1e2a36; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+    header h1 { font-size: 16px; margin: 0; }
+    header .meta { color: #8aa0b3; }
+    #wrap { display: grid; grid-template-columns: 1fr; place-items: center; padding: 18px; }
+    canvas { width: min(960px, 96vw); height: auto; border: 1px solid #1e2a36; border-radius: 14px; background: #0f1620; box-shadow: 0 12px 40px rgba(0,0,0,.35); image-rendering: pixelated; }
+    .hint { margin-top: 12px; color: #8aa0b3; text-align:center; max-width: min(960px, 96vw); }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding: 2px 6px; border: 1px solid #2a3a4b; border-bottom-color: #16202b; border-radius: 6px; background: #0f1620; color: #cfe6ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Charter Road</h1>
+    <div class="meta">Top-down 2D trading prototype — tiles + free roam</div>
+  </header>
+  <div id="wrap">
+    <canvas id="game" width="960" height="540" aria-label="The Charter Road game canvas"></canvas>
+    <div class="hint">
+      Move: <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> / Arrows · Interact: <span class="kbd">E</span> · (This build: walk between cities; rules show in HUD)
+    </div>
+  </div>
+
+  <script src="./src/main.js"></script>
+</body>
+</html>
