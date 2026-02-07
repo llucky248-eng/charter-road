@@ -218,16 +218,17 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-  const ITERATION = {
-    version: 'v0.0.7',
+    const ITERATION = {
+    version: 'v0.0.8',
     whatsNew: [
-      'Fantasy map polish: grass variation + sparkles, road edges, water shoreline shimmer.',
-      'Mobile touch UI: 2-row D-pad + 2x2 action grid sizing tuned.',
+      'UI polish: cleaner HUD layout + coin/bag icons (more readable on mobile).',
+      'UI polish: parchment-style popups for Market/Event.',
+      'Map polish: storybook tile variation + water shimmer (carryover).',
     ],
     whatsNext: [
-      'UI skin pass: parchment popups + cleaner HUD spacing/icons.',
-      'Encounters only on road tiles + richer outcomes (rep/permits).',
+      'Restrict encounters to road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
+      'Save/load (persist gold + inventory).',
     ],
   };
 
@@ -698,7 +699,7 @@
     ctx.globalAlpha = 1;
 
     // body
-    ctx.fillStyle = '#e8edf2';
+    ctx.fillStyle = '#2a1f14';
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI*2);
     ctx.fill();
@@ -726,38 +727,68 @@
 
     const c = currentCity();
     const rules = c ? CITY_RULES[c.id] : null;
-
-    ctx.fillStyle = '#e8edf2';
-    ctx.font = `600 ${Math.round(16*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(c ? `${c.name}` : 'On the road', 14, 22);
-
-    // gold/capacity
-    ctx.fillStyle = '#cfe6ff';
-    ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     const w = invWeight();
-    ctx.fillText(`Gold: ${player.gold}g   Pack: ${w}/${player.capacity}`, 180, 22);
 
-    ctx.fillStyle = '#8aa0b3';
-    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const pad = Math.round(14 * UI_SCALE);
+    const line1 = Math.round(22 * UI_SCALE);
+    const line2 = Math.round(44 * UI_SCALE);
+
+    // Title (city/road)
+    ctx.fillStyle = '#e8edf2';
+    ctx.font = `700 ${Math.round(16 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText(c ? c.name : 'On the road', pad, line1);
+
+    // icons + stats (right side)
+    const rightX = VIEW_W - pad;
+
+    // coin icon
+    const coinR = Math.round(6 * UI_SCALE);
+    const coinX = rightX - Math.round(180 * UI_SCALE);
+    const coinY = line1 - Math.round(6 * UI_SCALE);
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath();
+    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.arc(coinX-2, coinY-2, coinR*0.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#cfe6ff';
+    ctx.font = `700 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText(`${player.gold}g`, coinX + Math.round(10 * UI_SCALE), line1);
+
+    // bag icon
+    const bagX = rightX - Math.round(80 * UI_SCALE);
+    const bagY = line1 - Math.round(10 * UI_SCALE);
+    ctx.fillStyle = '#c084fc';
+    ctx.fillRect(bagX, bagY, Math.round(12*UI_SCALE), Math.round(12*UI_SCALE));
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(bagX, bagY + Math.round(8*UI_SCALE), Math.round(12*UI_SCALE), Math.round(4*UI_SCALE));
+
+    ctx.fillStyle = '#cfe6ff';
+    ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), line1);
+
+    // second line: rules + hint
+    ctx.fillStyle = 'rgba(138,160,179,0.95)';
+    ctx.font = `${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
 
     if (rules) {
-      const hint = (nearMarketTile() ? 'Press E: Market' : 'Find market (gold tile)');
-      ctx.fillText(`Tax: ${(rules.taxRate*100).toFixed(0)}%   Inspection: ${(rules.inspectionChance*100).toFixed(0)}%   Contraband: ${rules.contraband.join(', ')}   · ${hint}`, 14, 44);
+      const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
+      ctx.fillText(
+        `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`,
+        pad,
+        line2
+      );
     } else {
-      ctx.fillText('Travel between cities. Different rules apply inside city walls.', 14, 44);
+      ctx.fillText('Follow the road between cities. Encounters may trigger while traveling.', pad, line2);
     }
 
     // toast
     if (ui.toastT > 0) {
-      ctx.fillStyle = 'rgba(138,160,179,0.95)';
-      ctx.fillText(ui.toast, 14, Math.round((HUD_H + 14) * 1.0));
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
+      ctx.fillText(ui.toast, pad, Math.min(VIEW_H - 6, HUD_H + Math.round(18 * UI_SCALE)));
     }
-
-    // minimap-ish coords
-    ctx.fillStyle = 'rgba(138,160,179,0.9)';
-    const tx = Math.floor(player.x / TILE);
-    const ty = Math.floor(player.y / TILE);
-    ctx.fillText(`(${tx}, ${ty})`, VIEW_W - 76, 22);
   }
 
   function drawMarket() {
@@ -774,8 +805,8 @@
     const bx = Math.floor((VIEW_W - boxW) / 2);
     const by = Math.floor((VIEW_H - boxH) / 2);
 
-    ctx.fillStyle = 'rgba(15, 22, 32, 0.96)';
-    ctx.strokeStyle = 'rgba(46, 64, 82, 1)';
+    ctx.fillStyle = 'rgba(235, 219, 185, 0.96)'; // parchment
+    ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect?.(bx, by, boxW, boxH, 14);
@@ -786,11 +817,11 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#e8edf2';
+    ctx.fillStyle = '#2a1f14';
     ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${c.name} Market`, bx + 18, by + 34);
 
-    ctx.fillStyle = '#8aa0b3';
+    ctx.fillStyle = '#4a3b2a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${rules.vibe}  ·  Tab: switch Buy/Sell  ·  Enter/Space: confirm  ·  Esc: close`, bx + 18, by + 56);
 
@@ -817,13 +848,13 @@
       ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
       ctx.fillText(it.name, bx + 22, y);
 
-      ctx.fillStyle = '#8aa0b3';
+      ctx.fillStyle = '#4a3b2a';
       ctx.fillText(`w${it.weight}`, bx + 260, y);
 
-      ctx.fillStyle = '#cfe6ff';
+      ctx.fillStyle = '#2a1f14';
       ctx.fillText(`${p}g`, bx + 310, y);
 
-      ctx.fillStyle = '#8aa0b3';
+      ctx.fillStyle = '#4a3b2a';
       ctx.fillText(`you: ${have}`, bx + 380, y);
 
       if (contra) {
@@ -834,10 +865,10 @@
 
     // footer
     const w = invWeight();
-    ctx.fillStyle = '#cfe6ff';
+    ctx.fillStyle = '#2a1f14';
     ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
-    ctx.fillStyle = '#8aa0b3';
+    ctx.fillStyle = '#4a3b2a';
     ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 140, by + boxH - 22);
   }
 
@@ -853,8 +884,8 @@
     const bx = Math.floor((VIEW_W - boxW) / 2);
     const by = Math.floor((VIEW_H - boxH) / 2);
 
-    ctx.fillStyle = 'rgba(15, 22, 32, 0.96)';
-    ctx.strokeStyle = 'rgba(46, 64, 82, 1)';
+    ctx.fillStyle = 'rgba(235, 219, 185, 0.96)'; // parchment
+    ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(bx, by, boxW, boxH, 14);
@@ -862,11 +893,11 @@
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#e8edf2';
+    ctx.fillStyle = '#2a1f14';
     ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.eventTitle, bx + 18, by + 34);
 
-    ctx.fillStyle = '#a8bdcf';
+    ctx.fillStyle = '#3a2a1a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // wrap text roughly
     const words = (ui.eventText || '').split(/\s+/);
@@ -897,7 +928,7 @@
       ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
     }
 
-    ctx.fillStyle = '#8aa0b3';
+    ctx.fillStyle = '#4a3b2a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - 20);
   }
