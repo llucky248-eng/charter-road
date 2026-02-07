@@ -25,7 +25,7 @@
     #stage { position: relative; width: min(920px, calc(100vw - 28px)); }
 
     /* Touch controls under the stage */
-    #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:flex-start; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
+    #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:stretch; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
     /* Responsive button sizing for mobile */
     #touch-ui { --btn: clamp(54px, 13vw, 72px); }
@@ -49,8 +49,16 @@
     #touch-ui .pad { display:grid; grid-template-columns: var(--btn) var(--btn) var(--btn); grid-template-rows: var(--btn) var(--btn) var(--btn); gap: 8px; }
     #touch-ui .pad .btn { width: var(--btn); height: var(--btn); }
 
-    /* Actions as a 2x2 grid, same size */
-    #touch-ui .actions { display:grid; grid-template-columns: var(--btn) var(--btn); grid-auto-rows: var(--btn); gap: 8px; justify-content:end; }
+    /* Actions as a 2x3 grid (last row empty) so top+bottom align with 3-row D-pad */
+    #touch-ui .actions {
+      display:grid;
+      grid-template-columns: var(--btn) var(--btn);
+      grid-template-rows: var(--btn) var(--btn) var(--btn);
+      gap: 8px;
+      justify-content:end;
+      align-content:start;
+    }
+    #touch-ui .actions .spacer { width: var(--btn); height: var(--btn); opacity: 0; }
 
     @media (pointer: coarse) {
       #touch-ui { display:flex; }
@@ -87,6 +95,8 @@
         <button data-vkey="Tab" class="btn">Tab</button>
         <button data-vkey="Enter" class="btn">Enter</button>
         <button data-vkey="Escape" class="btn">Esc</button>
+        <div class="spacer"></div>
+        <div class="spacer"></div>
       </div>
     </div>
 
