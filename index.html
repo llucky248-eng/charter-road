@@ -28,7 +28,7 @@
     #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:stretch; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
     /* Responsive button sizing for mobile */
-    #touch-ui { --btn: clamp(54px, 13vw, 72px); }
+    #touch-ui { --btn: clamp(48px, 12vw, 64px); }
 
     #touch-ui .btn {
       width: var(--btn);
@@ -45,20 +45,25 @@
     }
     #touch-ui .btn:active { transform: translateY(1px); border-color:#38bdf8; }
 
-    /* D-pad as a 3x3 grid */
-    #touch-ui .pad { display:grid; grid-template-columns: var(--btn) var(--btn) var(--btn); grid-template-rows: var(--btn) var(--btn) var(--btn); gap: 8px; }
+    /* D-pad as a 3x2 grid: top row = Up, bottom row = Left/Down/Right */
+    #touch-ui .pad {
+      display:grid;
+      grid-template-columns: var(--btn) var(--btn) var(--btn);
+      grid-template-rows: var(--btn) var(--btn);
+      gap: 8px;
+      align-content:start;
+    }
     #touch-ui .pad .btn { width: var(--btn); height: var(--btn); }
 
-    /* Actions as a 2x3 grid (last row empty) so top+bottom align with 3-row D-pad */
+    /* Actions as a 2x2 grid, same size */
     #touch-ui .actions {
       display:grid;
       grid-template-columns: var(--btn) var(--btn);
-      grid-template-rows: var(--btn) var(--btn) var(--btn);
+      grid-template-rows: var(--btn) var(--btn);
       gap: 8px;
       justify-content:end;
       align-content:start;
     }
-    #touch-ui .actions .spacer { width: var(--btn); height: var(--btn); opacity: 0; }
 
     @media (pointer: coarse) {
       #touch-ui { display:flex; }
@@ -82,10 +87,6 @@
         <button data-vkey="ArrowUp" class="btn">▲</button>
         <div></div>
 
-        <div></div>
-        <div></div>
-        <div></div>
-
         <button data-vkey="ArrowLeft" class="btn">◀</button>
         <button data-vkey="ArrowDown" class="btn">▼</button>
         <button data-vkey="ArrowRight" class="btn">▶</button>
@@ -95,8 +96,6 @@
         <button data-vkey="Tab" class="btn">Tab</button>
         <button data-vkey="Enter" class="btn">Enter</button>
         <button data-vkey="Escape" class="btn">Esc</button>
-        <div class="spacer"></div>
-        <div class="spacer"></div>
       </div>
     </div>
 

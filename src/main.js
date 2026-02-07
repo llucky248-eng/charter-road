@@ -19,7 +19,7 @@
   const VIEW_H = canvas.height;
 
   const TILE = 16;
-  const UI_SCALE = IS_MOBILE ? 2.2 : 1.0;
+  const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
   const HUD_H = Math.round(56 * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
