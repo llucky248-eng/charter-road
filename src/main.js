@@ -11,7 +11,7 @@
   const VIEW_H = canvas.height;
 
   const TILE = 16;
-  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 1.25 : 1.0;
+  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 1.35 : 1.0;
   const MAP_W = 140;
   const MAP_H = 90;
 
