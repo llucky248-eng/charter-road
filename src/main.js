@@ -49,6 +49,8 @@
   // Touch UI -> virtual keys
   const touchUi = document.getElementById('touch-ui');
   if (touchUi) {
+    // Prevent iOS/Android long-press selection/callout + context menu
+    touchUi.addEventListener('contextmenu', (e) => e.preventDefault());
     const press = (code) => {
       vkeys.add(code);
       // auto-release for "tap" keys
@@ -199,12 +201,15 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
+    version: 'v0.0.6',
     whatsNew: [
-      'Mobile touch buttons moved to bottom corners (HUD stays visible).',
-      'NEW: City gate inspections on entry (chance-based). Contraband can be confiscated + you may be fined.',
+      'Mobile: disable long-press text/icon selection on touch controls.',
+      'City gate inspections on entry (chance-based). Contraband can be confiscated + you may be fined.',
+      'Road encounters popup (bandits/tolls/storms) while traveling.',
+      'Market UI: buy/sell + taxes + inventory/capacity.',
     ],
     whatsNext: [
-      'Road encounters (bandits/tolls/storms) while traveling between cities. (IN PROGRESS)',
+      'Encounters only on road tiles + better outcomes (time/rep/permits).',
       'Reputation + penalties (not just gold fines).',
       'Contracts / quests for city-specific trading goals.',
     ],
@@ -229,8 +234,9 @@
   // Render iteration notes into the bottom textbox (if present)
   const devlogBody = document.getElementById('devlog-body');
   if (devlogBody) {
+    const v = ITERATION.version ? ` ${ITERATION.version}` : '';
     devlogBody.textContent =
-      `What’s new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat’s coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
+      `Version:${v}\n\nWhat’s new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat’s coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
   }
 
   // --- Player
