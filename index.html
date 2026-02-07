@@ -28,7 +28,7 @@
     #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:flex-end; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
     /* Responsive button sizing for mobile */
-    #touch-ui { --btn: clamp(46px, 11.5vw, 60px); }
+    #touch-ui { --btn: clamp(54px, 13vw, 72px); }
 
     #touch-ui .btn {
       width: var(--btn);
@@ -74,11 +74,13 @@
         <button data-vkey="ArrowUp" class="btn">▲</button>
         <div></div>
 
+        <div></div>
+        <div></div>
+        <div></div>
+
         <button data-vkey="ArrowLeft" class="btn">◀</button>
         <button data-vkey="ArrowDown" class="btn">▼</button>
         <button data-vkey="ArrowRight" class="btn">▶</button>
-
-        <div></div><div></div><div></div>
       </div>
       <div class="actions" aria-label="Actions">
         <button data-vkey="KeyE" class="btn">E</button>

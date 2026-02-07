@@ -11,7 +11,8 @@
   const VIEW_H = canvas.height;
 
   const TILE = 16;
-  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 1.35 : 1.0;
+  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 2.0 : 1.0;
+  const HUD_H = Math.round(56 * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -666,11 +667,11 @@
 
   function drawHUD() {
     ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
-    ctx.fillRect(0, 0, VIEW_W, 56);
+    ctx.fillRect(0, 0, VIEW_W, HUD_H);
     ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
     ctx.beginPath();
-    ctx.moveTo(0, 56.5);
-    ctx.lineTo(VIEW_W, 56.5);
+    ctx.moveTo(0, HUD_H + 0.5);
+    ctx.lineTo(VIEW_W, HUD_H + 0.5);
     ctx.stroke();
 
     const c = currentCity();
@@ -699,7 +700,7 @@
     // toast
     if (ui.toastT > 0) {
       ctx.fillStyle = 'rgba(138,160,179,0.95)';
-      ctx.fillText(ui.toast, 14, 70);
+      ctx.fillText(ui.toast, 14, Math.round((HUD_H + 14) * 1.0));
     }
 
     // minimap-ish coords
@@ -716,7 +717,7 @@
     const rules = CITY_RULES[c.id];
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 56, VIEW_W, VIEW_H - 56);
+    ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
 
     const boxW = 520;
     const boxH = 360;
@@ -795,7 +796,7 @@
     if (!ui.eventOpen) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 56, VIEW_W, VIEW_H - 56);
+    ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
 
     const boxW = 560;
     const boxH = 260;
