@@ -25,6 +25,18 @@
   window.addEventListener('keydown', (e) => {
     keys.add(e.code);
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) e.preventDefault();
+
+
+    // Event controls (keyboard)
+    if (ui.eventOpen) {
+      if (e.code === 'Escape') { closeEvent(); toast('You move on.', 2); }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.eventSel = (ui.eventSel + ui.eventChoices.length - 1) % ui.eventChoices.length;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.eventSel = (ui.eventSel + 1) % ui.eventChoices.length;
+      if (e.code === 'Enter' || e.code === 'Space') {
+        const ch = ui.eventChoices[ui.eventSel];
+        if (ch && typeof ch.run === 'function') ch.run();
+      }
+    }
   }, { passive: false });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
 
@@ -192,7 +204,7 @@
       'NEW: City gate inspections on entry (chance-based). Contraband can be confiscated + you may be fined.',
     ],
     whatsNext: [
-      'Road encounters (bandits/tolls/storms) while traveling between cities.',
+      'Road encounters (bandits/tolls/storms) while traveling between cities. (IN PROGRESS)',
       'Reputation + penalties (not just gold fines).',
       'Contracts / quests for city-specific trading goals.',
     ],
@@ -205,6 +217,13 @@
     selection: 0,
     mode: 'buy', // buy|sell
     navT: 0,
+
+    eventOpen: false,
+    eventTitle: '',
+    eventText: '',
+    eventChoices: [], // {label, run:()=>void}
+    eventSel: 0,
+    eventNavT: 0,
   };
 
   // Render iteration notes into the bottom textbox (if present)
@@ -260,7 +279,7 @@
   }
 
   function moveWithCollision(dt) {
-    if (ui.marketOpen) return;
+    if (ui.marketOpen || ui.eventOpen) return;
     const ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
     const ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
     const mag = Math.hypot(ax, ay);
@@ -350,6 +369,125 @@
     ui.toastT = seconds;
   }
 
+  // --- Road encounters
+  const road = {
+    travel: 0,
+    cooldown: 0,
+  };
+
+  function randChoice(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  function totalCargoCount() {
+    let n = 0;
+    for (const it of ITEMS) n += (player.inv[it.id] || 0);
+    return n;
+  }
+
+  function dropRandomCargo(maxDrop = 2) {
+    const pool = ITEMS.filter(it => (player.inv[it.id] || 0) > 0);
+    if (pool.length === 0) return 0;
+    let dropped = 0;
+    for (let i = 0; i < maxDrop; i++) {
+      const options = ITEMS.filter(it => (player.inv[it.id] || 0) > 0);
+      if (options.length === 0) break;
+      const it = randChoice(options);
+      player.inv[it.id] -= 1;
+      dropped += 1;
+    }
+    return dropped;
+  }
+
+  function openEvent({ title, text, choices }) {
+    ui.eventOpen = true;
+    ui.eventTitle = title;
+    ui.eventText = text;
+    ui.eventChoices = choices;
+    ui.eventSel = 0;
+    ui.eventNavT = 0;
+  }
+
+  function closeEvent() {
+    ui.eventOpen = false;
+    ui.eventChoices = [];
+  }
+
+  function maybeTriggerRoadEvent() {
+    const c = currentCity();
+    if (c) return; // only on the road
+    if (road.cooldown > 0) return;
+    if (road.travel < 520) return; // threshold; tuned for feel
+
+    road.travel = 0;
+    road.cooldown = 6.0;
+
+    const kind = randChoice(['bandits', 'toll', 'storm']);
+
+    if (kind === 'bandits') {
+      openEvent({
+        title: 'Bandits!',
+        text: 'A masked crew steps onto the road. They want your cargo.',
+        choices: [
+          { label: 'Pay 20g', run: () => { const paid = Math.min(player.gold, 20); player.gold -= paid; toast(`Paid ${paid}g to avoid trouble.`, 2.6); closeEvent(); } },
+          { label: 'Flee (drop cargo)', run: () => { const d = dropRandomCargo(3); toast(d ? `You escaped, but dropped ${d} item(s).` : 'You escaped, barely. No cargo to drop.', 3); closeEvent(); } },
+          { label: 'Fight (risk)', run: () => {
+              const roll = Math.random();
+              if (roll < 0.58) {
+                const loot = 12 + Math.floor(Math.random() * 18);
+                player.gold += loot;
+                toast(`You won! Looted ${loot}g.`, 2.8);
+              } else {
+                const d = dropRandomCargo(2);
+                const fine = 10 + Math.floor(Math.random() * 15);
+                const paid = Math.min(player.gold, fine);
+                player.gold -= paid;
+                toast(`You lost. Dropped ${d} item(s) and paid ${paid}g.`, 3.2);
+              }
+              closeEvent();
+            }
+          },
+        ],
+      });
+      return;
+    }
+
+    if (kind === 'toll') {
+      openEvent({
+        title: 'Toll Checkpoint',
+        text: 'A petty lord has stationed guards here. Pay the toll or detour through rough terrain.',
+        choices: [
+          { label: 'Pay 12g', run: () => { const paid = Math.min(player.gold, 12); player.gold -= paid; toast(`Paid ${paid}g toll.`, 2.4); closeEvent(); } },
+          { label: 'Detour (slow)', run: () => { road.cooldown = 12.0; toast('You detour. No toll, but it wastes time.', 3); closeEvent(); } },
+        ],
+      });
+      return;
+    }
+
+    // storm
+    openEvent({
+      title: 'Sudden Storm',
+      text: 'Wind and rain hammer the road. Your pack gets soaked.',
+      choices: [
+        { label: 'Push through', run: () => {
+            road.cooldown = 10.0;
+            // 40% chance lose 1 fragile item
+            const fragile = ['herbs', 'potion'];
+            if (Math.random() < 0.4) {
+              const id = randChoice(fragile);
+              if ((player.inv[id] || 0) > 0) { player.inv[id] -= 1; toast('A fragile item was ruined by the storm.', 3); }
+              else toast('You weather the storm.', 2.4);
+            } else {
+              toast('You weather the storm.', 2.4);
+            }
+            closeEvent();
+          }
+        },
+        { label: 'Take shelter (-5g)', run: () => { const paid = Math.min(player.gold, 5); player.gold -= paid; toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
+      ],
+    });
+  }
+
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyE') {
       const c = currentCity();
@@ -389,6 +527,18 @@
           player.gold += net;
           toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
         }
+      }
+    }
+
+
+    // Event controls (keyboard)
+    if (ui.eventOpen) {
+      if (e.code === 'Escape') { closeEvent(); toast('You move on.', 2); }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.eventSel = (ui.eventSel + ui.eventChoices.length - 1) % ui.eventChoices.length;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.eventSel = (ui.eventSel + 1) % ui.eventChoices.length;
+      if (e.code === 'Enter' || e.code === 'Space') {
+        const ch = ui.eventChoices[ui.eventSel];
+        if (ch && typeof ch.run === 'function') ch.run();
       }
     }
   }, { passive: false });
@@ -633,6 +783,67 @@
     ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 140, by + boxH - 22);
   }
 
+
+  function drawEvent() {
+    if (!ui.eventOpen) return;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 56, VIEW_W, VIEW_H - 56);
+
+    const boxW = 560;
+    const boxH = 260;
+    const bx = Math.floor((VIEW_W - boxW) / 2);
+    const by = Math.floor((VIEW_H - boxH) / 2);
+
+    ctx.fillStyle = 'rgba(15, 22, 32, 0.96)';
+    ctx.strokeStyle = 'rgba(46, 64, 82, 1)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, boxW, boxH, 14);
+    else ctx.rect(bx, by, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#e8edf2';
+    ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(ui.eventTitle, bx + 18, by + 34);
+
+    ctx.fillStyle = '#a8bdcf';
+    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    // wrap text roughly
+    const words = (ui.eventText || '').split(/\s+/);
+    let line = '';
+    let yy = by + 62;
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > boxW - 36) {
+        ctx.fillText(line, bx + 18, yy);
+        yy += 18;
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, bx + 18, yy);
+
+    const startY = by + 140;
+    for (let i = 0; i < ui.eventChoices.length; i++) {
+      const y = startY + i * 30;
+      const selected = i === ui.eventSel;
+      if (selected) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.fillRect(bx + 12, y - 18, boxW - 24, 26);
+      }
+      ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
+      ctx.font = selected ? '600 14px system-ui' : '14px system-ui';
+      ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
+    }
+
+    ctx.fillStyle = '#8aa0b3';
+    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - 20);
+  }
+
   // --- Game loop
   let last = performance.now();
   function tick() {
@@ -719,6 +930,32 @@
       // allow touch selection via holding arrows too (handled in key checks below)
     }
 
+    // Road travel tracking + encounters
+    const cityNow = currentCity();
+    if (!cityNow && !ui.eventOpen) {
+      // distance traveled on the road
+      const dx = player.x - (player._px ?? player.x);
+      const dy = player.y - (player._py ?? player.y);
+      road.travel += Math.hypot(dx, dy);
+    }
+    player._px = player.x;
+    player._py = player.y;
+    if (road.cooldown > 0) road.cooldown -= dt;
+    if (!ui.eventOpen) maybeTriggerRoadEvent();
+
+    // Event navigation + confirm
+    if (ui.eventOpen) {
+      ui.eventNavT -= dt;
+      if (ui.eventNavT <= 0) {
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.eventSel = (ui.eventSel + ui.eventChoices.length - 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.eventSel = (ui.eventSel + 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
+      }
+      if (consumeVKey('Escape')) { closeEvent(); toast('You move on.', 2); }
+      if (consumeVKey('Enter') || consumeVKey('Space')) {
+        const ch = ui.eventChoices[ui.eventSel]
+        if (ch && typeof ch.run === 'function') ch.run();
+      }
+    }
     moveWithCollision(dt);
 
     // camera follow
@@ -735,6 +972,7 @@
     drawPlayer();
     drawHUD();
     drawMarket();
+    drawEvent();
 
     requestAnimationFrame(tick);
   }
