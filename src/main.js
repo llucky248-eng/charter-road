@@ -5,13 +5,21 @@
 (() => {
   const canvas = document.getElementById('game');
   if (!canvas) throw new Error('Missing canvas');
+
+  // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
+  const IS_MOBILE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const BASE_W = IS_MOBILE ? 640 : 960;
+  const BASE_H = Math.round(BASE_W * 9 / 16);
+  canvas.width = BASE_W;
+  canvas.height = BASE_H;
+
   const ctx = canvas.getContext('2d');
 
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
   const TILE = 16;
-  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 2.0 : 1.0;
+  const UI_SCALE = IS_MOBILE ? 2.0 : 1.0;
   const HUD_H = Math.round(56 * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
