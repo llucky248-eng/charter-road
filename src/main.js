@@ -11,6 +11,7 @@
   const VIEW_H = canvas.height;
 
   const TILE = 16;
+  const UI_SCALE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 1.25 : 1.0;
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -676,17 +677,17 @@
     const rules = c ? CITY_RULES[c.id] : null;
 
     ctx.fillStyle = '#e8edf2';
-    ctx.font = '600 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `600 ${Math.round(16*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(c ? `${c.name}` : 'On the road', 14, 22);
 
     // gold/capacity
     ctx.fillStyle = '#cfe6ff';
-    ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     const w = invWeight();
     ctx.fillText(`Gold: ${player.gold}g   Pack: ${w}/${player.capacity}`, 180, 22);
 
     ctx.fillStyle = '#8aa0b3';
-    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
 
     if (rules) {
       const hint = (nearMarketTile() ? 'Press E: Market' : 'Find market (gold tile)');
@@ -735,15 +736,15 @@
     ctx.stroke();
 
     ctx.fillStyle = '#e8edf2';
-    ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${c.name} Market`, bx + 18, by + 34);
 
     ctx.fillStyle = '#8aa0b3';
-    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${rules.vibe}  ·  Tab: switch Buy/Sell  ·  Enter/Space: confirm  ·  Esc: close`, bx + 18, by + 56);
 
     ctx.fillStyle = ui.mode === 'buy' ? '#38bdf8' : '#cbd5e1';
-    ctx.font = '700 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `700 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.mode.toUpperCase(), bx + 18, by + 82);
 
     const startY = by + 110;
@@ -762,7 +763,7 @@
       const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
 
       ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
-      ctx.font = selected ? '600 14px system-ui' : '14px system-ui';
+      ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
       ctx.fillText(it.name, bx + 22, y);
 
       ctx.fillStyle = '#8aa0b3';
@@ -783,7 +784,7 @@
     // footer
     const w = invWeight();
     ctx.fillStyle = '#cfe6ff';
-    ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
     ctx.fillStyle = '#8aa0b3';
     ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 140, by + boxH - 22);
@@ -811,11 +812,11 @@
     ctx.stroke();
 
     ctx.fillStyle = '#e8edf2';
-    ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.eventTitle, bx + 18, by + 34);
 
     ctx.fillStyle = '#a8bdcf';
-    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // wrap text roughly
     const words = (ui.eventText || '').split(/\s+/);
     let line = '';
@@ -841,12 +842,12 @@
         ctx.fillRect(bx + 12, y - 18, boxW - 24, 26);
       }
       ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
-      ctx.font = selected ? '600 14px system-ui' : '14px system-ui';
+      ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
       ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
     }
 
     ctx.fillStyle = '#8aa0b3';
-    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - 20);
   }
 

@@ -11,34 +11,47 @@
     header h1 { font-size: 16px; margin: 0; }
     header .meta { color: #8aa0b3; }
     #wrap { display: grid; grid-template-columns: 1fr; place-items: center; padding: 18px; }
+    @media (pointer: coarse) {
+      #wrap { padding: 10px; }
+    }
     canvas { width: 100%; height: auto; border: 1px solid #1e2a36; border-radius: 14px; background: #0f1620; box-shadow: 0 12px 40px rgba(0,0,0,.35); image-rendering: pixelated; touch-action: none; }
     .hint { margin-top: 12px; color: #8aa0b3; text-align:center; max-width: min(960px, 96vw); }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding: 2px 6px; border: 1px solid #2a3a4b; border-bottom-color: #16202b; border-radius: 6px; background: #0f1620; color: #cfe6ff; }
 
-    .devlog { margin-top: 12px; width: min(960px, 96vw); border: 1px solid #1e2a36; border-radius: 14px; background: rgba(15,22,32,0.75); backdrop-filter: blur(8px); padding: 12px 14px; color: #cbd5e1; }
+    .devlog { margin-top: 12px; width: min(960px, calc(100vw - 20px)); border: 1px solid #1e2a36; border-radius: 14px; background: rgba(15,22,32,0.75); backdrop-filter: blur(8px); padding: 12px 14px; color: #cbd5e1; }
     .devlog-title { font-weight: 700; color: #e8edf2; margin-bottom: 6px; }
     .devlog-body { color: #a8bdcf; font-size: 13px; white-space: pre-line; max-height: 140px; overflow: auto; }
 
-    #stage { position: relative; width: min(960px, 96vw); }
+    #stage { position: relative; width: min(960px, calc(100vw - 20px)); }
 
     /* Touch controls under the stage */
-    #touch-ui { width: min(960px, 96vw); display:none; align-items:flex-end; justify-content:space-between; gap: 14px; margin-top: 10px; pointer-events:none; }
+    #touch-ui { width: min(960px, calc(100vw - 20px)); display:none; align-items:flex-end; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
-    #touch-ui .row { display:flex; gap:10px; justify-content:center; margin-top:10px; }
+    #touch-ui .row { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+
+    /* Responsive button sizing for mobile */
+    #touch-ui { --btn: clamp(44px, 10.5vw, 56px); --btnBig: clamp(52px, 12.5vw, 64px); }
+
     #touch-ui .btn {
-      width:54px; height:54px; border-radius:14px;
-      border:1px solid #2a3a4b;
+      width: var(--btn);
+      height: var(--btn);
+      border-radius: 14px;
+      border: 1px solid #2a3a4b;
       background: rgba(15,22,32,0.78);
-      color:#e8edf2;
-      font: 700 16px system-ui;
+      color: #e8edf2;
+      font: 800 16px system-ui;
       user-select: none;
       -webkit-user-select: none;
       -webkit-touch-callout: none;
       touch-action: manipulation;
     }
     #touch-ui .btn:active { transform: translateY(1px); border-color:#38bdf8; }
-    #touch-ui .btn.big { width:64px; height:64px; font-size: 20px; }
-    #touch-ui .actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; max-width: 260px; }
+    #touch-ui .btn.big {
+      width: var(--btnBig);
+      height: var(--btnBig);
+      font-size: 20px;
+    }
+    #touch-ui .actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; max-width: 240px; }
 
     @media (pointer: coarse) {
       #touch-ui { display:flex; }
