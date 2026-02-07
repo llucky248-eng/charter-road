@@ -219,17 +219,15 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.6',
+    version: 'v0.0.7',
     whatsNew: [
-      'Mobile: disable long-press text/icon selection on touch controls.',
-      'City gate inspections on entry (chance-based). Contraband can be confiscated + you may be fined.',
-      'Road encounters popup (bandits/tolls/storms) while traveling.',
-      'Market UI: buy/sell + taxes + inventory/capacity.',
+      'Fantasy map polish: grass variation + sparkles, road edges, water shoreline shimmer.',
+      'Mobile touch UI: 2-row D-pad + 2x2 action grid sizing tuned.',
     ],
     whatsNext: [
-      'Encounters only on road tiles + better outcomes (time/rep/permits).',
-      'Reputation + penalties (not just gold fines).',
-      'Contracts / quests for city-specific trading goals.',
+      'UI skin pass: parchment popups + cleaner HUD spacing/icons.',
+      'Encounters only on road tiles + richer outcomes (rep/permits).',
+      'Contracts board + basic reputation.',
     ],
   };
 
