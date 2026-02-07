@@ -27,6 +27,14 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const lerp = (a, b, t) => a + (b - a) * t;
 
+  function hash2(x, y) {
+    // deterministic 0..1
+    let n = (x * 374761393 + y * 668265263) >>> 0;
+    n = (n ^ (n >> 13)) >>> 0;
+    n = (n * 1274126177) >>> 0;
+    return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+  }
+
   // --- Input
   const keys = new Set();
   const vkeys = new Set(); // virtual keys (touch UI)
@@ -629,7 +637,7 @@
         const id = tileAt(tx, ty);
         const x = tx * TILE - camX;
         const y = ty * TILE - camY;
-        drawTile(id, x, y);
+        drawTile(id, x, y, tx, ty);
       }
     }
 
