@@ -17,14 +17,15 @@
 
     .devlog { margin-top: 12px; width: min(960px, 96vw); border: 1px solid #1e2a36; border-radius: 14px; background: rgba(15,22,32,0.75); backdrop-filter: blur(8px); padding: 12px 14px; color: #cbd5e1; }
     .devlog-title { font-weight: 700; color: #e8edf2; margin-bottom: 6px; }
-    .devlog-body { color: #a8bdcf; font-size: 13px; white-space: pre-line; }
+    .devlog-body { color: #a8bdcf; font-size: 13px; white-space: pre-line; max-height: 140px; overflow: auto; }
 
-    /* Touch controls pinned to bottom corners so they don't cover the HUD */
     #stage { position: relative; width: min(960px, 96vw); }
-    #touch-ui { position:absolute; inset: auto 12px 12px 12px; display:none; align-items:flex-end; justify-content:space-between; gap: 14px; pointer-events:none; }
+
+    /* Touch controls under the stage */
+    #touch-ui { width: min(960px, 96vw); display:none; align-items:flex-end; justify-content:space-between; gap: 14px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
     #touch-ui .row { display:flex; gap:10px; justify-content:center; margin-top:10px; }
-    #touch-ui .btn { width:54px; height:54px; border-radius:14px; border:1px solid #2a3a4b; background: rgba(15,22,32,0.78); backdrop-filter: blur(6px); color:#e8edf2; font: 700 16px system-ui; }
+    #touch-ui .btn { width:54px; height:54px; border-radius:14px; border:1px solid #2a3a4b; background: rgba(15,22,32,0.78); color:#e8edf2; font: 700 16px system-ui; }
     #touch-ui .btn:active { transform: translateY(1px); border-color:#38bdf8; }
     #touch-ui .btn.big { width:64px; height:64px; font-size: 20px; }
     #touch-ui .actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; max-width: 260px; }
@@ -42,9 +43,10 @@
   <div id="wrap">
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Charter Road game canvas"></canvas>
+    </div>
 
-      <!-- Mobile controls (shown on coarse pointers) -->
-      <div id="touch-ui" aria-label="Touch controls">
+    <!-- Touch controls (shown on coarse pointers). Placed UNDER the stage so it never blocks HUD/notes. -->
+    <div id="touch-ui" aria-label="Touch controls">
       <div class="pad">
         <button data-vkey="ArrowUp" class="btn">▲</button>
         <div class="row">
@@ -58,7 +60,7 @@
         <button data-vkey="Tab" class="btn">Tab</button>
         <button data-vkey="Enter" class="btn">Enter</button>
         <button data-vkey="Escape" class="btn">Esc</button>
-        </div>
+      </div>
     </div>
 
     <div class="hint">
@@ -68,9 +70,7 @@
 
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
-      <div class="devlog-body" id="devlog-body">
-        Loading…
-      </div>
+      <div class="devlog-body" id="devlog-body">Loading…</div>
     </div>
   </div>
 
