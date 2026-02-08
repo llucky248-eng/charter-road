@@ -289,11 +289,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                  const ITERATION = {
-    version: 'v0.0.15',
+                    const ITERATION = {
+    version: 'v0.0.16',
     whatsNew: [
-      'Mini-map: added an in-HUD overview showing roads, cities, water, and your position.',
-      'World events: shrines/camps/ruins between cities (carryover).',
+      'Mini-map: fixed HUD overlap by reserving space; moved title/hints to avoid covering the map.',
+      'Mini-map: slightly smaller on mobile.',
     ],
     whatsNext: [
       'Event popup: unify colors/spacing with Market.',
@@ -952,7 +952,8 @@
     ctx.font = `700 ${Math.round(16 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // mini-map + title
     const mmPad = pad;
-    const mmSize = Math.round((IS_MOBILE ? 64 : 72) * UI_SCALE);
+    const mmSize = Math.round((IS_MOBILE ? 56 : 72) * UI_SCALE);
+    const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
     const mmX = mmPad;
     const mmY = Math.round(6 * UI_SCALE);
 
@@ -1023,18 +1024,18 @@
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
       ctx.fillText(
         `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`,
-        pad,
+        hudLeft,
         line2
       );
     } else {
-      ctx.fillText('Follow the road between cities. Encounters may trigger while traveling.', pad, line2);
+      ctx.fillText('Follow the road between cities. Encounters may trigger while traveling.', hudLeft, line2);
     }
 
     // toast (inside HUD; never overlaps gameplay)
     if (ui.toastT > 0) {
       const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
       ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-      ctx.fillText(ui.toast, pad, toastY);
+      ctx.fillText(ui.toast, hudLeft, toastY);
     }
   }
 
