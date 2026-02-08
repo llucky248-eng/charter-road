@@ -307,11 +307,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                            const ITERATION = {
-    version: 'v0.0.20',
+                              const ITERATION = {
+    version: 'v0.0.21',
     whatsNew: [
-      'HUD: fixed city/title and hint line truncation so it never overlaps gold/pack or gets cut off.',
-      'Event UI parity with Market (carryover).',
+      'Mobile HUD: moved the long hint line below the HUD (no more cut-off).',
+      'Market UI: fixed Gold/Pack footer overlap on small screens.',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
@@ -1046,7 +1046,9 @@
 
     if (rules) {
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
-      const ruleLine = `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`;
+      const shortHint = IS_MOBILE ? `${hint}` : hint;
+      const contraTxt = IS_MOBILE ? rules.contraband.join(', ').slice(0, 18) + (rules.contraband.join(', ').length>18?'…':'') : rules.contraband.join(', ');
+      const ruleLine = IS_MOBILE ? `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · ${shortHint}` : `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${contraTxt} · ${hint}`;
       ctx.fillText(
         ellipsizeText(ruleLine, maxTextW),
         titleX,
@@ -1061,6 +1063,17 @@
       const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
       ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
       ctx.fillText(ellipsizeText(ui.toast, maxTextW), titleX, toastY);
+
+
+    // Mobile: draw a persistent hint line just below the HUD so nothing gets cut off
+    if (IS_MOBILE) {
+      ctx.fillStyle = 'rgba(10, 14, 20, 0.70)';
+      ctx.fillRect(0, HUD_H, VIEW_W, Math.round(18 * UI_SCALE));
+      ctx.fillStyle = 'rgba(200, 230, 255, 0.90)';
+      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const msg = c ? 'Tip: follow the road. E opens Market at the gold tile. E interacts with landmarks.' : 'Tip: stay on the road. E interacts with landmarks.';
+      ctx.fillText(ellipsizeText(msg, VIEW_W - titleX - 8), titleX, HUD_H + Math.round(14 * UI_SCALE));
+    }
     }
   }
 
@@ -1146,9 +1159,13 @@
     const w = invWeight();
     ctx.fillStyle = '#2a1f14';
     ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
-    ctx.fillStyle = '#2a1f14';
-    ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 160, by + boxH - 22);
+    if (IS_MOBILE || boxW < 560) {
+      ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - Math.round(44 * UI_SCALE));
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 18, by + boxH - Math.round(22 * UI_SCALE));
+    } else {
+      ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 160, by + boxH - 22);
+    }
   }
 
 
