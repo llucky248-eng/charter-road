@@ -219,16 +219,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-            const ITERATION = {
-    version: 'v0.0.12',
+              const ITERATION = {
+    version: 'v0.0.13',
     whatsNew: [
-      'City gates widened further for easier access (both cities).',
-      'Map detail pass: more grass variety (bushes/flowers) + city-floor accents.',
+      'Market UI: improved layout (wider columns) + higher-contrast text on parchment.',
+      'City gates + map details (carryover).',
     ],
     whatsNext: [
+      'Event popup: match market text colors + spacing.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
-      'Save/load (persist gold + inventory).',
     ],
   };
 
@@ -832,8 +832,8 @@
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
 
-    const boxW = 520;
-    const boxH = 360;
+    const boxW = Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
     const bx = Math.floor((VIEW_W - boxW) / 2);
     const by = Math.floor((VIEW_H - boxH) / 2);
 
@@ -857,18 +857,24 @@
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${rules.vibe}  ·  Tab: switch Buy/Sell  ·  Enter/Space: confirm  ·  Esc: close`, bx + 18, by + 56);
 
-    ctx.fillStyle = ui.mode === 'buy' ? '#38bdf8' : '#cbd5e1';
+    ctx.fillStyle = '#2a1f14';
     ctx.font = `700 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.mode.toUpperCase(), bx + 18, by + 82);
 
     const startY = by + 110;
+    const colName = bx + 22;
+    const colW = bx + Math.round(boxW * 0.56);
+    const colPrice = bx + Math.round(boxW * 0.66);
+    const colHave = bx + Math.round(boxW * 0.78);
+    const colFlag = bx + Math.round(boxW * 0.90);
+
     for (let i = 0; i < ITEMS.length; i++) {
       const it = ITEMS[i];
       const y = startY + i * 32;
       const selected = i === ui.selection;
 
       if (selected) {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
         ctx.fillRect(bx + 12, y - 18, boxW - 24, 28);
       }
 
@@ -876,22 +882,22 @@
       const have = player.inv[it.id] || 0;
       const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
 
-      ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
+      ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
       ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
-      ctx.fillText(it.name, bx + 22, y);
+      ctx.fillText(it.name, colName, y);
 
       ctx.fillStyle = '#4a3b2a';
-      ctx.fillText(`w${it.weight}`, bx + 260, y);
+      ctx.fillText(`w${it.weight}`, colW, y);
 
       ctx.fillStyle = '#2a1f14';
-      ctx.fillText(`${p}g`, bx + 310, y);
+      ctx.fillText(`${p}g`, colPrice, y);
 
       ctx.fillStyle = '#4a3b2a';
-      ctx.fillText(`you: ${have}`, bx + 380, y);
+      ctx.fillText(`you: ${have}`, colHave, y);
 
       if (contra) {
         ctx.fillStyle = '#f97316';
-        ctx.fillText('CONTRABAND', bx + 450, y);
+        ctx.fillText('CONTRABAND', colFlag, y);
       }
     }
 
@@ -900,8 +906,8 @@
     ctx.fillStyle = '#2a1f14';
     ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
-    ctx.fillStyle = '#4a3b2a';
-    ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 140, by + boxH - 22);
+    ctx.fillStyle = '#2a1f14';
+    ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 160, by + boxH - 22);
   }
 
 
@@ -952,10 +958,10 @@
       const y = startY + i * 30;
       const selected = i === ui.eventSel;
       if (selected) {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
         ctx.fillRect(bx + 12, y - 18, boxW - 24, 26);
       }
-      ctx.fillStyle = selected ? '#e8edf2' : '#cbd5e1';
+      ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
       ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
       ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
     }
