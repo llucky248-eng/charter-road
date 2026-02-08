@@ -9,7 +9,7 @@
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
   const IS_MOBILE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
-  const BASE_H = IS_MOBILE ? 420 : Math.round(BASE_W * 9 / 16);
+  const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
   canvas.height = BASE_H;
 
@@ -158,12 +158,13 @@
         m[yy*MAP_W + (c.x-1)] = 3;
         m[yy*MAP_W + (c.x+c.w)] = 3;
       }
-      // gate (road entry)
+      // gate (road entry) — wider for easier access
       const gx = c.x + Math.floor(c.w/2);
       const gy = c.y + c.h;
-      m[gy*MAP_W + gx] = 5;
-      // connect road to gate
-      m[(gy+1)*MAP_W + gx] = 1;
+      for (let ox = -1; ox <= 1; ox++) {
+        m[gy*MAP_W + (gx + ox)] = 5;
+        m[(gy+1)*MAP_W + (gx + ox)] = 1;
+      }
       return { gx, gy };
     };
 
@@ -218,11 +219,12 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-        const ITERATION = {
-    version: 'v0.0.10',
+          const ITERATION = {
+    version: 'v0.0.11',
     whatsNew: [
-      'UI/layout: taller game viewport; mobile tiles slightly smaller for more on-screen detail.',
-      'UI fix: toast messages no longer overlap gameplay (inside HUD).',
+      'Layout: taller viewport for more vertical play space.',
+      'City gates enlarged (wider entrance) for easier access.',
+      'Player sprite larger + clearer silhouette.',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
@@ -259,7 +261,7 @@
   const player = {
     x: (world.cityA.x + world.cityA.w/2) * TILE,
     y: (world.cityA.y + world.cityA.h + 4) * TILE,
-    r: 6,
+    r: 8,
     vx: 0,
     vy: 0,
     speed: 120,
@@ -693,21 +695,31 @@
     ctx.globalAlpha = 0.25;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(x, y + 6, 8, 4, 0, 0, Math.PI*2);
+    ctx.ellipse(x, y + 8, 10, 5, 0, 0, Math.PI*2);
     ctx.fill();
     ctx.globalAlpha = 1;
+
+    // outline
+    ctx.fillStyle = '#111827';
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI*2);
+    ctx.fill();
 
     // body
     ctx.fillStyle = '#2a1f14';
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI*2);
+    ctx.arc(x, y, 8, 0, Math.PI*2);
     ctx.fill();
 
     // cloak
     ctx.fillStyle = '#7c3aed';
     ctx.beginPath();
-    ctx.arc(x, y+2, 6, 0, Math.PI*2);
+    ctx.arc(x, y+3, 7, 0, Math.PI*2);
     ctx.fill();
+
+    // headband
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(x-6, y-6, 12, 2);
 
     // eyes
     ctx.fillStyle = '#0b0f14';
