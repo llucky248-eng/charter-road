@@ -307,11 +307,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                              const ITERATION = {
-    version: 'v0.0.21',
+                                const ITERATION = {
+    version: 'v0.0.22',
     whatsNew: [
-      'Mobile HUD: moved the long hint line below the HUD (no more cut-off).',
-      'Market UI: fixed Gold/Pack footer overlap on small screens.',
+      'Mobile HUD: moved gold/pack to a separate line and tightened title font to stop city text cut-off.',
+      'Market UI (mobile): dynamic row spacing + reserved footer area so Gold/Pack never cover items.',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
@@ -967,7 +967,7 @@
 
     // Title (city/road)
     ctx.fillStyle = '#e8edf2';
-    ctx.font = `700 ${Math.round(16 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `700 ${Math.round((IS_MOBILE ? 14 : 16) * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // mini-map + title
     const mmPad = pad;
     const mmSize = Math.round((IS_MOBILE ? 56 : 72) * UI_SCALE);
@@ -1015,7 +1015,7 @@
 
     // coin icon
     const coinR = Math.round(6 * UI_SCALE);
-    const coinY = line1 - Math.round(6 * UI_SCALE);
+    const coinY = (IS_MOBILE ? line2 : line1) - Math.round(6 * UI_SCALE);
     ctx.fillStyle = '#eab308';
     ctx.beginPath();
     ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
@@ -1027,22 +1027,23 @@
 
     ctx.fillStyle = '#cfe6ff';
     ctx.font = `700 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(`${player.gold}g`, coinX + Math.round(10 * UI_SCALE), line1);
+    ctx.fillText(`${player.gold}g`, coinX + Math.round(10 * UI_SCALE), IS_MOBILE ? line2 : line1);
 
     // bag icon
     const bagX = rightX - Math.round(80 * UI_SCALE);
-    const bagY = line1 - Math.round(10 * UI_SCALE);
+    const bagY = (IS_MOBILE ? line2 : line1) - Math.round(10 * UI_SCALE);
     ctx.fillStyle = '#c084fc';
     ctx.fillRect(bagX, bagY, Math.round(12*UI_SCALE), Math.round(12*UI_SCALE));
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(bagX, bagY + Math.round(8*UI_SCALE), Math.round(12*UI_SCALE), Math.round(4*UI_SCALE));
 
     ctx.fillStyle = '#cfe6ff';
-    ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), line1);
+    ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), IS_MOBILE ? line2 : line1);
 
     // second line: rules + hint
     ctx.fillStyle = 'rgba(138,160,179,0.95)';
     ctx.font = `${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    if (!IS_MOBILE) {
 
     if (rules) {
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
@@ -1056,6 +1057,7 @@
       );
     } else {
       ctx.fillText(ellipsizeText('Follow the road between cities. Encounters may trigger while traveling.', maxTextW), titleX, line2);
+    }
     }
 
     // toast (inside HUD; never overlaps gameplay)
@@ -1115,7 +1117,11 @@
     ctx.font = `700 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.mode.toUpperCase(), bx + 18, by + 82);
 
-    const startY = by + 110;
+    const footerH = Math.round((IS_MOBILE ? 64 : 32) * UI_SCALE);
+    const headerH = Math.round(110 * UI_SCALE);
+    const startY = by + headerH;
+    const rowH = Math.max(Math.round((boxH - headerH - footerH) / ITEMS.length), Math.round(22 * UI_SCALE));
+
     const colName = bx + 22;
     const colW = bx + Math.round(boxW * 0.56);
     const colPrice = bx + Math.round(boxW * 0.66);
@@ -1124,12 +1130,12 @@
 
     for (let i = 0; i < ITEMS.length; i++) {
       const it = ITEMS[i];
-      const y = startY + i * 32;
+      const y = startY + i * rowH;
       const selected = i === ui.selection;
 
       if (selected) {
         ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
-        ctx.fillRect(bx + 12, y - 18, boxW - 24, 28);
+        ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(Math.min(28 * UI_SCALE, rowH)));
       }
 
       const p = priceFor(c.id, it);
@@ -1160,8 +1166,8 @@
     ctx.fillStyle = '#2a1f14';
     ctx.font = `600 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     if (IS_MOBILE || boxW < 560) {
-      ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - Math.round(44 * UI_SCALE));
-      ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 18, by + boxH - Math.round(22 * UI_SCALE));
+      ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - footerH + Math.round(20 * UI_SCALE));
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 18, by + boxH - footerH + Math.round(42 * UI_SCALE));
     } else {
       ctx.fillText(`Gold: ${player.gold}g`, bx + 18, by + boxH - 22);
       ctx.fillText(`Pack: ${w}/${player.capacity}`, bx + 160, by + boxH - 22);
