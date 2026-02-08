@@ -307,16 +307,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                        const ITERATION = {
-    version: 'v0.0.18',
+                          const ITERATION = {
+    version: 'v0.0.19',
     whatsNew: [
-      'HUD: fixed overlap between city/title text and gold/pack; long hint line now truncates cleanly.',
-      'Branding: improved game name/tagline in the page header.',
+      'Event UI: full parity with Market (responsive sizing, ink-on-parchment, spacing, selection highlight).',
+      'HUD: prevent overlap + clean truncation (carryover).',
     ],
     whatsNext: [
-      'Event popup: unify colors/spacing with Market.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
+      'Save/load (persist gold + inventory).',
     ],
   };
 
@@ -1157,8 +1157,8 @@
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
 
-    const boxW = 560;
-    const boxH = 260;
+    const boxW = Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = Math.min(360, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
     const bx = Math.floor((VIEW_W - boxW) / 2);
     const by = Math.floor((VIEW_H - boxH) / 2);
 
@@ -1175,31 +1175,38 @@
     ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.eventTitle, bx + 18, by + 34);
 
+
+    // wrap text
+    const bodyFont = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillStyle = '#3a2a1a';
-    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    // wrap text roughly
+    ctx.font = bodyFont;
+
     const words = (ui.eventText || '').split(/\s+/);
     let line = '';
     let yy = by + 62;
+    const lineH = Math.round(18 * UI_SCALE);
+    const maxW = boxW - 36;
+
     for (const w of words) {
       const test = line ? line + ' ' + w : w;
-      if (ctx.measureText(test).width > boxW - 36) {
+      if (ctx.measureText(test).width > maxW) {
         ctx.fillText(line, bx + 18, yy);
-        yy += 18;
+        yy += lineH;
         line = w;
       } else {
         line = test;
       }
     }
-    if (line) ctx.fillText(line, bx + 18, yy);
+    if (line) { ctx.fillText(line, bx + 18, yy); yy += lineH; }
 
-    const startY = by + 140;
+    // choices start after body text (with padding)
+    const startY = Math.max(by + Math.round(140 * UI_SCALE), yy + Math.round(12 * UI_SCALE));
     for (let i = 0; i < ui.eventChoices.length; i++) {
-      const y = startY + i * 30;
+      const y = startY + i * Math.round(30 * UI_SCALE);
       const selected = i === ui.eventSel;
       if (selected) {
         ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
-        ctx.fillRect(bx + 12, y - 18, boxW - 24, 26);
+        ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(26 * UI_SCALE));
       }
       ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
       ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
@@ -1208,7 +1215,7 @@
 
     ctx.fillStyle = '#4a3b2a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - 20);
+    ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - Math.round(20 * UI_SCALE));
   }
 
   // --- Game loop
