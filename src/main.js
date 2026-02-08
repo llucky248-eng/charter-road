@@ -27,6 +27,24 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const lerp = (a, b, t) => a + (b - a) * t;
 
+  function ellipsizeText(str, maxW) {
+    if (!str) return '';
+    if (ctx.measureText(str).width <= maxW) return str;
+    const ell = '…';
+    let lo = 0;
+    let hi = str.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const s = str.slice(0, mid) + ell;
+      if (ctx.measureText(s).width <= maxW) lo = mid + 1;
+      else hi = mid;
+    }
+    const cut = max(0, lo - 1);
+    return str.slice(0, cut) + ell;
+  }
+
+  function max(a, b) { return a > b ? a : b; }
+
   function hash2(x, y) {
     // deterministic 0..1
     let n = (x * 374761393 + y * 668265263) >>> 0;
@@ -289,11 +307,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                      const ITERATION = {
-    version: 'v0.0.17',
+                        const ITERATION = {
+    version: 'v0.0.18',
     whatsNew: [
-      'Fix: minimap HUD overlap patch caused a runtime error; fixed variable order so game runs again.',
-      'Mini-map: HUD text starts to the right of the minimap (no overlap).',
+      'HUD: fixed overlap between city/title text and gold/pack; long hint line now truncates cleanly.',
+      'Branding: improved game name/tagline in the page header.',
     ],
     whatsNext: [
       'Event popup: unify colors/spacing with Market.',
@@ -958,7 +976,13 @@
     const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
     const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
-    ctx.fillText(c ? c.name : 'On the road', titleX, line1);
+
+    // reserve space on the right for gold/pack so text never overlaps
+    const rightReserve = Math.round(230 * UI_SCALE);
+    const maxTextW = Math.max(80, VIEW_W - pad - rightReserve - titleX);
+
+    const title = c ? c.name : 'On the road';
+    ctx.fillText(ellipsizeText(title, maxTextW), titleX, line1);
 
     // mini-map (top-left, inside HUD)
     // background
@@ -1024,18 +1048,18 @@
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
       ctx.fillText(
         `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`,
-        hudLeft,
+        titleX,
         line2
       );
     } else {
-      ctx.fillText('Follow the road between cities. Encounters may trigger while traveling.', hudLeft, line2);
+      ctx.fillText(ellipsizeText('Follow the road between cities. Encounters may trigger while traveling.', maxTextW), titleX, line2);
     }
 
     // toast (inside HUD; never overlaps gameplay)
     if (ui.toastT > 0) {
       const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
       ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-      ctx.fillText(ui.toast, hudLeft, toastY);
+      ctx.fillText(ellipsizeText(ui.toast, maxTextW), titleX, toastY);
     }
   }
 
