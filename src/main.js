@@ -307,11 +307,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                          const ITERATION = {
-    version: 'v0.0.19',
+                            const ITERATION = {
+    version: 'v0.0.20',
     whatsNew: [
-      'Event UI: full parity with Market (responsive sizing, ink-on-parchment, spacing, selection highlight).',
-      'HUD: prevent overlap + clean truncation (carryover).',
+      'HUD: fixed city/title and hint line truncation so it never overlaps gold/pack or gets cut off.',
+      'Event UI parity with Market (carryover).',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
@@ -977,9 +977,11 @@
 
     const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
 
-    // reserve space on the right for gold/pack so text never overlaps
-    const rightReserve = Math.round(230 * UI_SCALE);
-    const maxTextW = Math.max(80, VIEW_W - pad - rightReserve - titleX);
+    // compute the right edge of the "text-safe" area using the same HUD icon layout
+    const rightX = VIEW_W - pad;
+    const coinX = rightX - Math.round(180 * UI_SCALE);
+    const textRight = coinX - Math.round(18 * UI_SCALE);
+    const maxTextW = Math.max(80, textRight - titleX);
 
     const title = c ? c.name : 'On the road';
     ctx.fillText(ellipsizeText(title, maxTextW), titleX, line1);
@@ -1010,11 +1012,9 @@
 
 
     // icons + stats (right side)
-    const rightX = VIEW_W - pad;
 
     // coin icon
     const coinR = Math.round(6 * UI_SCALE);
-    const coinX = rightX - Math.round(180 * UI_SCALE);
     const coinY = line1 - Math.round(6 * UI_SCALE);
     ctx.fillStyle = '#eab308';
     ctx.beginPath();
@@ -1046,8 +1046,9 @@
 
     if (rules) {
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
+      const ruleLine = `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`;
       ctx.fillText(
-        `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${rules.contraband.join(', ')} · ${hint}`,
+        ellipsizeText(ruleLine, maxTextW),
         titleX,
         line2
       );
