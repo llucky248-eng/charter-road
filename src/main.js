@@ -121,7 +121,7 @@
   }
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
   const SOLID = new Set([2, 3]);
 
   function makeMap() {
@@ -190,20 +190,43 @@
     const gateB = paintCity(cityB);
 
     carveRoad(gateA.gx, gateA.gy+1, 70, 12);
+
+    // biome patches (visual variety)
+    const paintPatch = (cx, cy, r, tileId, density=0.9) => {
+      for (let y = cy - r; y <= cy + r; y++) {
+        for (let x = cx - r; x <= cx + r; x++) {
+          if (x < 1 || y < 1 || x >= MAP_W-1 || y >= MAP_H-1) continue;
+          const d = Math.hypot(x - cx, y - cy);
+          if (d > r) continue;
+          const falloff = 1 - (d / r);
+          if (Math.random() < falloff * density) {
+            const idx = y*MAP_W + x;
+            if (m[idx] === 0) m[idx] = tileId;
+          }
+        }
+      }
+    };
+
+    // place forests mostly in NW and SE, swamp near river lowlands
+    paintPatch(26, 18, 16, 10, 0.85);
+    paintPatch(108, 70, 18, 10, 0.80);
+    paintPatch(56, 18, 12, 11, 0.80);
+    paintPatch(86, 16, 10, 11, 0.75);
+
     carveRoad(70, 12, gateB.gx, gateB.gy+1);
 
     // scatter a few rocks for flavor
-    for (let i = 0; i < 420; i++) {
+    for (let i = 0; i < 650; i++) {
       const x = 1 + (Math.random() * (MAP_W-2) | 0);
       const y = 1 + (Math.random() * (MAP_H-2) | 0);
       const idx = y*MAP_W + x;
-      if (m[idx] === 0 && Math.random() < 0.06) m[idx] = 3;
+      if (m[idx] === 0 && Math.random() < 0.08) m[idx] = 3;
     }
 
 
 
     // map landmarks between cities (non-solid POIs)
-    // 7 shrine, 8 camp, 9 ruins
+    // 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
     const placePOI = (wantId, tries=800) => {
       for (let t = 0; t < tries; t++) {
         const x = 2 + (Math.random() * (MAP_W - 4) | 0);
@@ -307,16 +330,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                  const ITERATION = {
-    version: 'v0.0.23',
+                                    const ITERATION = {
+    version: 'v0.0.24',
     whatsNew: [
-      'Mobile HUD: 3-row layout (city name, details, gold/pack) for zero cut-off/overlap.',
-      'Market UI: fixed-size window; scrollable item list with footer pinned (gold/pack always visible).',
+      'World detail: added forest + swamp biomes for a richer overworld.',
+      'World detail: denser decoration clusters (rocks/flowers/bushes) between cities.',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
+      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
-      'Save/load (persist gold + inventory).',
     ],
   };
 
@@ -877,6 +900,43 @@
       ctx.fillRect(x + 5, y + TILE - 6, 6, 4);
       return;
     }
+      return;
+    }
+
+
+    if (id === 10) { // forest
+      const n = hash2(tx, ty);
+      ctx.fillStyle = n < 0.5 ? '#175e2f' : '#1a6433';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = 'rgba(6, 95, 70, 0.32)';
+      ctx.fillRect(x + 2, y + 3, TILE - 4, 2);
+      if (n > 0.72) {
+        ctx.fillStyle = 'rgba(16, 80, 40, 0.60)';
+        ctx.fillRect(x + 3, y + 7, TILE - 6, 5);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fillRect(x, y, TILE, 1);
+      ctx.fillRect(x, y, 1, TILE);
+      return;
+    }
+
+    if (id === 11) { // swamp
+      const n = hash2(tx, ty);
+      ctx.fillStyle = n < 0.5 ? '#2a4b3a' : '#274636';
+      ctx.fillRect(x, y, TILE, TILE);
+      if (n > 0.6) {
+        ctx.fillStyle = 'rgba(56,189,248,0.12)';
+        ctx.fillRect(x + 2, y + 9, TILE - 4, 2);
+      }
+      if (n < 0.22) {
+        ctx.fillStyle = 'rgba(34,197,94,0.25)';
+        ctx.fillRect(x + 3, y + 3, 1, TILE - 6);
+        ctx.fillRect(x + 7, y + 4, 1, TILE - 7);
+        ctx.fillRect(x + 11, y + 5, 1, TILE - 8);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fillRect(x, y, TILE, 1);
+      ctx.fillRect(x, y, 1, TILE);
       return;
     }
   }
