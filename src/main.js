@@ -20,7 +20,7 @@
 
   const TILE = 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-  const HUD_H = Math.round(56 * UI_SCALE);
+  const HUD_H = Math.round((IS_MOBILE ? 72 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -218,17 +218,17 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-    const ITERATION = {
-    version: 'v0.0.8',
+      const ITERATION = {
+    version: 'v0.0.9',
     whatsNew: [
-      'UI polish: cleaner HUD layout + coin/bag icons (more readable on mobile).',
-      'UI polish: parchment-style popups for Market/Event.',
+      'UI fix: toast messages no longer overlap gameplay (rendered inside HUD).',
+      'UI polish: cleaner HUD layout + coin/bag icons; parchment popups (carryover).',
       'Map polish: storybook tile variation + water shimmer (carryover).',
     ],
     whatsNext: [
+      'Validate Market/Event popups on mobile (no clipping) + tune spacing.',
       'Restrict encounters to road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
-      'Save/load (persist gold + inventory).',
     ],
   };
 
@@ -784,10 +784,11 @@
       ctx.fillText('Follow the road between cities. Encounters may trigger while traveling.', pad, line2);
     }
 
-    // toast
+    // toast (inside HUD; never overlaps gameplay)
     if (ui.toastT > 0) {
+      const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
       ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-      ctx.fillText(ui.toast, pad, Math.min(VIEW_H - 6, HUD_H + Math.round(18 * UI_SCALE)));
+      ctx.fillText(ui.toast, pad, toastY);
     }
   }
 
