@@ -103,7 +103,7 @@
   }
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins
   const SOLID = new Set([2, 3]);
 
   function makeMap() {
@@ -182,6 +182,38 @@
       if (m[idx] === 0 && Math.random() < 0.06) m[idx] = 3;
     }
 
+
+
+    // map landmarks between cities (non-solid POIs)
+    // 7 shrine, 8 camp, 9 ruins
+    const placePOI = (wantId, tries=800) => {
+      for (let t = 0; t < tries; t++) {
+        const x = 2 + (Math.random() * (MAP_W - 4) | 0);
+        const y = 2 + (Math.random() * (MAP_H - 4) | 0);
+        const i = y * MAP_W + x;
+        if (m[i] !== 0) continue;
+
+        // prefer near roads
+        const nearRoad = (
+          m[i-1] === 1 || m[i+1] === 1 || m[i-MAP_W] === 1 || m[i+MAP_W] === 1 ||
+          m[i-MAP_W-1] === 1 || m[i-MAP_W+1] === 1 || m[i+MAP_W-1] === 1 || m[i+MAP_W+1] === 1
+        );
+        if (!nearRoad) continue;
+
+        // avoid city rectangles (with padding)
+        const inA = (x >= cityA.x-3 && x < cityA.x + cityA.w + 3 && y >= cityA.y-3 && y < cityA.y + cityA.h + 3);
+        const inB = (x >= cityB.x-3 && x < cityB.x + cityB.w + 3 && y >= cityB.y-3 && y < cityB.y + cityB.h + 3);
+        if (inA || inB) continue;
+
+        m[i] = wantId;
+        return;
+      }
+    };
+
+    for (let i = 0; i < 8; i++) placePOI(7);
+    for (let i = 0; i < 6; i++) placePOI(8);
+    for (let i = 0; i < 4; i++) placePOI(9);
+
     return { m, cityA, cityB };
   }
 
@@ -219,14 +251,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-              const ITERATION = {
-    version: 'v0.0.13',
+                const ITERATION = {
+    version: 'v0.0.14',
     whatsNew: [
-      'Market UI: improved layout (wider columns) + higher-contrast text on parchment.',
-      'City gates + map details (carryover).',
+      'World events: added map landmarks (shrines/camps/ruins) to discover between cities.',
+      'Interact with landmarks via E (small rewards/choices).',
+      'Market UI: improved layout + higher-contrast text (carryover).',
     ],
     whatsNext: [
-      'Event popup: match market text colors + spacing.',
+      'Event popup: unify colors/spacing with Market.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -359,6 +392,19 @@
     return false;
   }
 
+  function nearPOITile() {
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const id = tileAt(tx + ox, ty + oy);
+        if (id >= 7 && id <= 9) return id;
+      }
+    }
+    return null;
+  }
+
+
   function contrabandCountForCity(cityId) {
     const rules = CITY_RULES[cityId];
     if (!rules) return 0;
@@ -436,6 +482,70 @@
     ui.eventChoices = [];
   }
 
+
+
+  function triggerPOIEvent(poiId) {
+    if (ui.eventOpen || ui.marketOpen) return;
+
+    if (poiId === 7) {
+      ui.eventOpen = true;
+      ui.eventTitle = 'Roadside Shrine';
+      ui.eventText = 'A small shrine flickers with candlelight. Offer a coin, or move on?';
+      ui.eventChoices = [
+        { label: 'Offer 1g (chance of blessing)', run: () => {
+            if (player.gold <= 0) { toast('No coin to offer.', 2); closeEvent(); return; }
+            player.gold -= 1;
+            if (Math.random() < 0.6) { player.gold += 4; toast('Blessing! +4g', 2); }
+            else toast('The wind answers in silence.', 2);
+            closeEvent();
+          }
+        },
+        { label: 'Rest (+short calm)', run: () => { toast('You catch your breath.', 2); closeEvent(); } },
+        { label: 'Leave', run: closeEvent },
+      ];
+      ui.eventSel = 0;
+      return;
+    }
+
+    if (poiId === 8) {
+      ui.eventOpen = true;
+      ui.eventTitle = 'Traveler Camp';
+      ui.eventText = 'A few travelers share a fire. They might trade, for a price.';
+      ui.eventChoices = [
+        { label: 'Buy supplies (3g → +1 rations)', run: () => {
+            if (player.gold < 3) { toast('Not enough gold.', 2); closeEvent(); return; }
+            player.gold -= 3;
+            player.inv['food'] = (player.inv['food'] || 0) + 1;
+            toast('Bought 1 Dried Rations.', 2);
+            closeEvent();
+          }
+        },
+        { label: 'Ask for directions', run: () => { toast('They warn: stay on the road.', 2); closeEvent(); } },
+        { label: 'Move on', run: closeEvent },
+      ];
+      ui.eventSel = 0;
+      return;
+    }
+
+    if (poiId === 9) {
+      ui.eventOpen = true;
+      ui.eventTitle = 'Old Ruins';
+      ui.eventText = 'Broken stones and mossy pillars. Something might be worth taking.';
+      ui.eventChoices = [
+        { label: 'Search', run: () => {
+            const r = Math.random();
+            if (r < 0.45) { const g = 2 + (Math.random()*6|0); player.gold += g; toast(`Found ${g}g`, 2); }
+            else if (r < 0.75) { player.inv['herbs'] = (player.inv['herbs']||0)+1; toast('Found 1 Moon Herbs', 2); }
+            else toast('Nothing but dust.', 2);
+            closeEvent();
+          }
+        },
+        { label: 'Leave it', run: closeEvent },
+      ];
+      ui.eventSel = 0;
+      return;
+    }
+  }
   function maybeTriggerRoadEvent() {
     const c = currentCity();
     if (c) return; // only on the road
@@ -675,6 +785,42 @@
       ctx.fillRect(x+4, y+6, TILE-8, 2);
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       ctx.fillRect(x+3, y+3, TILE-6, 1);
+
+
+    if (id === 7) { // shrine
+      ctx.fillStyle = '#5b4b3a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#a78bfa';
+      ctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(x + 5, y + 4, TILE - 10, 2);
+      return;
+    }
+
+    if (id === 8) { // camp
+      ctx.fillStyle = '#5b4b3a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#d97706';
+      ctx.beginPath();
+      ctx.moveTo(x + TILE/2, y + 3);
+      ctx.lineTo(x + 3, y + TILE - 3);
+      ctx.lineTo(x + TILE - 3, y + TILE - 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(x + 5, y + TILE - 6, TILE - 10, 2);
+      return;
+    }
+
+    if (id === 9) { // ruins
+      ctx.fillStyle = '#5b4b3a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#6b7280';
+      ctx.fillRect(x + 2, y + 2, 4, 4);
+      ctx.fillRect(x + TILE - 6, y + 3, 4, 4);
+      ctx.fillRect(x + 5, y + TILE - 6, 6, 4);
+      return;
+    }
       return;
     }
   }
@@ -1016,7 +1162,9 @@
         ui.mode = 'buy';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
       } else {
-        toast('Find the market stall inside a city (gold tile).', 2.5);
+        const poi = nearPOITile();
+        if (poi) triggerPOIEvent(poi);
+        else toast('Find the market stall inside a city (gold tile).', 2.5);
       }
     }
 
