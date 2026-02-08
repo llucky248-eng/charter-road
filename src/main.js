@@ -219,6 +219,44 @@
 
   const world = makeMap();
 
+
+  // --- Mini-map (precomputed)
+  const mini = {
+    canvas: document.createElement('canvas'),
+    w: MAP_W,
+    h: MAP_H,
+    scale: IS_MOBILE ? 1 : 1, // internal scale (1px per tile)
+  };
+  mini.canvas.width = mini.w;
+  mini.canvas.height = mini.h;
+  const miniCtx = mini.canvas.getContext('2d');
+
+  function rebuildMiniMap() {
+    const img = miniCtx.createImageData(mini.w, mini.h);
+    const d = img.data;
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const id = world.m[y * MAP_W + x];
+        let r=18, g=22, b=28; // default dark
+        if (id === 0) { r=28; g=92; b=52; }         // grass
+        else if (id === 1) { r=170; g=122; b=76; }  // road
+        else if (id === 2) { r=30; g=96; b=180; }   // water
+        else if (id === 3) { r=70; g=76; b=86; }    // rock
+        else if (id === 4) { r=120; g=98; b=74; }   // city floor
+        else if (id === 5) { r=240; g=220; b=180; } // gate
+        else if (id === 6) { r=234; g=179; b=8; }   // market
+        else if (id === 7) { r=167; g=139; b=250; } // shrine
+        else if (id === 8) { r=217; g=119; b=6; }   // camp
+        else if (id === 9) { r=156; g=163; b=175; } // ruins
+        const i = (y * mini.w + x) * 4;
+        d[i+0]=r; d[i+1]=g; d[i+2]=b; d[i+3]=255;
+      }
+    }
+    miniCtx.putImageData(img, 0, 0);
+  }
+
+  rebuildMiniMap();
+
   const CITY_RULES = {
     sunspire: {
       taxRate: 0.18,
@@ -251,12 +289,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                const ITERATION = {
-    version: 'v0.0.14',
+                  const ITERATION = {
+    version: 'v0.0.15',
     whatsNew: [
-      'World events: added map landmarks (shrines/camps/ruins) to discover between cities.',
-      'Interact with landmarks via E (small rewards/choices).',
-      'Market UI: improved layout + higher-contrast text (carryover).',
+      'Mini-map: added an in-HUD overview showing roads, cities, water, and your position.',
+      'World events: shrines/camps/ruins between cities (carryover).',
     ],
     whatsNext: [
       'Event popup: unify colors/spacing with Market.',
@@ -913,7 +950,39 @@
     // Title (city/road)
     ctx.fillStyle = '#e8edf2';
     ctx.font = `700 ${Math.round(16 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(c ? c.name : 'On the road', pad, line1);
+    // mini-map + title
+    const mmPad = pad;
+    const mmSize = Math.round((IS_MOBILE ? 64 : 72) * UI_SCALE);
+    const mmX = mmPad;
+    const mmY = Math.round(6 * UI_SCALE);
+
+    const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
+    ctx.fillText(c ? c.name : 'On the road', titleX, line1);
+
+    // mini-map (top-left, inside HUD)
+    // background
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8, 10);
+    else ctx.rect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8);
+    ctx.fill();
+    // map image
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, mmX, mmY, mmSize, mmSize);
+    // player marker
+    const px = (player.x / (MAP_W * TILE)) * mmSize;
+    const py = (player.y / (MAP_H * TILE)) * mmSize;
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillRect(mmX + Math.floor(px) - 1, mmY + Math.floor(py) - 1, 3, 3);
+    // camera viewport box
+    const vx = (camera.x / (MAP_W * TILE)) * mmSize;
+    const vy = (camera.y / (MAP_H * TILE)) * mmSize;
+    const vw = (VIEW_W / (MAP_W * TILE)) * mmSize;
+    const vh = (VIEW_H / (MAP_H * TILE)) * mmSize;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mmX + vx, mmY + vy, vw, vh);
+
 
     // icons + stats (right side)
     const rightX = VIEW_W - pad;
