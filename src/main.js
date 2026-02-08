@@ -330,15 +330,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                    const ITERATION = {
-    version: 'v0.0.24',
+                                      const ITERATION = {
+    version: 'v0.0.25',
     whatsNew: [
-      'World detail: added forest + swamp biomes for a richer overworld.',
-      'World detail: denser decoration clusters (rocks/flowers/bushes) between cities.',
+      'Mobile HUD: simplified 3-row layout (title, details, gold/pack) with no overlap.',
+      'Event popup (mobile): scrollable choices so all options are always visible.',
     ],
     whatsNext: [
+      'Market popup: mobile tuning pass (spacing + scroll feel).',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
-      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
     ],
   };
@@ -357,6 +357,7 @@
     eventText: '',
     eventChoices: [], // {label, run:()=>void}
     eventSel: 0,
+    eventScroll: 0, // first visible choice index
     eventNavT: 0,
   };
 
@@ -1039,11 +1040,15 @@
 
     const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
 
-    // compute the right edge of the "text-safe" area using the same HUD icon layout
-    const rightX = VIEW_W - pad;
-    const coinX = rightX - Math.round(180 * UI_SCALE);
-    const textRight = coinX - Math.round(18 * UI_SCALE);
-    const maxTextW = Math.max(80, textRight - titleX);
+    // compute max text width (avoid right-side stats)
+    const maxTextW = IS_MOBILE
+      ? Math.max(80, VIEW_W - titleX - Math.round(10 * UI_SCALE))
+      : (() => {
+          const rightX = VIEW_W - pad;
+          const coinX = rightX - Math.round(180 * UI_SCALE);
+          const textRight = coinX - Math.round(18 * UI_SCALE);
+          return Math.max(80, textRight - titleX);
+        })();
 
     const title = c ? c.name : 'On the road';
     ctx.fillText(ellipsizeText(title, maxTextW), titleX, line1);
@@ -1081,35 +1086,45 @@
     ctx.lineWidth = 1;
     ctx.strokeRect(mmX + vx, mmY + vy, vw, vh);
 
+    // stats (right side)
+    const rightX = VIEW_W - pad;
+    ctx.textAlign = 'right';
+    if (IS_MOBILE) {
+      ctx.fillStyle = '#cfe6ff';
+      ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`${player.gold}g`, rightX, line3);
+      ctx.fillText(`${w}/${player.capacity}`, rightX, line3 + Math.round(18 * UI_SCALE));
+    } else {
+      // coin icon
+      const coinR = Math.round(6 * UI_SCALE);
+      const coinX = rightX - Math.round(180 * UI_SCALE);
+      const coinY = line1 - Math.round(6 * UI_SCALE);
+      ctx.fillStyle = '#eab308';
+      ctx.beginPath();
+      ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.arc(coinX-2, coinY-2, coinR*0.55, 0, Math.PI * 2);
+      ctx.fill();
 
-    // icons + stats (right side)
+      ctx.fillStyle = '#cfe6ff';
+      ctx.font = `700 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText(`${player.gold}g`, coinX + Math.round(10 * UI_SCALE), line1);
 
-    // coin icon
-    const coinR = Math.round(6 * UI_SCALE);
-    const coinY = (IS_MOBILE ? line3 : line1) - Math.round(6 * UI_SCALE);
-    ctx.fillStyle = '#eab308';
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.beginPath();
-    ctx.arc(coinX-2, coinY-2, coinR*0.55, 0, Math.PI * 2);
-    ctx.fill();
+      // bag icon
+      const bagX = rightX - Math.round(80 * UI_SCALE);
+      const bagY = line1 - Math.round(10 * UI_SCALE);
+      ctx.fillStyle = '#c084fc';
+      ctx.fillRect(bagX, bagY, Math.round(12*UI_SCALE), Math.round(12*UI_SCALE));
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(bagX, bagY + Math.round(8*UI_SCALE), Math.round(12*UI_SCALE), Math.round(4*UI_SCALE));
 
-    ctx.fillStyle = '#cfe6ff';
-    ctx.font = `700 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(`${player.gold}g`, coinX + Math.round(10 * UI_SCALE), IS_MOBILE ? line3 : line1);
-
-    // bag icon
-    const bagX = rightX - Math.round(80 * UI_SCALE);
-    const bagY = (IS_MOBILE ? line3 : line1) - Math.round(10 * UI_SCALE);
-    ctx.fillStyle = '#c084fc';
-    ctx.fillRect(bagX, bagY, Math.round(12*UI_SCALE), Math.round(12*UI_SCALE));
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fillRect(bagX, bagY + Math.round(8*UI_SCALE), Math.round(12*UI_SCALE), Math.round(4*UI_SCALE));
-
-    ctx.fillStyle = '#cfe6ff';
-    ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), IS_MOBILE ? line3 : line1);
+      ctx.fillStyle = '#cfe6ff';
+      ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), line1);
+      ctx.textAlign = 'left';
+    }
 
     // second line: rules + hint
     ctx.fillStyle = 'rgba(138,160,179,0.95)';
@@ -1297,8 +1312,17 @@
 
     // choices start after body text (with padding)
     const startY = Math.max(by + Math.round(140 * UI_SCALE), yy + Math.round(12 * UI_SCALE));
-    for (let i = 0; i < ui.eventChoices.length; i++) {
-      const y = startY + i * Math.round(30 * UI_SCALE);
+    const choiceRowH = Math.round(30 * UI_SCALE);
+    const footerPad = Math.round(34 * UI_SCALE);
+    const listH = (by + boxH - footerPad) - startY;
+    const visibleN = Math.max(1, Math.floor(listH / choiceRowH));
+    const maxScroll = Math.max(0, ui.eventChoices.length - visibleN);
+    ui.eventScroll = clamp(ui.eventScroll, 0, maxScroll);
+
+    for (let vi = 0; vi < visibleN; vi++) {
+      const i = ui.eventScroll + vi;
+      if (i >= ui.eventChoices.length) break;
+      const y = startY + vi * choiceRowH;
       const selected = i === ui.eventSel;
       if (selected) {
         ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
@@ -1427,6 +1451,16 @@
       if (ui.eventNavT <= 0) {
         if (isDown('ArrowUp') || isDown('KeyW')) { ui.eventSel = (ui.eventSel + ui.eventChoices.length - 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
         else if (isDown('ArrowDown') || isDown('KeyS')) { ui.eventSel = (ui.eventSel + 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
+
+        // auto-scroll event selection into view
+        const choiceRowH = Math.round(30 * UI_SCALE);
+        const footerPad = Math.round(34 * UI_SCALE);
+        const startY = Math.max(by + Math.round(140 * UI_SCALE), (by + 62) + Math.round(12 * UI_SCALE)); // conservative
+        const listH = (by + boxH - footerPad) - startY;
+        const visibleN = Math.max(1, Math.floor(listH / choiceRowH));
+        ui.eventScroll = clamp(ui.eventScroll, 0, Math.max(0, ui.eventChoices.length - visibleN));
+        if (ui.eventSel < ui.eventScroll) ui.eventScroll = ui.eventSel;
+        if (ui.eventSel >= ui.eventScroll + visibleN) ui.eventScroll = ui.eventSel - visibleN + 1;
       }
       if (consumeVKey('Escape')) { closeEvent(); toast('You move on.', 2); }
       if (consumeVKey('Enter') || consumeVKey('Space')) {
