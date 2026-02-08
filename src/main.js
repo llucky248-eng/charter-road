@@ -9,7 +9,7 @@
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
   const IS_MOBILE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
-  const BASE_H = Math.round(BASE_W * 9 / 16);
+  const BASE_H = IS_MOBILE ? 420 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
   canvas.height = BASE_H;
 
@@ -18,7 +18,7 @@
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
-  const TILE = 16;
+  const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
   const HUD_H = Math.round((IS_MOBILE ? 72 : 56) * UI_SCALE);
   const MAP_W = 140;
@@ -218,17 +218,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-      const ITERATION = {
-    version: 'v0.0.9',
+        const ITERATION = {
+    version: 'v0.0.10',
     whatsNew: [
-      'UI fix: toast messages no longer overlap gameplay (rendered inside HUD).',
-      'UI polish: cleaner HUD layout + coin/bag icons; parchment popups (carryover).',
-      'Map polish: storybook tile variation + water shimmer (carryover).',
+      'UI/layout: taller game viewport; mobile tiles slightly smaller for more on-screen detail.',
+      'UI fix: toast messages no longer overlap gameplay (inside HUD).',
     ],
     whatsNext: [
-      'Validate Market/Event popups on mobile (no clipping) + tune spacing.',
-      'Restrict encounters to road tiles + richer outcomes (rep/permits).',
+      'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
+      'Save/load (persist gold + inventory).',
     ],
   };
 
