@@ -289,11 +289,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                    const ITERATION = {
-    version: 'v0.0.16',
+                      const ITERATION = {
+    version: 'v0.0.17',
     whatsNew: [
-      'Mini-map: fixed HUD overlap by reserving space; moved title/hints to avoid covering the map.',
-      'Mini-map: slightly smaller on mobile.',
+      'Fix: minimap HUD overlap patch caused a runtime error; fixed variable order so game runs again.',
+      'Mini-map: HUD text starts to the right of the minimap (no overlap).',
     ],
     whatsNext: [
       'Event popup: unify colors/spacing with Market.',
@@ -953,9 +953,9 @@
     // mini-map + title
     const mmPad = pad;
     const mmSize = Math.round((IS_MOBILE ? 56 : 72) * UI_SCALE);
-    const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
     const mmX = mmPad;
     const mmY = Math.round(6 * UI_SCALE);
+    const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
     const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
     ctx.fillText(c ? c.name : 'On the road', titleX, line1);
