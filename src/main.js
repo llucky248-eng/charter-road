@@ -161,7 +161,7 @@
       // gate (road entry) — wider for easier access
       const gx = c.x + Math.floor(c.w/2);
       const gy = c.y + c.h;
-      for (let ox = -1; ox <= 1; ox++) {
+      for (let ox = -2; ox <= 2; ox++) {
         m[gy*MAP_W + (gx + ox)] = 5;
         m[(gy+1)*MAP_W + (gx + ox)] = 1;
       }
@@ -219,12 +219,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-          const ITERATION = {
-    version: 'v0.0.11',
+            const ITERATION = {
+    version: 'v0.0.12',
     whatsNew: [
-      'Layout: taller viewport for more vertical play space.',
-      'City gates enlarged (wider entrance) for easier access.',
-      'Player sprite larger + clearer silhouette.',
+      'City gates widened further for easier access (both cities).',
+      'Map detail pass: more grass variety (bushes/flowers) + city-floor accents.',
     ],
     whatsNext: [
       'Encounters only on road tiles + richer outcomes (rep/permits).',
@@ -353,7 +352,7 @@
     const tx = Math.floor(player.x / TILE);
     const ty = Math.floor(player.y / TILE);
     for (let oy = -1; oy <= 1; oy++) {
-      for (let ox = -1; ox <= 1; ox++) {
+      for (let ox = -2; ox <= 2; ox++) {
         if (tileAt(tx + ox, ty + oy) === 6) return true;
       }
     }
@@ -581,6 +580,19 @@
         ctx.fillRect(x + 3, y + 4, 2, 2);
         ctx.fillRect(x + 10, y + 9, 1, 1);
       }
+
+      // bushes / flowers (non-colliding detail)
+      if (n < 0.08) {
+        ctx.fillStyle = 'rgba(16, 80, 40, 0.45)';
+        ctx.fillRect(x + 4, y + 8, 8, 5);
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.22)';
+        ctx.fillRect(x + 5, y + 9, 6, 3);
+      } else if (n > 0.92) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fillRect(x + 7, y + 6, 1, 1);
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.12)';
+        ctx.fillRect(x + 9, y + 10, 1, 1);
+      }
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
@@ -626,11 +638,19 @@
     }
 
     if (id === 4) {
-      ctx.fillStyle = '#5b4b3a';
+      const n = hash2(tx, ty);
+      ctx.fillStyle = n < 0.5 ? '#5b4b3a' : '#5f4f3d';
       ctx.fillRect(x, y, TILE, TILE);
       ctx.fillStyle = 'rgba(255,255,255,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
+
+      // cobble accents
+      if (n > 0.78) {
+        ctx.fillStyle = 'rgba(0,0,0,0.10)';
+        ctx.fillRect(x + 3, y + 3, 4, 3);
+        ctx.fillRect(x + 9, y + 9, 3, 4);
+      }
       return;
     }
 
