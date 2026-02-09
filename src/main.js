@@ -437,16 +437,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                            const ITERATION = {
-    version: 'v0.0.37',
+                                                              const ITERATION = {
+    version: 'v0.0.38',
     whatsNew: [
-      'Mobile Market: redesigned item list into readable item cards + big BUY/SELL tabs.',
-      'Mobile Market: tap BUY/SELL tabs (no keyboard needed).',
+      'Travel: road encounters now trigger ONLY while walking on road tiles (more predictable, less random).',
+      'Mobile Market: item cards + big BUY/SELL tabs (carryover).',
     ],
     whatsNext: [
-      'Encounters only on road tiles + richer outcomes (rep/permits).',
-      'Contracts board + basic reputation.',
-      'Tune minimap overlay opacity/size + avoid touch-ui overlap.',
+      'Reputation + permits tied to inspections and checkpoints.',
+      'Contracts board in cities.',
+      'Tune encounter variety + outcomes.',
     ],
   };
 
@@ -740,6 +740,10 @@
   function maybeTriggerRoadEvent() {
     const c = currentCity();
     if (c) return; // only on the road
+
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    if (tileAt(tx, ty) !== 1) return; // encounters only while on road tiles
     if (road.cooldown > 0) return;
     if (road.travel < 520) return; // threshold; tuned for feel
 
@@ -1817,10 +1821,14 @@
     // Road travel tracking + encounters
     const cityNow = currentCity();
     if (!cityNow && !ui.eventOpen) {
-      // distance traveled on the road
-      const dx = player.x - (player._px ?? player.x);
-      const dy = player.y - (player._py ?? player.y);
-      road.travel += Math.hypot(dx, dy);
+      const tx = Math.floor(player.x / TILE);
+      const ty = Math.floor(player.y / TILE);
+      const onRoad = tileAt(tx, ty) === 1;
+      if (onRoad) {
+        const dx = player.x - (player._px ?? player.x);
+        const dy = player.y - (player._py ?? player.y);
+        road.travel += Math.hypot(dx, dy);
+      }
     }
     player._px = player.x;
     player._py = player.y;
