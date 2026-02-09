@@ -437,16 +437,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                          const ITERATION = {
-    version: 'v0.0.36',
+                                                            const ITERATION = {
+    version: 'v0.0.37',
     whatsNew: [
-      'Mobile Event: touch drag scrolling for choices (like Market).',
-      'Mobile Event: scrollbar indicator + pinned footer remains visible.',
+      'Mobile Market: redesigned item list into readable item cards + big BUY/SELL tabs.',
+      'Mobile Market: tap BUY/SELL tabs (no keyboard needed).',
     ],
     whatsNext: [
-      'Mobile Market: upgrade list to item cards + big BUY/SELL tabs.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
+      'Tune minimap overlay opacity/size + avoid touch-ui overlap.',
     ],
   };
 
@@ -457,6 +457,7 @@
     selection: 0,
     marketScroll: 0, // first visible item index
     _marketList: null,
+    _marketTabs: null,
     _drag: null,
     mode: 'buy', // buy|sell
     navT: 0,
@@ -1369,43 +1370,62 @@
       ctx.fill();
       ctx.stroke();
 
+      
       // header
-      const headerH = Math.round(120 * UI_SCALE);
+      const headerH = Math.round(150 * UI_SCALE);
+      const innerX = pad + 16;
+      const innerW = VIEW_W - pad*2 - 32;
+
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`${c.name} Market`, pad + 16, pad + 34);
+      ctx.fillText(`${c.name} Market`, innerX, pad + 34);
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(rules.vibe, pad + 16, pad + 56);
+      ctx.fillText(rules.vibe, innerX, pad + 56);
 
-      ctx.fillStyle = '#2a1f14';
-      ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(ui.mode === 'buy' ? 'BUY' : 'SELL', pad + 16, pad + 84);
+      // BUY/SELL tabs (tap friendly)
+      const tabY = pad + Math.round(70 * UI_SCALE);
+      const tabH = Math.round(44 * UI_SCALE);
+      const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
+      const tabGap = Math.round(12 * UI_SCALE);
+      const buyX = innerX;
+      const sellX = innerX + tabW + tabGap;
 
-      ctx.fillStyle = '#4a3b2a';
-      ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('Tab: Buy/Sell · Enter: Confirm · Esc: Close', pad + 16, pad + 106);
+      ui._marketTabs = { buy: { x: buyX, y: tabY, w: tabW, h: tabH }, sell: { x: sellX, y: tabY, w: tabW, h: tabH } };
+
+      const drawTab = (x, label, active) => {
+        ctx.fillStyle = active ? 'rgba(120, 92, 60, 0.22)' : 'rgba(0,0,0,0.06)';
+        ctx.strokeStyle = active ? 'rgba(120, 92, 60, 0.85)' : 'rgba(120, 92, 60, 0.45)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, tabY, tabW, tabH, 12);
+        else ctx.rect(x, tabY, tabW, tabH);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#2a1f14';
+        ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        const tw = ctx.measureText(label).width;
+        ctx.fillText(label, x + (tabW - tw) / 2, tabY + Math.round(29 * UI_SCALE));
+      };
+
+      drawTab(buyX, 'BUY', ui.mode === 'buy');
+      drawTab(sellX, 'SELL', ui.mode === 'sell');
 
       // list viewport
-      const footerH = Math.round(76 * UI_SCALE);
+      const footerH = Math.round(96 * UI_SCALE);
       const listTop = pad + headerH;
       const listBottom = VIEW_H - pad - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = Math.round(34 * UI_SCALE);
-      const visibleN = Math.max(3, Math.floor(listH / rowH));
+      const rowH = Math.round(64 * UI_SCALE); // card height
+      const visibleN = Math.max(2, Math.floor(listH / rowH));
 
       const scrollMax = Math.max(0, ITEMS.length - visibleN);
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
 
       // expose list rect for touch scrolling
-      ui._marketList = { x: pad, y: listTop - Math.round(18*UI_SCALE), w: VIEW_W - pad*2, h: listH, rowH, scrollMax };
-
-      // columns
-      const innerW = VIEW_W - pad*2;
-      const colName = pad + 18;
-      const colPrice = pad + Math.round(innerW * 0.68);
-      const colHave = pad + Math.round(innerW * 0.82);
+      ui._marketList = { x: pad, y: listTop, w: VIEW_W - pad*2, h: listH, rowH, scrollMax };
 
       for (let vi = 0; vi < visibleN; vi++) {
         const i = ui.marketScroll + vi;
@@ -1414,41 +1434,82 @@
         const y = listTop + vi * rowH;
         const selected = i === ui.selection;
 
-        if (selected) {
-          ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
-          ctx.fillRect(pad + 10, y - Math.round(20 * UI_SCALE), innerW - 20, Math.round(30 * UI_SCALE));
-        }
+        // card background
+        ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.16)' : 'rgba(0,0,0,0.05)';
+        ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(pad + 12, y - Math.round(44 * UI_SCALE), VIEW_W - pad*2 - 24, Math.round(56 * UI_SCALE), 14);
+        else ctx.rect(pad + 12, y - Math.round(44 * UI_SCALE), VIEW_W - pad*2 - 24, Math.round(56 * UI_SCALE));
+        ctx.fill();
+        ctx.stroke();
 
         const price = priceFor(c.id, it);
         const have = player.inv[it.id] || 0;
+        const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
 
-        ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
-        ctx.font = selected ? `700 ${Math.round(15*UI_SCALE)}px system-ui` : `${Math.round(15*UI_SCALE)}px system-ui`;
-        ctx.fillText(it.name, colName, y);
-
+        // name
         ctx.fillStyle = '#2a1f14';
+        ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(it.name, innerX, y - Math.round(18 * UI_SCALE));
+
+        // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(`${price}g`, colPrice, y);
-        ctx.fillStyle = '#4a3b2a';
-        ctx.fillText(`${have}`, colHave, y);
+        ctx.fillText(`${price}g`, VIEW_W - pad - 16, y - Math.round(18 * UI_SCALE));
         ctx.textAlign = 'left';
+
+        // subline
+        ctx.fillStyle = '#4a3b2a';
+        ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(`You have: ${have} · Weight: ${it.weight}`, innerX, y + Math.round(4 * UI_SCALE));
+
+        if (contra) {
+          ctx.fillStyle = 'rgba(249,115,22,0.18)';
+          ctx.strokeStyle = 'rgba(249,115,22,0.55)';
+          ctx.beginPath();
+          const bx = VIEW_W - pad - 16 - Math.round(86 * UI_SCALE);
+          const byy = y + Math.round(8 * UI_SCALE);
+          const bw = Math.round(86 * UI_SCALE);
+          const bh = Math.round(22 * UI_SCALE);
+          if (ctx.roundRect) ctx.roundRect(bx, byy, bw, bh, 10);
+          else ctx.rect(bx, byy, bw, bh);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = '#9a3412';
+          ctx.font = `900 ${Math.round(11*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+          ctx.fillText('CONTRABAND', bx + Math.round(12 * UI_SCALE), byy + Math.round(15 * UI_SCALE));
+        }
+      }
+
+      // scrollbar indicator
+      if (scrollMax > 0) {
+        const trackX = VIEW_W - pad - Math.round(10 * UI_SCALE);
+        const trackY = listTop;
+        const trackH = visibleN * rowH;
+        ctx.fillStyle = 'rgba(0,0,0,0.10)';
+        ctx.fillRect(trackX, trackY, Math.round(4 * UI_SCALE), trackH);
+        const thumbH = Math.max(Math.round(24 * UI_SCALE), Math.round(trackH * (visibleN / ITEMS.length)));
+        const t = ui.marketScroll / scrollMax;
+        const thumbY = trackY + Math.round((trackH - thumbH) * t);
+        ctx.fillStyle = 'rgba(120, 92, 60, 0.55)';
+        ctx.fillRect(trackX, thumbY, Math.round(4 * UI_SCALE), thumbH);
       }
 
       // pinned footer
-      const fy = VIEW_H - pad - Math.round(22 * UI_SCALE);
       ctx.fillStyle = 'rgba(10, 14, 20, 0.10)';
       ctx.fillRect(pad, VIEW_H - pad - footerH, VIEW_W - pad*2, footerH);
 
       const w = invWeight();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Gold: ${player.gold}g`, pad + 16, fy);
-      ctx.fillText(`Pack: ${w}/${player.capacity}`, pad + Math.round(innerW * 0.52), fy);
+      ctx.fillText(`Gold: ${player.gold}g`, innerX, VIEW_H - pad - Math.round(56 * UI_SCALE));
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, VIEW_H - pad - Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Item ${ui.selection+1}/${ITEMS.length} · Use ↑/↓`, pad + 16, VIEW_H - pad - Math.round(48 * UI_SCALE));
+      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, VIEW_H - pad - Math.round(10 * UI_SCALE));
 
+      return;
       return;
     }
 
