@@ -466,14 +466,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                        const ITERATION = {
-    version: 'v0.0.43',
+                                                                          const ITERATION = {
+    version: 'v0.0.44',
     whatsNew: [
-      'Debug hotfix: added on-page debug counters (ticks + lastError) to diagnose blank-screen reports.',
-      'Hotfix: forced background fill each frame (carryover).',
+      'Debug: added always-on tick marker + counters to diagnose "blank canvas" reports.',
+      'Hotfixes for blank canvas (carryover).',
     ],
     whatsNext: [
-      'Fix root cause of blank render on affected devices.',
+      'Fix root-cause of blank render on affected devices.',
       'Contracts: minimap marker + reward scaling.',
       'Checkpoint/patrol events outside cities.',
     ],
@@ -1893,6 +1893,12 @@ function drawEvent() {
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     stateTime += dt * 1000;
+
+
+    // TICK_MARKER: proves the loop is running + canvas is writable
+    if (window.__dbg) window.__dbg.ticks = (window.__dbg.ticks || 0) + 1;
+    ctx.fillStyle = 'rgba(255,0,255,0.9)';
+    ctx.fillRect(0, 0, 2, 2);
     if (ui.toastT > 0) ui.toastT -= dt;
 
     try {
