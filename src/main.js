@@ -228,7 +228,7 @@
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts
   const SOLID = new Set([2, 3]);
 
   function makeMap() {
@@ -274,6 +274,12 @@
       const my = c.y + 4;
       m[my*MAP_W + mx] = 6;
       m[my*MAP_W + (mx+1)] = 6;
+
+      // contracts board
+      const cx = c.x + 10;
+      const cy = c.y + 4;
+      m[cy*MAP_W + cx] = 12;
+
       // simple wall border
       for (let xx = c.x; xx < c.x + c.w; xx++) {
         m[(c.y-1)*MAP_W + xx] = 3;
@@ -333,7 +339,7 @@
 
 
     // map landmarks between cities (non-solid POIs)
-    // 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
+    // 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts
     const placePOI = (wantId, tries=800) => {
       for (let t = 0; t < tries; t++) {
         const x = 2 + (Math.random() * (MAP_W - 4) | 0);
@@ -426,6 +432,25 @@
     }
   };
 
+
+
+  const CONTRACT_ITEMS = ['food','ore','herbs','potion','relic'];
+
+  function makeContract(fromId) {
+    const want = randChoice(CONTRACT_ITEMS);
+    const qty = 1 + (Math.random()*2|0);
+    const toId = fromId === 'sunspire' ? 'gloomwharf' : 'sunspire';
+    const reward = 18 + qty*12 + (want === 'relic' ? 18 : 0);
+    return { fromId, toId, want, qty, reward };
+  }
+
+  const contracts = {
+    byCity: {
+      sunspire: [makeContract('sunspire'), makeContract('sunspire'), makeContract('sunspire')],
+      gloomwharf: [makeContract('gloomwharf'), makeContract('gloomwharf'), makeContract('gloomwharf')],
+    },
+    active: null,
+  };
   const ITEMS = [
     { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
     { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
@@ -440,15 +465,15 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                   const ITERATION = {
-    version: 'v0.0.45',
+    version: 'v0.0.40',
     whatsNew: [
-      'Hotfix: rolled back to last known working build after black-screen regression.',
-      'Includes reputation + permits; contracts temporarily disabled while we debug.',
+      'Contracts Board: added a contract tile in each city with 3 rotating delivery jobs.',
+      'Contracts: accept/track one active job; deliver in the other city for payout + rep.',
     ],
     whatsNext: [
-      'Reintroduce Contracts Board safely (with tests + mobile validation).',
-      'Encounters only on road tiles + richer outcomes (rep/permits).',
-      'Checkpoint/patrol events outside cities.',
+      'Contracts: show marker on minimap + better rewards scaling.',
+      'Checkpoint/patrol events outside cities (rep consequences).',
+      'Tune encounter variety + outcomes.',
     ],
   };
 
@@ -465,6 +490,8 @@
     navT: 0,
 
     eventOpen: false,
+
+    contractsOpen: false,
     eventTitle: '',
     eventText: '',
     eventChoices: [], // {label, run:()=>void}
@@ -472,6 +499,9 @@
     eventScroll: 0, // first visible choice index
     _eventList: null,
     eventNavT: 0,
+
+    contractsSel: 0,
+    contractsNavT: 0,
   };
 
   // Render iteration notes into the bottom textbox (if present)
@@ -588,6 +618,18 @@
     }
     return false;
   }
+
+  function nearContractsTile() {
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (tileAt(tx + ox, ty + oy) === 12) return true;
+      }
+    }
+    return false;
+  }
+
 
   function nearPOITile() {
     const tx = Math.floor(player.x / TILE);
@@ -830,11 +872,33 @@
         ui.selection = 0;
         ui.mode = 'buy';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
+      } else if (c && nearContractsTile()) {
+        ui.contractsOpen = !ui.contractsOpen;
+        ui.contractsSel = 0;
+        toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
       } else {
-        toast('Find the market stall inside a city (tan tile).', 2.5);
+        toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
       }
     }
 
+
+
+    if (ui.contractsOpen) {
+      if (consumeVKey('Escape')) { ui.contractsOpen = false; toast('Contracts closed', 2); }
+      ui.contractsNavT -= dt;
+      if (ui.contractsNavT <= 0) {
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.contractsSel = (ui.contractsSel + 2) % 3; ui.contractsNavT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % 3; ui.contractsNavT = 0.14; }
+      }
+      if (consumeVKey('Enter') || consumeVKey('Space')) {
+        const c = currentCity();
+        if (c) {
+          contracts.active = contracts.byCity[c.id][ui.contractsSel];
+          toast('Contract accepted.', 2.2);
+          ui.contractsOpen = false;
+        }
+      }
+    }
     if (ui.marketOpen) {
       if (e.code === 'Escape') { ui.marketOpen = false; toast('Market closed', 2); }
       if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
@@ -1063,6 +1127,18 @@
     }
   }
 
+
+
+    if (id === 12) { // contracts board
+      ctx.fillStyle = '#5b4b3a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
+      ctx.fillStyle = '#0b0f14';
+      ctx.fillRect(x+4, y+5, TILE-8, 2);
+      ctx.fillRect(x+4, y+9, TILE-8, 2);
+      return;
+    }
   function drawWorld() {
     const camX = Math.floor(camera.x);
     const camY = Math.floor(camera.y);
@@ -1640,7 +1716,81 @@
   }
 
 
-  function drawEvent() {
+  
+
+  function drawContracts() {
+    if (!ui.contractsOpen) return;
+    const c = currentCity();
+    if (!c) return;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    const pad = Math.round(14 * UI_SCALE);
+    const boxW = IS_MOBILE ? VIEW_W : Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = IS_MOBILE ? VIEW_H : Math.min(420, VIEW_H - Math.round(24 * UI_SCALE));
+    const bx = IS_MOBILE ? 0 : Math.floor((VIEW_W - boxW) / 2);
+    const by = IS_MOBILE ? 0 : Math.floor((VIEW_H - boxH) / 2);
+
+    ctx.fillStyle = 'rgba(235, 219, 185, 0.98)';
+    ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx + pad, by + pad, boxW - pad*2, boxH - pad*2, 18);
+    else ctx.rect(bx + pad, by + pad, boxW - pad*2, boxH - pad*2);
+    ctx.fill();
+    ctx.stroke();
+
+    const innerX = bx + pad + 16;
+    const innerW = boxW - pad*2 - 32;
+
+    ctx.fillStyle = '#2a1f14';
+    ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText(`${c.name} Contracts`, innerX, by + pad + 34);
+
+    ctx.fillStyle = '#4a3b2a';
+    ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    if (contracts.active) {
+      const it = ITEMS.find(x=>x.id===contracts.active.want);
+      ctx.fillText(`Active: Deliver ${contracts.active.qty} ${it.name} → ${contracts.active.toId} for ${contracts.active.reward}g`, innerX, by + pad + 56);
+    } else {
+      ctx.fillText('Pick a job. Deliver to the other city for gold + rep.', innerX, by + pad + 56);
+    }
+
+    const listTop = by + pad + Math.round(90 * UI_SCALE);
+    const rowH = Math.round(48 * UI_SCALE);
+    const jobs = contracts.byCity[c.id];
+
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      const it = ITEMS.find(x=>x.id===job.want);
+      const y = listTop + i * rowH;
+      const selected = i === ui.contractsSel;
+
+      ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.16)' : 'rgba(0,0,0,0.05)';
+      ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(innerX, y - Math.round(28*UI_SCALE), innerW, Math.round(40*UI_SCALE), 14);
+      else ctx.rect(innerX, y - Math.round(28*UI_SCALE), innerW, Math.round(40*UI_SCALE));
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#2a1f14';
+      ctx.font = `800 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`Deliver ${job.qty}× ${it.name} → ${job.toId}`, innerX + 12, y - Math.round(6*UI_SCALE));
+
+      ctx.textAlign = 'right';
+      ctx.fillText(`${job.reward}g`, innerX + innerW - 12, y - Math.round(6*UI_SCALE));
+      ctx.textAlign = 'left';
+    }
+
+    // footer
+    ctx.fillStyle = '#4a3b2a';
+    ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText('Enter: accept · Esc: close', innerX, by + boxH - pad - 18);
+  }
+function drawEvent() {
     if (!ui.eventOpen) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1771,6 +1921,23 @@
           }
         }
       }
+
+
+      // contract delivery on city entry
+      if (nowId && contracts.active && contracts.active.toId === nowId) {
+        const want = contracts.active.want;
+        const qty = contracts.active.qty;
+        const have = player.inv[want] || 0;
+        if (have >= qty) {
+          player.inv[want] = have - qty;
+          player.gold += contracts.active.reward;
+          player.rep[nowId] = (player.rep[nowId] || 0) + 2;
+          toast(`Contract complete! +${contracts.active.reward}g (Rep +2)`, 3.2);
+          contracts.active = null;
+        } else {
+          toast('You arrived for delivery, but lack the required goods.', 3.0);
+        }
+      }
       player.lastCityId = nowId;
     }
 
@@ -1898,6 +2065,7 @@
     drawMobileOverlay();
     drawHUD();
     drawMarket();
+    drawContracts();
     drawEvent();
 
     requestAnimationFrame(tick);
