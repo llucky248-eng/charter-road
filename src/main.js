@@ -125,33 +125,48 @@
   // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
     if (!IS_MOBILE) return;
-    if (!ui.marketOpen) return;
+    if (!ui.marketOpen && !ui.eventOpen) return;
     const r = canvas.getBoundingClientRect();
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
-    const L = ui._marketList;
+    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
     if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
       ui._drag = { kind: 'market', lastY: sy, acc: 0 };
       canvas.setPointerCapture?.(e.pointerId);
       e.preventDefault();
+      return;
     }
+
+    // event choices drag
+    if (ui.eventOpen) {
+      const E = ui._eventList;
+      if (E && sx >= E.x && sx <= E.x + E.w && sy >= E.y && sy <= E.y + E.h) {
+        ui._drag = { kind: 'event', lastY: sy, acc: 0 };
+        canvas.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+        return;
+      }
+    }
+
   }, { passive: false });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!ui._drag || ui._drag.kind !== 'market') return;
+    if (!ui._drag) return;
+    if (ui._drag.kind !== 'market' && ui._drag.kind !== 'event') return;
     const r = canvas.getBoundingClientRect();
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
     const dy = sy - ui._drag.lastY;
     ui._drag.lastY = sy;
     ui._drag.acc += dy;
 
-    const L = ui._marketList;
+    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
     const step = L.rowH;
     if (Math.abs(ui._drag.acc) >= step) {
       const n = (ui._drag.acc / step) | 0;
-      ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      if (ui._drag.kind === 'market') ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      else ui.eventScroll = clamp(ui.eventScroll - n, 0, L.scrollMax);
       ui._drag.acc -= n * step;
     }
     e.preventDefault();
@@ -178,7 +193,7 @@
     const t = e.touches && e.touches[0];
     if (!t) return;
     const { sx, sy } = getTouchPos(t);
-    const L = ui._marketList;
+    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
     if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
       ui._drag = { kind: 'market', lastY: sy, acc: 0 };
@@ -187,7 +202,8 @@
   }, { passive: false });
 
   canvas.addEventListener('touchmove', (e) => {
-    if (!ui._drag || ui._drag.kind !== 'market') return;
+    if (!ui._drag) return;
+    if (ui._drag.kind !== 'market' && ui._drag.kind !== 'event') return;
     const t = e.touches && e.touches[0];
     if (!t) return;
     const { sy } = getTouchPos(t);
@@ -195,12 +211,13 @@
     ui._drag.lastY = sy;
     ui._drag.acc += dy;
 
-    const L = ui._marketList;
+    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
     const step = Math.max(8, L.rowH * 0.6);
     if (Math.abs(ui._drag.acc) >= step) {
       const n = (ui._drag.acc / step) | 0;
-      ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      if (ui._drag.kind === 'market') ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      else ui.eventScroll = clamp(ui.eventScroll - n, 0, L.scrollMax);
       ui._drag.acc -= n * step;
     }
     e.preventDefault();
@@ -420,14 +437,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                        const ITERATION = {
-    version: 'v0.0.35',
+                                                          const ITERATION = {
+    version: 'v0.0.36',
     whatsNew: [
-      'Mobile Market: fixed touch drag scrolling (added iOS-friendly touch handlers).',
-      'Deploy: cache-bust updated so phones pull the latest build reliably.',
+      'Mobile Event: touch drag scrolling for choices (like Market).',
+      'Mobile Event: scrollbar indicator + pinned footer remains visible.',
     ],
     whatsNext: [
-      'Mobile Event: add touch drag scrolling for choices too.',
+      'Mobile Market: upgrade list to item cards + big BUY/SELL tabs.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -450,6 +467,7 @@
     eventChoices: [], // {label, run:()=>void}
     eventSel: 0,
     eventScroll: 0, // first visible choice index
+    _eventList: null,
     eventNavT: 0,
   };
 
@@ -1457,6 +1475,21 @@
     ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${c.name} Market`, bx + 18, by + 34);
 
+
+
+    // scrollbar indicator
+    if (maxScroll > 0) {
+      const trackX = bx + boxW - Math.round(10 * UI_SCALE);
+      const trackY = startY;
+      const trackH = visibleN * choiceRowH;
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(trackX, trackY, Math.round(4 * UI_SCALE), trackH);
+      const thumbH = Math.max(Math.round(18 * UI_SCALE), Math.round(trackH * (visibleN / ui.eventChoices.length)));
+      const t = ui.eventScroll / maxScroll;
+      const thumbY = trackY + Math.round((trackH - thumbH) * t);
+      ctx.fillStyle = 'rgba(120, 92, 60, 0.55)';
+      ctx.fillRect(trackX, thumbY, Math.round(4 * UI_SCALE), thumbH);
+    }
     ctx.fillStyle = '#4a3b2a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${rules.vibe}  ·  Tab: switch Buy/Sell  ·  Enter/Space: confirm  ·  Esc: close`, bx + 18, by + 56);
@@ -1588,6 +1621,10 @@
     const maxScroll = Math.max(0, ui.eventChoices.length - visibleN);
     ui.eventScroll = clamp(ui.eventScroll, 0, maxScroll);
 
+    // expose choice rect for touch scrolling
+    ui._eventList = { x: bx + 12, y: startY - Math.round(18 * UI_SCALE), w: boxW - 24, h: visibleN * choiceRowH, rowH: choiceRowH, scrollMax: maxScroll };
+
+
     for (let vi = 0; vi < visibleN; vi++) {
       const i = ui.eventScroll + vi;
       if (i >= ui.eventChoices.length) break;
@@ -1602,6 +1639,21 @@
       ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
     }
 
+
+
+    // scrollbar indicator
+    if (maxScroll > 0) {
+      const trackX = bx + boxW - Math.round(10 * UI_SCALE);
+      const trackY = startY;
+      const trackH = visibleN * choiceRowH;
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(trackX, trackY, Math.round(4 * UI_SCALE), trackH);
+      const thumbH = Math.max(Math.round(18 * UI_SCALE), Math.round(trackH * (visibleN / ui.eventChoices.length)));
+      const t = ui.eventScroll / maxScroll;
+      const thumbY = trackY + Math.round((trackH - thumbH) * t);
+      ctx.fillStyle = 'rgba(120, 92, 60, 0.55)';
+      ctx.fillRect(trackX, thumbY, Math.round(4 * UI_SCALE), thumbH);
+    }
     ctx.fillStyle = '#4a3b2a';
     ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - Math.round(20 * UI_SCALE));
