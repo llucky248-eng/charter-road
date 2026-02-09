@@ -464,16 +464,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                  const ITERATION = {
-    version: 'v0.0.40',
+                                                                    const ITERATION = {
+    version: 'v0.0.41',
     whatsNew: [
-      'Contracts Board: added a contract tile in each city with 3 rotating delivery jobs.',
-      'Contracts: accept/track one active job; deliver in the other city for payout + rep.',
+      'Hotfix: added runtime error trapping so the game never renders a blank screen; shows error text if something breaks.',
+      'Contracts Board (carryover).',
     ],
     whatsNext: [
-      'Contracts: show marker on minimap + better rewards scaling.',
-      'Checkpoint/patrol events outside cities (rep consequences).',
-      'Tune encounter variety + outcomes.',
+      'Fix underlying blank-screen cause (contracts integration regression).',
+      'Contracts: minimap marker + reward scaling.',
+      'Checkpoint/patrol events outside cities.',
     ],
   };
 
@@ -1893,6 +1893,8 @@ function drawEvent() {
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
 
+    try {
+
     // City entry inspection (runs when crossing into a city region)
     {
       const cNow = currentCity();
@@ -2067,6 +2069,28 @@ function drawEvent() {
     drawMarket();
     drawContracts();
     drawEvent();
+
+
+    } catch (err) {
+      // Keep the loop alive and render a visible error instead of a blank screen.
+      console.error(err);
+      ctx.save();
+      ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#0b0f14';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#fecaca';
+      ctx.font = `${Math.round(14 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      const msg = String(err && (err.stack || err.message) || err);
+      const lines = msg.split('\\n').slice(0, 8);
+      let y = Math.round(28 * UI_SCALE);
+      ctx.fillText('Runtime error (please screenshot this):', Math.round(12 * UI_SCALE), y);
+      y += Math.round(22 * UI_SCALE);
+      for (const ln of lines) {
+        ctx.fillText(ln.slice(0, 120), Math.round(12 * UI_SCALE), y);
+        y += Math.round(18 * UI_SCALE);
+      }
+      ctx.restore();
+    }
 
     requestAnimationFrame(tick);
   }
