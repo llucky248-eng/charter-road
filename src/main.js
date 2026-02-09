@@ -120,6 +120,51 @@
     }
   }
 
+
+
+  // Canvas touch drag for scrolling lists (mobile popups)
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!IS_MOBILE) return;
+    if (!ui.marketOpen) return;
+    const r = canvas.getBoundingClientRect();
+    const sx = (e.clientX - r.left) * (VIEW_W / r.width);
+    const sy = (e.clientY - r.top) * (VIEW_H / r.height);
+    const L = ui._marketList;
+    if (!L) return;
+    if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
+      ui._drag = { kind: 'market', lastY: sy, acc: 0 };
+      canvas.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!ui._drag || ui._drag.kind !== 'market') return;
+    const r = canvas.getBoundingClientRect();
+    const sy = (e.clientY - r.top) * (VIEW_H / r.height);
+    const dy = sy - ui._drag.lastY;
+    ui._drag.lastY = sy;
+    ui._drag.acc += dy;
+
+    const L = ui._marketList;
+    if (!L) return;
+    const step = L.rowH;
+    if (Math.abs(ui._drag.acc) >= step) {
+      const n = (ui._drag.acc / step) | 0;
+      ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      ui._drag.acc -= n * step;
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  const endDrag = (e) => {
+    if (!ui._drag) return;
+    ui._drag = null;
+    e.preventDefault?.();
+  };
+  canvas.addEventListener('pointerup', endDrag, { passive: false });
+  canvas.addEventListener('pointercancel', endDrag, { passive: false });
+
   // --- Tiles
   // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
   const SOLID = new Set([2, 3]);
@@ -330,14 +375,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                    const ITERATION = {
-    version: 'v0.0.33',
+                                                      const ITERATION = {
+    version: 'v0.0.34',
     whatsNew: [
-      'Mobile UI: minimap overlay reduced in size (less screen blocking).',
-      'Mobile Market: redesigned as full-screen sheet with scrollable item list + pinned footer.',
+      'Mobile Market: item list now supports touch scrolling (drag to scroll).',
+      'Mobile Market: shows a small scrollbar indicator.',
     ],
     whatsNext: [
-      'Mobile Event: match Market sheet polish (header/footer spacing).',
+      'Mobile Event: match Market sheet polish + touch scroll.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -349,6 +394,8 @@
     toastT: 6,
     selection: 0,
     marketScroll: 0, // first visible item index
+    _marketList: null,
+    _drag: null,
     mode: 'buy', // buy|sell
     navT: 0,
 
@@ -1287,6 +1334,9 @@
 
       const scrollMax = Math.max(0, ITEMS.length - visibleN);
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
+
+      // expose list rect for touch scrolling
+      ui._marketList = { x: pad, y: listTop - Math.round(18*UI_SCALE), w: VIEW_W - pad*2, h: visibleN*rowH, rowH, scrollMax };
 
       // columns
       const innerW = VIEW_W - pad*2;
