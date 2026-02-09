@@ -20,7 +20,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-  const HUD_H = Math.round((IS_MOBILE ? 92 : 56) * UI_SCALE);
+  const HUD_H = Math.round((IS_MOBILE ? 140 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -330,15 +330,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                        const ITERATION = {
-    version: 'v0.0.26',
+                                          const ITERATION = {
+    version: 'v0.0.27',
     whatsNew: [
-      'Mobile HUD: title + details use full width; minimap moved to the right so it doesn\'t steal space.',
-      'Event popup (mobile): full-screen panel with padding for easy reading and option selection.',
+      'Mobile HUD: switched to vertical stack (title, details, minimap, gold/pack) — no horizontal squeeze.',
+      'Mobile popups: enforced vertical layout with scrollable content + pinned actions.',
     ],
     whatsNext: [
-      'Market popup: consider full-screen + scroll list on mobile for consistency.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
+      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
     ],
   };
@@ -1027,23 +1027,23 @@
     const line1 = Math.round(22 * UI_SCALE);
     const line2 = Math.round(44 * UI_SCALE);
     const line3 = Math.round(66 * UI_SCALE);
+    const line4 = Math.round(88 * UI_SCALE);
 
     // Title (city/road)
     ctx.fillStyle = '#e8edf2';
     ctx.font = `700 ${Math.round((IS_MOBILE ? 14 : 16) * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // mini-map + title
     const mmPad = pad;
-    const mmSize = Math.round((IS_MOBILE ? 56 : 72) * UI_SCALE);
-    const mmX = IS_MOBILE ? (VIEW_W - pad - mmSize) : mmPad;
-    const mmY = Math.round(6 * UI_SCALE);
+    const mmSize = Math.round((IS_MOBILE ? 64 : 72) * UI_SCALE);
+    const mmX = IS_MOBILE ? pad : mmPad;
+    const mmY = IS_MOBILE ? Math.round(78 * UI_SCALE) : Math.round(6 * UI_SCALE);
     const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
     const titleX = IS_MOBILE ? pad : (mmX + mmSize + Math.round(18 * UI_SCALE));
 
     // compute max text width
-    // mobile: full width up to minimap; desktop: avoid the right-side stats
     const maxTextW = IS_MOBILE
-      ? Math.max(80, (mmX - Math.round(10 * UI_SCALE)) - titleX)
+      ? Math.max(80, VIEW_W - pad - titleX)
       : (() => {
           const rightX = VIEW_W - pad;
           const coinX = rightX - Math.round(180 * UI_SCALE);
@@ -1094,7 +1094,7 @@
       ctx.fillStyle = '#cfe6ff';
       ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText(`${player.gold}g`, rightX, line3);
-      ctx.fillText(`${w}/${player.capacity}`, rightX, line3 + Math.round(18 * UI_SCALE));
+      ctx.fillText(`${w}/${player.capacity}`, rightX, line4);
     } else {
       // coin icon
       const coinR = Math.round(6 * UI_SCALE);
