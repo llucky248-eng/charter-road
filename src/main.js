@@ -464,14 +464,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                    const ITERATION = {
-    version: 'v0.0.41',
+                                                                      const ITERATION = {
+    version: 'v0.0.42',
     whatsNew: [
-      'Hotfix: added runtime error trapping so the game never renders a blank screen; shows error text if something breaks.',
+      'Hotfix: force background clear each frame (fixes blank canvas on some mobile browsers).',
       'Contracts Board (carryover).',
     ],
     whatsNext: [
-      'Fix underlying blank-screen cause (contracts integration regression).',
+      'Root-cause blank canvas on affected devices; add startup self-test.',
       'Contracts: minimap marker + reward scaling.',
       'Checkpoint/patrol events outside cities.',
     ],
@@ -2061,7 +2061,8 @@ function drawEvent() {
     camera.y = clamp(camera.y, 0, MAP_H*TILE - VIEW_H);
 
     // draw
-    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillStyle = '#0f1620';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
     drawPlayer();
     drawMobileOverlay();
