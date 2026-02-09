@@ -7,7 +7,7 @@
   if (!canvas) throw new Error('Missing canvas');
 
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
-  const IS_MOBILE = !!(window.matchMedia && (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 760px)').matches));
+  const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
   const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
@@ -20,7 +20,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-  const HUD_H = Math.round((IS_MOBILE ? 160 : 56) * UI_SCALE);
+  const HUD_H = Math.round((IS_MOBILE ? 190 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -330,14 +330,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                          const ITERATION = {
-    version: 'v0.0.28',
+                                            const ITERATION = {
+    version: 'v0.0.29',
     whatsNew: [
-      'Mobile detection: narrow screens count as mobile (not just coarse pointer).',
-      'Mobile HUD: true vertical stack (title, details, minimap, gold/pack) with stats aligned to the minimap.',
+      'Mobile layout: force true vertical HUD stack using screen width detection (no more accidental desktop HUD on phones).',
+      'Mobile HUD: minimap placed below title/details; gold/pack aligned to minimap block.',
     ],
     whatsNext: [
-      'Mobile popups: make Market match full-screen Event style + pinned footer.',
+      'Mobile Market: full-screen panel + scroll list + pinned footer (match Event).',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -1036,7 +1036,7 @@
     const mmPad = pad;
     const mmSize = Math.round((IS_MOBILE ? 72 : 72) * UI_SCALE);
     const mmX = IS_MOBILE ? pad : mmPad;
-    const mmY = IS_MOBILE ? Math.round(74 * UI_SCALE) : Math.round(6 * UI_SCALE);
+    const mmY = IS_MOBILE ? Math.round(78 * UI_SCALE) : Math.round(6 * UI_SCALE);
     const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
     const titleX = IS_MOBILE ? pad : (mmX + mmSize + Math.round(18 * UI_SCALE));
@@ -1053,6 +1053,12 @@
 
     const title = c ? c.name : 'On the road';
     ctx.fillText(ellipsizeText(title, maxTextW), titleX, line1);
+
+    if (IS_MOBILE) {
+      ctx.fillStyle = 'rgba(138,160,179,0.65)';
+      ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText('MODE: mobile', VIEW_W - pad - Math.round(70 * UI_SCALE), line1);
+    }
 
     // mobile row 2: city details / hint
     if (IS_MOBILE) {
