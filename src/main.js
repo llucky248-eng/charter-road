@@ -405,6 +405,8 @@
 
   rebuildMiniMap();
 
+  const PERMIT_PRICE = 45;
+
   const CITY_RULES = {
     sunspire: {
       taxRate: 0.18,
@@ -437,15 +439,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                              const ITERATION = {
-    version: 'v0.0.38',
+                                                                const ITERATION = {
+    version: 'v0.0.39',
     whatsNew: [
-      'Travel: road encounters now trigger ONLY while walking on road tiles (more predictable, less random).',
-      'Mobile Market: item cards + big BUY/SELL tabs (carryover).',
+      'Reputation: added Sunspire/Gloomwharf rep (starts at 0).',
+      'Permits: buy a city permit at the Market to reduce inspections; contraband fines now impact rep.',
     ],
     whatsNext: [
-      'Reputation + permits tied to inspections and checkpoints.',
-      'Contracts board in cities.',
+      'Contracts board in cities (repeatable delivery goals).',
+      'Checkpoint/patrol events outside cities (rep consequences).',
       'Tune encounter variety + outcomes.',
     ],
   };
@@ -494,6 +496,10 @@
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
 
     lastCityId: null,
+
+    rep: { sunspire: 0, gloomwharf: 0 },
+    permits: { sunspire: false, gloomwharf: false },
+
   };
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
@@ -1425,7 +1431,8 @@
       const rowH = Math.round(64 * UI_SCALE); // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
 
-      const scrollMax = Math.max(0, ITEMS.length - visibleN);
+      const totalN = ITEMS.length + 1; // +1 permit row
+      const scrollMax = Math.max(0, totalN - visibleN);
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
 
       // expose list rect for touch scrolling
@@ -1433,8 +1440,10 @@
 
       for (let vi = 0; vi < visibleN; vi++) {
         const i = ui.marketScroll + vi;
-        if (i >= ITEMS.length) break;
-        const it = ITEMS[i];
+        if (i >= totalN) break;
+
+        const isPermitRow = i === ITEMS.length;
+        const it = isPermitRow ? null : ITEMS[i];
         const y = listTop + vi * rowH;
         const selected = i === ui.selection;
 
@@ -1448,24 +1457,25 @@
         ctx.fill();
         ctx.stroke();
 
-        const price = priceFor(c.id, it);
-        const have = player.inv[it.id] || 0;
-        const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
+        const price = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
+        const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
+        const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
+        const hasPermit = !!player.permits[c.id];
 
         // name
         ctx.fillStyle = '#2a1f14';
         ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(it.name, innerX, y - Math.round(18 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, y - Math.round(18 * UI_SCALE));
 
         // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(`${price}g`, VIEW_W - pad - 16, y - Math.round(18 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, VIEW_W - pad - 16, y - Math.round(18 * UI_SCALE));
         ctx.textAlign = 'left';
 
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(`You have: ${have} · Weight: ${it.weight}`, innerX, y + Math.round(4 * UI_SCALE));
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, y + Math.round(4 * UI_SCALE));
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
@@ -1492,8 +1502,8 @@
         const trackH = visibleN * rowH;
         ctx.fillStyle = 'rgba(0,0,0,0.10)';
         ctx.fillRect(trackX, trackY, Math.round(4 * UI_SCALE), trackH);
-        const thumbH = Math.max(Math.round(24 * UI_SCALE), Math.round(trackH * (visibleN / ITEMS.length)));
-        const t = ui.marketScroll / scrollMax;
+        const thumbH = Math.max(Math.round(24 * UI_SCALE), Math.round(trackH * (visibleN / totalN)));
+        const t = scrollMax > 0 ? (ui.marketScroll / scrollMax) : 0;
         const thumbY = trackY + Math.round((trackH - thumbH) * t);
         ctx.fillStyle = 'rgba(120, 92, 60, 0.55)';
         ctx.fillRect(trackX, thumbY, Math.round(4 * UI_SCALE), thumbH);
@@ -1741,16 +1751,20 @@
         const rules = CITY_RULES[nowId];
         if (rules) {
           const roll = Math.random();
-          if (roll < rules.inspectionChance) {
+          const permit = !!player.permits[nowId];
+          const inspChance = permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance;
+          if (roll < inspChance) {
             const contraN = contrabandCountForCity(nowId);
             if (contraN > 0) {
               const removed = confiscateContraband(nowId);
               const fine = rules.fineBase + removed * rules.finePerItem;
               const paid = Math.min(player.gold, fine);
               player.gold -= paid;
-              toast(`Inspection! Contraband confiscated (${removed}). Fine: ${paid}g`, 3.2);
+              player.rep[nowId] = (player.rep[nowId] || 0) - (2 + removed);
+              toast(`Inspection! Contraband confiscated (${removed}). Fine: ${paid}g (Rep -${2 + removed})`, 3.2);
             } else {
-              toast('Gate inspection: cleared.', 2.2);
+              player.rep[nowId] = (player.rep[nowId] || 0) + 1;
+              toast('Gate inspection: cleared. (Rep +1)', 2.2);
             }
           } else {
             toast('You slip through the gate uninspected.', 2.2);
@@ -1795,8 +1809,17 @@
       if (consumeVKey('Enter') || consumeVKey('Space')) {
         const c = currentCity();
         if (c) {
-          const it = ITEMS[ui.selection];
-          const p = priceFor(c.id, it);
+          const isPermitRow = ui.selection === ITEMS.length;
+          const it = isPermitRow ? null : ITEMS[ui.selection];
+          const p = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
+
+          if (isPermitRow) {
+            if (player.permits[c.id]) { toast('Permit already owned.', 2); }
+            else if (player.gold < PERMIT_PRICE) toast('Not enough gold for permit.', 2);
+            else { player.gold -= PERMIT_PRICE; player.permits[c.id] = true; toast('Purchased city permit.', 2.2); }
+            return;
+          }
+
           if (ui.mode === 'buy') {
             const w = invWeight();
             if (w + it.weight > player.capacity) toast('No space in pack.', 2);
