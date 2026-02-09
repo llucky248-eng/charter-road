@@ -7,7 +7,7 @@
   if (!canvas) throw new Error('Missing canvas');
 
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
-  const IS_MOBILE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const IS_MOBILE = !!(window.matchMedia && (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 760px)').matches));
   const BASE_W = IS_MOBILE ? 640 : 960;
   const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
@@ -20,7 +20,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-  const HUD_H = Math.round((IS_MOBILE ? 140 : 56) * UI_SCALE);
+  const HUD_H = Math.round((IS_MOBILE ? 160 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -331,14 +331,14 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                           const ITERATION = {
-    version: 'v0.0.27',
+    version: 'v0.0.28',
     whatsNew: [
-      'Mobile HUD: switched to vertical stack (title, details, minimap, gold/pack) — no horizontal squeeze.',
-      'Mobile popups: enforced vertical layout with scrollable content + pinned actions.',
+      'Mobile detection: narrow screens count as mobile (not just coarse pointer).',
+      'Mobile HUD: true vertical stack (title, details, minimap, gold/pack) with stats aligned to the minimap.',
     ],
     whatsNext: [
+      'Mobile popups: make Market match full-screen Event style + pinned footer.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
-      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
     ],
   };
@@ -1034,9 +1034,9 @@
     ctx.font = `700 ${Math.round((IS_MOBILE ? 14 : 16) * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     // mini-map + title
     const mmPad = pad;
-    const mmSize = Math.round((IS_MOBILE ? 64 : 72) * UI_SCALE);
+    const mmSize = Math.round((IS_MOBILE ? 72 : 72) * UI_SCALE);
     const mmX = IS_MOBILE ? pad : mmPad;
-    const mmY = IS_MOBILE ? Math.round(78 * UI_SCALE) : Math.round(6 * UI_SCALE);
+    const mmY = IS_MOBILE ? Math.round(74 * UI_SCALE) : Math.round(6 * UI_SCALE);
     const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
     const titleX = IS_MOBILE ? pad : (mmX + mmSize + Math.round(18 * UI_SCALE));
@@ -1091,10 +1091,13 @@
     const rightX = VIEW_W - pad;
     ctx.textAlign = 'right';
     if (IS_MOBILE) {
+      // align stats with minimap block (vertical stack)
+      const statsY1 = mmY + Math.round(22 * UI_SCALE);
+      const statsY2 = mmY + Math.round(44 * UI_SCALE);
       ctx.fillStyle = '#cfe6ff';
       ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`${player.gold}g`, rightX, line3);
-      ctx.fillText(`${w}/${player.capacity}`, rightX, line4);
+      ctx.fillText(`${player.gold}g`, rightX, statsY1);
+      ctx.fillText(`${w}/${player.capacity}`, rightX, statsY2);
     } else {
       // coin icon
       const coinR = Math.round(6 * UI_SCALE);
