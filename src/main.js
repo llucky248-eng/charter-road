@@ -15,6 +15,8 @@
 
   const ctx = canvas.getContext('2d');
 
+  window.__dbg = { ticks: 0, lastError: null };
+
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
@@ -464,14 +466,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                      const ITERATION = {
-    version: 'v0.0.42',
+                                                                        const ITERATION = {
+    version: 'v0.0.43',
     whatsNew: [
-      'Hotfix: force background clear each frame (fixes blank canvas on some mobile browsers).',
-      'Contracts Board (carryover).',
+      'Debug hotfix: added on-page debug counters (ticks + lastError) to diagnose blank-screen reports.',
+      'Hotfix: forced background fill each frame (carryover).',
     ],
     whatsNext: [
-      'Root-cause blank canvas on affected devices; add startup self-test.',
+      'Fix root cause of blank render on affected devices.',
       'Contracts: minimap marker + reward scaling.',
       'Checkpoint/patrol events outside cities.',
     ],
@@ -1894,6 +1896,8 @@ function drawEvent() {
     if (ui.toastT > 0) ui.toastT -= dt;
 
     try {
+      window.__dbg && (window.__dbg.ticks++);
+
 
     // City entry inspection (runs when crossing into a city region)
     {
@@ -2075,6 +2079,7 @@ function drawEvent() {
     } catch (err) {
       // Keep the loop alive and render a visible error instead of a blank screen.
       console.error(err);
+      if (window.__dbg) window.__dbg.lastError = String(err && (err.stack || err.message) || err);
       ctx.save();
       ctx.clearRect(0, 0, VIEW_W, VIEW_H);
       ctx.fillStyle = '#0b0f14';
