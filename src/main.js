@@ -20,7 +20,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-    const HUD_H = Math.round((IS_MOBILE ? 200 : 56) * UI_SCALE);
+      const HUD_H = Math.round((IS_MOBILE ? 48 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -330,15 +330,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                const ITERATION = {
-    version: 'v0.0.31',
+                                                  const ITERATION = {
+    version: 'v0.0.32',
     whatsNew: [
-      'UI redesign (mobile): vertical HUD stack + bottom-sheet popups (Event/Market) with pinned footers.',
-      'Mobile: popups scroll cleanly; no overlap/cutoff.',
+      'Mobile UI: switched to mini HUD + mini-map overlay in bottom-left (always visible).',
+      'Mobile UI: top HUD minimized to keep more gameplay screen.',
     ],
     whatsNext: [
+      'Tune overlay sizes/opacity + avoid covering touch controls.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
-      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
     ],
   };
@@ -1010,6 +1010,45 @@
     ctx.fillRect(x+1, y-2, 2, 2);
   }
 
+
+
+  function drawMobileOverlay() {
+    if (!IS_MOBILE) return;
+
+    // bottom-left minimap + mini hud overlay on gameplay
+    const pad = Math.round(10 * UI_SCALE);
+    const size = Math.round(110 * UI_SCALE);
+    const x = pad;
+    const y = VIEW_H - size - pad;
+
+    // panel
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x - 6, y - 6, size + 12, size + 12, 12);
+    else ctx.rect(x - 6, y - 6, size + 12, size + 12);
+    ctx.fill();
+
+    // minimap
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, x, y, size, size);
+
+    // player marker
+    const px = (player.x / (MAP_W * TILE)) * size;
+    const py = (player.y / (MAP_H * TILE)) * size;
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillRect(x + Math.floor(px) - 1, y + Math.floor(py) - 1, 3, 3);
+
+    // tiny stats strip above minimap
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.72)';
+    ctx.fillRect(x - 6, y - Math.round(34 * UI_SCALE) - 6, size + 12, Math.round(34 * UI_SCALE));
+    ctx.fillStyle = '#cfe6ff';
+    ctx.font = `800 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`${player.gold}g`, x, y - Math.round(14 * UI_SCALE));
+    ctx.textAlign = 'right';
+    ctx.fillText(`${invWeight()}/${player.capacity}`, x + size, y - Math.round(14 * UI_SCALE));
+    ctx.textAlign = 'left';
+  }
   function drawHUD() {
     ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
     ctx.fillRect(0, 0, VIEW_W, HUD_H);
@@ -1025,57 +1064,26 @@
 
     const pad = Math.round(14 * UI_SCALE);
 
-    // MOBILE HUD STACK (vertical)
+    // MOBILE HUD (minimal; minimap + stats are overlayed on gameplay)
     if (IS_MOBILE) {
-      const titleY = Math.round(22 * UI_SCALE);
-      const detailY = Math.round(42 * UI_SCALE);
-      const mmY = Math.round(56 * UI_SCALE);
-      const mmSize = Math.round(88 * UI_SCALE);
-      const mmX = pad;
+      ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
+      ctx.fillRect(0, 0, VIEW_W, Math.round(44 * UI_SCALE));
+      ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
+      ctx.beginPath();
+      ctx.moveTo(0, Math.round(44 * UI_SCALE) + 0.5);
+      ctx.lineTo(VIEW_W, Math.round(44 * UI_SCALE) + 0.5);
+      ctx.stroke();
 
-      // Title
       ctx.fillStyle = '#e8edf2';
       ctx.font = `800 ${Math.round(15 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       const title = c ? c.name : 'On the road';
-      ctx.fillText(ellipsizeText(title, VIEW_W - pad*2), pad, titleY);
+      ctx.fillText(ellipsizeText(title, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(22 * UI_SCALE));
 
-      // Details
-      ctx.fillStyle = 'rgba(160,184,203,0.95)';
+      // small detail line
+      ctx.fillStyle = 'rgba(160,184,203,0.92)';
       ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      const detail = rules
-        ? `${rules.vibe} · Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%`
-        : 'Follow the road between cities. E interacts with landmarks.';
-      ctx.fillText(ellipsizeText(detail, VIEW_W - pad*2), pad, detailY);
-
-      // Minimap
-      ctx.fillStyle = 'rgba(0,0,0,0.30)';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8, 10);
-      else ctx.rect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8);
-      ctx.fill();
-
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, mmX, mmY, mmSize, mmSize);
-      const px = (player.x / (MAP_W * TILE)) * mmSize;
-      const py = (player.y / (MAP_H * TILE)) * mmSize;
-      ctx.fillStyle = '#f43f5e';
-      ctx.fillRect(mmX + Math.floor(px) - 1, mmY + Math.floor(py) - 1, 3, 3);
-
-      // Stats to the right of minimap
-      const sx = VIEW_W - pad;
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#cfe6ff';
-      ctx.font = `800 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`${player.gold}g`, sx, mmY + Math.round(26 * UI_SCALE));
-      ctx.fillText(`${invWeight()}/${player.capacity}`, sx, mmY + Math.round(50 * UI_SCALE));
-      ctx.textAlign = 'left';
-
-      // Toast line
-      if (ui.toastT > 0) {
-        ctx.fillStyle = 'rgba(200,230,255,0.92)';
-        ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(ui.toast, VIEW_W - pad*2), pad, mmY + mmSize + Math.round(18 * UI_SCALE));
-      }
+      const detail = rules ? `${rules.vibe}` : 'Travel the road. E interacts.';
+      ctx.fillText(ellipsizeText(detail, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(40 * UI_SCALE));
 
       return;
     }
@@ -1545,6 +1553,7 @@
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
     drawPlayer();
+    drawMobileOverlay();
     drawHUD();
     drawMarket();
     drawEvent();
