@@ -7,7 +7,7 @@
   if (!canvas) throw new Error('Missing canvas');
 
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
-  const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
   const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
@@ -20,7 +20,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-  const HUD_H = Math.round((IS_MOBILE ? 190 : 56) * UI_SCALE);
+    const HUD_H = Math.round((IS_MOBILE ? 200 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
@@ -330,15 +330,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                              const ITERATION = {
-    version: 'v0.0.30',
+                                                const ITERATION = {
+    version: 'v0.0.31',
     whatsNew: [
-      'Deploy: cache-busted JS loader so phones reliably get the latest build.',
-      'Mobile HUD: enforced vertical stack + mobile detection improvements (carryover).',
+      'UI redesign (mobile): vertical HUD stack + bottom-sheet popups (Event/Market) with pinned footers.',
+      'Mobile: popups scroll cleanly; no overlap/cutoff.',
     ],
     whatsNext: [
-      'Mobile Market: full-screen panel + scroll list + pinned footer (match Event).',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
+      'More landmarks variety (watchtower/well/cart).',
       'Contracts board + basic reputation.',
     ],
   };
@@ -1024,6 +1024,62 @@
     const w = invWeight();
 
     const pad = Math.round(14 * UI_SCALE);
+
+    // MOBILE HUD STACK (vertical)
+    if (IS_MOBILE) {
+      const titleY = Math.round(22 * UI_SCALE);
+      const detailY = Math.round(42 * UI_SCALE);
+      const mmY = Math.round(56 * UI_SCALE);
+      const mmSize = Math.round(88 * UI_SCALE);
+      const mmX = pad;
+
+      // Title
+      ctx.fillStyle = '#e8edf2';
+      ctx.font = `800 ${Math.round(15 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const title = c ? c.name : 'On the road';
+      ctx.fillText(ellipsizeText(title, VIEW_W - pad*2), pad, titleY);
+
+      // Details
+      ctx.fillStyle = 'rgba(160,184,203,0.95)';
+      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      const detail = rules
+        ? `${rules.vibe} · Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%`
+        : 'Follow the road between cities. E interacts with landmarks.';
+      ctx.fillText(ellipsizeText(detail, VIEW_W - pad*2), pad, detailY);
+
+      // Minimap
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8, 10);
+      else ctx.rect(mmX - 4, mmY - 4, mmSize + 8, mmSize + 8);
+      ctx.fill();
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, mmX, mmY, mmSize, mmSize);
+      const px = (player.x / (MAP_W * TILE)) * mmSize;
+      const py = (player.y / (MAP_H * TILE)) * mmSize;
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(mmX + Math.floor(px) - 1, mmY + Math.floor(py) - 1, 3, 3);
+
+      // Stats to the right of minimap
+      const sx = VIEW_W - pad;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#cfe6ff';
+      ctx.font = `800 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`${player.gold}g`, sx, mmY + Math.round(26 * UI_SCALE));
+      ctx.fillText(`${invWeight()}/${player.capacity}`, sx, mmY + Math.round(50 * UI_SCALE));
+      ctx.textAlign = 'left';
+
+      // Toast line
+      if (ui.toastT > 0) {
+        ctx.fillStyle = 'rgba(200,230,255,0.92)';
+        ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(ui.toast, VIEW_W - pad*2), pad, mmY + mmSize + Math.round(18 * UI_SCALE));
+      }
+
+      return;
+    }
+
     const line1 = Math.round(22 * UI_SCALE);
     const line2 = Math.round(44 * UI_SCALE);
     const line3 = Math.round(66 * UI_SCALE);
@@ -1174,11 +1230,10 @@
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-    const boxW = Math.min(640, VIEW_W - Math.round(24 * UI_SCALE));
-    const boxH = Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
-    const bx = Math.floor((VIEW_W - boxW) / 2);
-    const by = Math.floor((VIEW_H - boxH) / 2);
+    const boxW = IS_MOBILE ? VIEW_W : Math.min(640, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = IS_MOBILE ? Math.round(VIEW_H * 0.68) : Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
+    const bx = IS_MOBILE ? 0 : Math.floor((VIEW_W - boxW) / 2);
+    const by = IS_MOBILE ? (VIEW_H - boxH) : Math.floor((VIEW_H - boxH) / 2);
 
     ctx.fillStyle = 'rgba(235, 219, 185, 0.96)'; // parchment
     ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
@@ -1203,11 +1258,10 @@
     ctx.fillStyle = '#2a1f14';
     ctx.font = `700 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.mode.toUpperCase(), bx + 18, by + 82);
-
-    const headerH = Math.round(110 * UI_SCALE);
-    const footerH = Math.round(52 * UI_SCALE);
+    const headerH = Math.round((IS_MOBILE ? 120 : 110) * UI_SCALE);
+    const footerH = Math.round((IS_MOBILE ? 64 : 52) * UI_SCALE);
     const startY = by + headerH;
-    const rowH = Math.round(28 * UI_SCALE);
+    const rowH = Math.round(30 * UI_SCALE);
     const listH = boxH - headerH - footerH;
     const visibleN = Math.max(3, Math.floor(listH / rowH));
 
@@ -1276,16 +1330,11 @@
     if (!ui.eventOpen) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
-
-    const boxW = IS_MOBILE
-      ? (VIEW_W - Math.round(20 * UI_SCALE))
-      : Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
-    const boxH = IS_MOBILE
-      ? (VIEW_H - Math.round(20 * UI_SCALE))
-      : Math.min(360, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
-    const bx = IS_MOBILE ? Math.round(10 * UI_SCALE) : Math.floor((VIEW_W - boxW) / 2);
-    const by = IS_MOBILE ? Math.round(10 * UI_SCALE) : Math.floor((VIEW_H - boxH) / 2);
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    const boxW = IS_MOBILE ? VIEW_W : Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = IS_MOBILE ? Math.round(VIEW_H * 0.70) : Math.min(360, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
+    const bx = IS_MOBILE ? 0 : Math.floor((VIEW_W - boxW) / 2);
+    const by = IS_MOBILE ? (VIEW_H - boxH) : Math.floor((VIEW_H - boxH) / 2);
 
     ctx.fillStyle = 'rgba(235, 219, 185, 0.96)'; // parchment
     ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
