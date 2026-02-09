@@ -330,11 +330,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                            const ITERATION = {
-    version: 'v0.0.29',
+                                              const ITERATION = {
+    version: 'v0.0.30',
     whatsNew: [
-      'Mobile layout: force true vertical HUD stack using screen width detection (no more accidental desktop HUD on phones).',
-      'Mobile HUD: minimap placed below title/details; gold/pack aligned to minimap block.',
+      'Deploy: cache-busted JS loader so phones reliably get the latest build.',
+      'Mobile HUD: enforced vertical stack + mobile detection improvements (carryover).',
     ],
     whatsNext: [
       'Mobile Market: full-screen panel + scroll list + pinned footer (match Event).',
