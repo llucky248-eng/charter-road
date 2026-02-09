@@ -165,6 +165,51 @@
   canvas.addEventListener('pointerup', endDrag, { passive: false });
   canvas.addEventListener('pointercancel', endDrag, { passive: false });
 
+  // iOS Safari fallback: Touch events (some WebViews are flaky with PointerEvents)
+  const getTouchPos = (t) => {
+    const r = canvas.getBoundingClientRect();
+    const sx = (t.clientX - r.left) * (VIEW_W / r.width);
+    const sy = (t.clientY - r.top) * (VIEW_H / r.height);
+    return { sx, sy };
+  };
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (!IS_MOBILE || !ui.marketOpen) return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const { sx, sy } = getTouchPos(t);
+    const L = ui._marketList;
+    if (!L) return;
+    if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
+      ui._drag = { kind: 'market', lastY: sy, acc: 0 };
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (!ui._drag || ui._drag.kind !== 'market') return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const { sy } = getTouchPos(t);
+    const dy = sy - ui._drag.lastY;
+    ui._drag.lastY = sy;
+    ui._drag.acc += dy;
+
+    const L = ui._marketList;
+    if (!L) return;
+    const step = Math.max(8, L.rowH * 0.6);
+    if (Math.abs(ui._drag.acc) >= step) {
+      const n = (ui._drag.acc / step) | 0;
+      ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      ui._drag.acc -= n * step;
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', () => { ui._drag = null; }, { passive: true });
+  canvas.addEventListener('touchcancel', () => { ui._drag = null; }, { passive: true });
+
+
   // --- Tiles
   // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp
   const SOLID = new Set([2, 3]);
@@ -375,14 +420,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                      const ITERATION = {
-    version: 'v0.0.34',
+                                                        const ITERATION = {
+    version: 'v0.0.35',
     whatsNew: [
-      'Mobile Market: item list now supports touch scrolling (drag to scroll).',
-      'Mobile Market: shows a small scrollbar indicator.',
+      'Mobile Market: fixed touch drag scrolling (added iOS-friendly touch handlers).',
+      'Deploy: cache-bust updated so phones pull the latest build reliably.',
     ],
     whatsNext: [
-      'Mobile Event: match Market sheet polish + touch scroll.',
+      'Mobile Event: add touch drag scrolling for choices too.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -1336,7 +1381,7 @@
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
 
       // expose list rect for touch scrolling
-      ui._marketList = { x: pad, y: listTop - Math.round(18*UI_SCALE), w: VIEW_W - pad*2, h: visibleN*rowH, rowH, scrollMax };
+      ui._marketList = { x: pad, y: listTop - Math.round(18*UI_SCALE), w: VIEW_W - pad*2, h: listH, rowH, scrollMax };
 
       // columns
       const innerW = VIEW_W - pad*2;
