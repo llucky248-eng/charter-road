@@ -330,14 +330,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                  const ITERATION = {
-    version: 'v0.0.32',
+                                                    const ITERATION = {
+    version: 'v0.0.33',
     whatsNew: [
-      'Mobile UI: switched to mini HUD + mini-map overlay in bottom-left (always visible).',
-      'Mobile UI: top HUD minimized to keep more gameplay screen.',
+      'Mobile UI: minimap overlay reduced in size (less screen blocking).',
+      'Mobile Market: redesigned as full-screen sheet with scrollable item list + pinned footer.',
     ],
     whatsNext: [
-      'Tune overlay sizes/opacity + avoid covering touch controls.',
+      'Mobile Event: match Market sheet polish (header/footer spacing).',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -1017,7 +1017,7 @@
 
     // bottom-left minimap + mini hud overlay on gameplay
     const pad = Math.round(10 * UI_SCALE);
-    const size = Math.round(110 * UI_SCALE);
+    const size = Math.round(86 * UI_SCALE);
     const x = pad;
     const y = VIEW_H - size - pad;
 
@@ -1040,13 +1040,13 @@
 
     // tiny stats strip above minimap
     ctx.fillStyle = 'rgba(10, 14, 20, 0.72)';
-    ctx.fillRect(x - 6, y - Math.round(34 * UI_SCALE) - 6, size + 12, Math.round(34 * UI_SCALE));
+    ctx.fillRect(x - 6, y - Math.round(30 * UI_SCALE) - 6, size + 12, Math.round(30 * UI_SCALE));
     ctx.fillStyle = '#cfe6ff';
     ctx.font = `800 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(`${player.gold}g`, x, y - Math.round(14 * UI_SCALE));
+    ctx.fillText(`${player.gold}g`, x, y - Math.round(12 * UI_SCALE));
     ctx.textAlign = 'right';
-    ctx.fillText(`${invWeight()}/${player.capacity}`, x + size, y - Math.round(14 * UI_SCALE));
+    ctx.fillText(`${invWeight()}/${player.capacity}`, x + size, y - Math.round(12 * UI_SCALE));
     ctx.textAlign = 'left';
   }
   function drawHUD() {
@@ -1235,6 +1235,109 @@
     const c = currentCity();
     if (!c) return;
     const rules = CITY_RULES[c.id];
+
+
+    // MOBILE MARKET SHEET (full-screen)
+    if (IS_MOBILE) {
+      const pad = Math.round(14 * UI_SCALE);
+      const boxW = VIEW_W;
+      const boxH = VIEW_H;
+      const bx = 0;
+      const by = 0;
+
+      // dim backdrop
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+      // parchment panel
+      ctx.fillStyle = 'rgba(235, 219, 185, 0.98)';
+      ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(pad, pad, boxW - pad*2, boxH - pad*2, 18);
+      else ctx.rect(pad, pad, boxW - pad*2, boxH - pad*2);
+      ctx.fill();
+      ctx.stroke();
+
+      // header
+      const headerH = Math.round(120 * UI_SCALE);
+      ctx.fillStyle = '#2a1f14';
+      ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`${c.name} Market`, pad + 16, pad + 34);
+
+      ctx.fillStyle = '#4a3b2a';
+      ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(rules.vibe, pad + 16, pad + 56);
+
+      ctx.fillStyle = '#2a1f14';
+      ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(ui.mode === 'buy' ? 'BUY' : 'SELL', pad + 16, pad + 84);
+
+      ctx.fillStyle = '#4a3b2a';
+      ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText('Tab: Buy/Sell · Enter: Confirm · Esc: Close', pad + 16, pad + 106);
+
+      // list viewport
+      const footerH = Math.round(76 * UI_SCALE);
+      const listTop = pad + headerH;
+      const listBottom = VIEW_H - pad - footerH;
+      const listH = Math.max(40, listBottom - listTop);
+      const rowH = Math.round(34 * UI_SCALE);
+      const visibleN = Math.max(3, Math.floor(listH / rowH));
+
+      const scrollMax = Math.max(0, ITEMS.length - visibleN);
+      ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
+
+      // columns
+      const innerW = VIEW_W - pad*2;
+      const colName = pad + 18;
+      const colPrice = pad + Math.round(innerW * 0.68);
+      const colHave = pad + Math.round(innerW * 0.82);
+
+      for (let vi = 0; vi < visibleN; vi++) {
+        const i = ui.marketScroll + vi;
+        if (i >= ITEMS.length) break;
+        const it = ITEMS[i];
+        const y = listTop + vi * rowH;
+        const selected = i === ui.selection;
+
+        if (selected) {
+          ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
+          ctx.fillRect(pad + 10, y - Math.round(20 * UI_SCALE), innerW - 20, Math.round(30 * UI_SCALE));
+        }
+
+        const price = priceFor(c.id, it);
+        const have = player.inv[it.id] || 0;
+
+        ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
+        ctx.font = selected ? `700 ${Math.round(15*UI_SCALE)}px system-ui` : `${Math.round(15*UI_SCALE)}px system-ui`;
+        ctx.fillText(it.name, colName, y);
+
+        ctx.fillStyle = '#2a1f14';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${price}g`, colPrice, y);
+        ctx.fillStyle = '#4a3b2a';
+        ctx.fillText(`${have}`, colHave, y);
+        ctx.textAlign = 'left';
+      }
+
+      // pinned footer
+      const fy = VIEW_H - pad - Math.round(22 * UI_SCALE);
+      ctx.fillStyle = 'rgba(10, 14, 20, 0.10)';
+      ctx.fillRect(pad, VIEW_H - pad - footerH, VIEW_W - pad*2, footerH);
+
+      const w = invWeight();
+      ctx.fillStyle = '#2a1f14';
+      ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`Gold: ${player.gold}g`, pad + 16, fy);
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, pad + Math.round(innerW * 0.52), fy);
+
+      ctx.fillStyle = '#4a3b2a';
+      ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`Item ${ui.selection+1}/${ITEMS.length} · Use ↑/↓`, pad + 16, VIEW_H - pad - Math.round(48 * UI_SCALE));
+
+      return;
+    }
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
