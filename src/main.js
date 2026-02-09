@@ -330,14 +330,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                      const ITERATION = {
-    version: 'v0.0.25',
+                                        const ITERATION = {
+    version: 'v0.0.26',
     whatsNew: [
-      'Mobile HUD: simplified 3-row layout (title, details, gold/pack) with no overlap.',
-      'Event popup (mobile): scrollable choices so all options are always visible.',
+      'Mobile HUD: title + details use full width; minimap moved to the right so it doesn\'t steal space.',
+      'Event popup (mobile): full-screen panel with padding for easy reading and option selection.',
     ],
     whatsNext: [
-      'Market popup: mobile tuning pass (spacing + scroll feel).',
+      'Market popup: consider full-screen + scroll list on mobile for consistency.',
       'Encounters only on road tiles + richer outcomes (rep/permits).',
       'Contracts board + basic reputation.',
     ],
@@ -1034,15 +1034,16 @@
     // mini-map + title
     const mmPad = pad;
     const mmSize = Math.round((IS_MOBILE ? 56 : 72) * UI_SCALE);
-    const mmX = mmPad;
+    const mmX = IS_MOBILE ? (VIEW_W - pad - mmSize) : mmPad;
     const mmY = Math.round(6 * UI_SCALE);
     const hudLeft = mmX + mmSize + Math.round(18 * UI_SCALE);
 
-    const titleX = mmX + mmSize + Math.round(18 * UI_SCALE);
+    const titleX = IS_MOBILE ? pad : (mmX + mmSize + Math.round(18 * UI_SCALE));
 
-    // compute max text width (avoid right-side stats)
+    // compute max text width
+    // mobile: full width up to minimap; desktop: avoid the right-side stats
     const maxTextW = IS_MOBILE
-      ? Math.max(80, VIEW_W - titleX - Math.round(10 * UI_SCALE))
+      ? Math.max(80, (mmX - Math.round(10 * UI_SCALE)) - titleX)
       : (() => {
           const rightX = VIEW_W - pad;
           const coinX = rightX - Math.round(180 * UI_SCALE);
@@ -1163,7 +1164,7 @@
     const rules = CITY_RULES[c.id];
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     const boxW = Math.min(640, VIEW_W - Math.round(24 * UI_SCALE));
     const boxH = Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
@@ -1268,10 +1269,14 @@
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.fillRect(0, HUD_H, VIEW_W, VIEW_H - HUD_H);
 
-    const boxW = Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
-    const boxH = Math.min(360, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
-    const bx = Math.floor((VIEW_W - boxW) / 2);
-    const by = Math.floor((VIEW_H - boxH) / 2);
+    const boxW = IS_MOBILE
+      ? (VIEW_W - Math.round(20 * UI_SCALE))
+      : Math.min(720, VIEW_W - Math.round(24 * UI_SCALE));
+    const boxH = IS_MOBILE
+      ? (VIEW_H - Math.round(20 * UI_SCALE))
+      : Math.min(360, VIEW_H - HUD_H - Math.round(24 * UI_SCALE));
+    const bx = IS_MOBILE ? Math.round(10 * UI_SCALE) : Math.floor((VIEW_W - boxW) / 2);
+    const by = IS_MOBILE ? Math.round(10 * UI_SCALE) : Math.floor((VIEW_H - boxH) / 2);
 
     ctx.fillStyle = 'rgba(235, 219, 185, 0.96)'; // parchment
     ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
