@@ -14,3 +14,6 @@ Controls:
 
 ## Deploy
 GitHub Pages: Settings → Pages → `main` branch / root.
+
+## Development workflow
+See `ops/RUNBOOK.md` for the gated iteration loop and cache-bust rules.
