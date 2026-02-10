@@ -477,15 +477,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                const ITERATION = {
-    version: 'v0.0.53',
+                                                                                  const ITERATION = {
+    version: 'v0.0.54',
     whatsNew: [
-      'Hotfix: force-refresh HTML + main.js (no-cache meta + new loader version) to avoid GitHub Pages stale assets.',
-      'Fix for iOS crash: contracts tile renderer now correctly inside drawTile().',
+      'Contracts: added compass arrow on the minimap pointing to your active contract destination.',
+      'Stability: keeps crash/fatal overlay + no-cache loader.',
     ],
     whatsNext: [
-      'Validate contracts board end-to-end on iPhone Safari.',
-      'Contracts: minimap marker + reward scaling.',
+      'Contracts: reward scaling + minimap destination highlight.',
+      'Checkpoint/patrol events outside cities (rep consequences).',
     ],
   };
 
@@ -610,6 +610,13 @@
     player.y = clamp(player.y, TILE, MAP_H*TILE - TILE);
   }
 
+
+
+  function getCityById(id) {
+    if (id === world.cityA.id) return world.cityA;
+    if (id === world.cityB.id) return world.cityB;
+    return null;
+  }
   function currentCity() {
     const px = player.x / TILE;
     const py = player.y / TILE;
@@ -1221,6 +1228,48 @@
 
 
 
+
+
+  function drawCompassArrowOnMinimap(mmX, mmY, mmSize) {
+    if (!contracts.active) return;
+    const dest = getCityById(contracts.active.toId);
+    if (!dest) return;
+
+    const tx = (dest.x + dest.w/2) * TILE;
+    const ty = (dest.y + dest.h/2) * TILE;
+    const dx = tx - player.x;
+    const dy = ty - player.y;
+    const ang = Math.atan2(dy, dx); // world angle
+
+    // draw arrow near top-right inside minimap
+    const cx = mmX + mmSize - Math.round(14 * UI_SCALE);
+    const cy = mmY + Math.round(14 * UI_SCALE);
+    const r = Math.round(8 * UI_SCALE);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+
+    // outline
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(-r*0.65, r*0.65);
+    ctx.lineTo(-r*0.65, -r*0.65);
+    ctx.closePath();
+    ctx.fill();
+
+    // inner
+    ctx.fillStyle = '#60a5fa';
+    ctx.beginPath();
+    ctx.moveTo(r-1, 0);
+    ctx.lineTo(-r*0.55, r*0.55);
+    ctx.lineTo(-r*0.55, -r*0.55);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
   function drawMobileOverlay() {
     if (!IS_MOBILE) return;
 
@@ -1246,6 +1295,9 @@
     const py = (player.y / (MAP_H * TILE)) * size;
     ctx.fillStyle = '#f43f5e';
     ctx.fillRect(x + Math.floor(px) - 1, y + Math.floor(py) - 1, 3, 3);
+
+    // contract compass
+    drawCompassArrowOnMinimap(x, y, size);
 
     // tiny stats strip above minimap
     ctx.fillStyle = 'rgba(10, 14, 20, 0.72)';
@@ -1358,6 +1410,8 @@
     const py = (player.y / (MAP_H * TILE)) * mmSize;
     ctx.fillStyle = '#f43f5e';
     ctx.fillRect(mmX + Math.floor(px) - 1, mmY + Math.floor(py) - 1, 3, 3);
+    // contract compass
+    drawCompassArrowOnMinimap(mmX, mmY, mmSize);
     // camera viewport box
     const vx = (camera.x / (MAP_W * TILE)) * mmSize;
     const vy = (camera.y / (MAP_H * TILE)) * mmSize;
