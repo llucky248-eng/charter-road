@@ -480,10 +480,10 @@
                                                                             const ITERATION = {
     version: 'v0.0.50',
     whatsNew: [
-      'Hotfix: fixed inline boot watchdog string (prevents JS parse error that caused Loading… + black screen).',
+      'iOS in-app browsers: show an early "Open in Safari" hint to recover from blank/Loading screens.',
     ],
     whatsNext: [
-      'Re-validate contracts board UI on iOS after boot guard works.',
+      'Confirm whether blank starts correlate with specific in-app browsers (FB/IG/Line/WeChat) and tighten detection.',
     ],
   };
 
