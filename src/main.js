@@ -477,15 +477,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                              const ITERATION = {
-    version: 'v0.0.52',
+                                                                                const ITERATION = {
+    version: 'v0.0.53',
     whatsNew: [
-      'Hotfix: fixed crash on iOS caused by broken tile renderer; game boots again.',
-      'Contracts Board restored (board tile + sheet + delivery).',
+      'Hotfix: force-refresh HTML + main.js (no-cache meta + new loader version) to avoid GitHub Pages stale assets.',
+      'Fix for iOS crash: contracts tile renderer now correctly inside drawTile().',
     ],
     whatsNext: [
-      'Add contracts minimap marker and reward scaling.',
-      'Checkpoint/patrol events outside cities.',
+      'Validate contracts board end-to-end on iPhone Safari.',
+      'Contracts: minimap marker + reward scaling.',
     ],
   };
 
