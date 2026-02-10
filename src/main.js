@@ -476,16 +476,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                    const ITERATION = {
-    version: 'v0.0.46',
+                                                                      const ITERATION = {
+    version: 'v0.0.47',
     whatsNew: [
-      'Contracts Board: restored board tiles + full-screen contract sheet in cities.',
-      'Safety: runtime errors are now captured and displayed (no more silent black screen).',
+      'Hotfix: added early boot crash overlay in index.html (shows errors even if main.js fails to start).',
+      'Contracts Board (v0.0.46) + crash guard (carryover).',
     ],
     whatsNext: [
+      'Pinpoint the v0.0.46 black-screen root cause and re-enable contracts safely.',
       'Contracts: minimap marker + reward scaling.',
-      'Checkpoint/patrol events outside cities (rep consequences).',
-      'More encounter variety + outcomes.',
+      'Checkpoint/patrol events outside cities.',
     ],
   };
 

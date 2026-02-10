@@ -110,6 +110,33 @@
     </div>
   </div>
 
-  <script src="./src/main.js?v=0.0.46"></script>
+  <div id="fatal" style="display:none; margin:16px auto; max-width:900px; padding:12px 14px; border:1px solid rgba(255,255,255,0.15); border-radius:12px; background:rgba(80,10,10,0.35); color:#fecaca; font:14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space:pre-wrap;"></div>
+
+  <script>
+    // Early crash guard: catches parse/load/runtime errors even if main.js never starts.
+    (function(){
+      const fatalEl = document.getElementById('fatal');
+      function showFatal(msg){
+        try {
+          fatalEl.style.display = 'block';
+          fatalEl.textContent = 'Charter Road failed to start. Please screenshot this:\n\n' + String(msg || 'Unknown error');
+        } catch(e) {}
+      }
+      window.addEventListener('error', function(e){
+        const err = (e && (e.error || e.message)) || e;
+        showFatal(err && (err.stack || err.message) || err);
+      });
+      window.addEventListener('unhandledrejection', function(e){
+        const err = (e && e.reason) || e;
+        showFatal(err && (err.stack || err.message) || err);
+      });
+
+      var s = document.createElement('script');
+      s.src = './src/main.js?v=0.0.47';
+      s.async = false;
+      s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
+      document.body.appendChild(s);
+    })();
+  </script>
 </body>
 </html>
