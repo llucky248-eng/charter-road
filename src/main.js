@@ -15,6 +15,18 @@
 
   const ctx = canvas.getContext('2d');
 
+
+  // Crash guard: never fail silently (prevents blank screen reports)
+  window.__crash = { msg: null };
+  window.addEventListener('error', (e) => {
+    const err = e?.error || e;
+    window.__crash.msg = String(err && (err.stack || err.message) || err);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const err = e?.reason || e;
+    window.__crash.msg = String(err && (err.stack || err.message) || err);
+  });
+
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
@@ -464,16 +476,16 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                  const ITERATION = {
-    version: 'v0.0.40',
+                                                                    const ITERATION = {
+    version: 'v0.0.46',
     whatsNew: [
-      'Contracts Board: added a contract tile in each city with 3 rotating delivery jobs.',
-      'Contracts: accept/track one active job; deliver in the other city for payout + rep.',
+      'Contracts Board: restored board tiles + full-screen contract sheet in cities.',
+      'Safety: runtime errors are now captured and displayed (no more silent black screen).',
     ],
     whatsNext: [
-      'Contracts: show marker on minimap + better rewards scaling.',
+      'Contracts: minimap marker + reward scaling.',
       'Checkpoint/patrol events outside cities (rep consequences).',
-      'Tune encounter variety + outcomes.',
+      'More encounter variety + outcomes.',
     ],
   };
 
@@ -1893,6 +1905,8 @@ function drawEvent() {
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
 
+    try {
+
     // City entry inspection (runs when crossing into a city region)
     {
       const cNow = currentCity();
@@ -2067,6 +2081,30 @@ function drawEvent() {
     drawMarket();
     drawContracts();
     drawEvent();
+
+
+    } catch (err) {
+      console.error(err);
+      window.__crash.msg = String(err && (err.stack || err.message) || err);
+    }
+
+    if (window.__crash.msg) {
+      ctx.save();
+      ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#0b0f14';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#fecaca';
+      ctx.font = `${Math.round(14 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      const lines = String(window.__crash.msg).split('\n').slice(0, 10);
+      let y = Math.round(28 * UI_SCALE);
+      ctx.fillText('Runtime error (screenshot this):', Math.round(12 * UI_SCALE), y);
+      y += Math.round(22 * UI_SCALE);
+      for (const ln of lines) {
+        ctx.fillText(ln.slice(0, 140), Math.round(12 * UI_SCALE), y);
+        y += Math.round(18 * UI_SCALE);
+      }
+      ctx.restore();
+    }
 
     requestAnimationFrame(tick);
   }
