@@ -477,13 +477,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                            const ITERATION = {
-    version: 'v0.0.51',
+                                                                              const ITERATION = {
+    version: 'v0.0.52',
     whatsNew: [
-      'Boot failures now include iOS in-app browser guidance ("Open in Safari") in the fatal overlay.',
+      'Hotfix: fixed crash on iOS caused by broken tile renderer; game boots again.',
+      'Contracts Board restored (board tile + sheet + delivery).',
     ],
     whatsNext: [
-      'Confirm whether blank starts correlate with specific in-app browsers (FB/IG/Line/WeChat) and tighten detection.',
+      'Add contracts minimap marker and reward scaling.',
+      'Checkpoint/patrol events outside cities.',
     ],
   };
 
@@ -1135,9 +1137,6 @@
       ctx.fillRect(x, y, 1, TILE);
       return;
     }
-  }
-
-
 
     if (id === 12) { // contracts board
       ctx.fillStyle = '#5b4b3a';
@@ -1149,6 +1148,9 @@
       ctx.fillRect(x+4, y+9, TILE-8, 2);
       return;
     }
+
+  }
+
   function drawWorld() {
     const camX = Math.floor(camera.x);
     const camY = Math.floor(camera.y);
