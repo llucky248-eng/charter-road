@@ -3,17 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-VER=${1:-}
-if [[ -z "$VER" ]]; then
-  echo "Usage: bash ops/scripts/iterate.sh v0.0.54"
-  exit 1
-fi
+ARG="${1:-+patch}"
 
+node ops/scripts/bump_version.mjs "$ARG"
 bash ops/scripts/smoke_local.sh
-node ops/scripts/bump_version.mjs "$VER"
 
 echo
-echo "Next steps:"
+echo "Next:"
 echo "  git status"
-echo "  git add -A && git commit -m \"$VER\" && git push"
-echo "  node ops/scripts/pages_check.mjs $VER"
+echo "  git add -A && git commit -m \"v${ARG#v}\" && git push"
+echo "  node ops/scripts/pages_check.mjs v$(node ops/scripts/read_expected_version.mjs)"

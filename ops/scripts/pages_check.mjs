@@ -1,38 +1,17 @@
 #!/usr/bin/env node
-import https from 'node:https';
+import fs from 'node:fs';
 
-function fetch(url){
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', (c) => data += c);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
-    }).on('error', reject);
-  });
-}
+function die(msg){ console.error('FAIL:', msg); process.exit(1); }
 
-function die(msg){
-  console.error('FAIL:', msg);
-  process.exit(1);
-}
+const expected = (process.argv[2] || '').replace(/^v/,'');
+if (!/^\d+\.\d+\.\d+$/.test(expected)) die('Usage: node ops/scripts/pages_check.mjs v0.0.54');
 
-const expected = process.argv[2];
-if (!expected || !/^v\d+\.\d+\.\d+$/.test(expected)) {
-  die('Usage: node ops/scripts/pages_check.mjs <expectedVersion>  (e.g., v0.0.54)');
-}
+const url = `https://llucky248-eng.github.io/charter-road/?v=${expected}`;
+const res = await fetch(url);
+if (!res.ok) die(`HTTP ${res.status} fetching ${url}`);
+const html = await res.text();
 
-const url = `https://llucky248-eng.github.io/charter-road/?v=${expected.replace(/^v/,'')}`;
-const {status, body} = await fetch(url);
-if (status !== 200) die(`HTTP ${status} fetching ${url}`);
+if (!html.includes(`HTML build: v${expected}`)) die(`HTML build mismatch (expected v${expected})`);
+if (!html.includes(`./src/main.js?v=${expected}`)) die(`loader main.js?v mismatch (expected ${expected})`);
 
-// Check HTML build tag and loader query
-const q = expected.replace(/^v/,'');
-if (!body.includes(`HTML build: v${q}`)) {
-  die(`HTML build tag mismatch (expected v${q})`);
-}
-if (!body.includes(`./src/main.js?v=${q}`)) {
-  die(`Loader script mismatch (expected main.js?v=${q})`);
-}
-
-console.log('PASS: Pages HTML contains expected build + loader');
-console.log(url);
+console.log('PASS:', url);

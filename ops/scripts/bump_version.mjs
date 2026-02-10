@@ -1,34 +1,41 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 
-const repoRoot = new URL('../../', import.meta.url).pathname;
+function die(msg){ console.error('ERROR:', msg); process.exit(1); }
 
-function die(msg){
-  console.error('ERROR:', msg);
-  process.exit(1);
-}
+const arg = process.argv[2] || '+patch';
 
-const next = process.argv[2];
-if (!next) die('Usage: node ops/scripts/bump_version.mjs <version>  (e.g., v0.0.54)');
-if (!/^v\d+\.\d+\.\d+$/.test(next)) die('Version must look like v0.0.54');
-const q = next.replace(/^v/, '');
+const INDEX='index.html';
+const MAIN='src/main.js';
 
-const mainPath = repoRoot + 'src/main.js';
-const htmlPath = repoRoot + 'index.html';
+const indexHtml = fs.readFileSync(INDEX,'utf8');
+const mainJs = fs.readFileSync(MAIN,'utf8');
 
-let main = fs.readFileSync(mainPath, 'utf8');
-let html = fs.readFileSync(htmlPath, 'utf8');
+const m = mainJs.match(/version\s*:\s*'v(\d+\.\d+\.\d+)'/);
+if (!m) die('Could not find ITERATION.version in src/main.js');
+const cur = m[1];
 
-// 1) Update ITERATION.version
-main = main.replace(/version:\s*'v\d+\.\d+\.\d+'/m, `version: '${next}'`);
+function parse(v){ const mm=String(v).match(/^(\d+)\.(\d+)\.(\d+)$/); return mm?{a:+mm[1],b:+mm[2],c:+mm[3]}:null; }
+function fmt(o){ return `${o.a}.${o.b}.${o.c}`; }
+function bumpPatch(v){ const o=parse(v); if(!o) return null; o.c++; return fmt(o); }
 
-// 2) Update loader main.js?v=...
-html = html.replace(/\.\/src\/main\.js\?v=\d+\.\d+\.\d+/g, `./src/main.js?v=${q}`);
+let next;
+if (arg === '+patch') next = bumpPatch(cur);
+else if (arg.startsWith('v')) next = arg.slice(1);
+else next = arg;
+if (!parse(next)) die(`Invalid version arg: ${arg}`);
 
-// 3) Update HTML build tag if present
-html = html.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${q}`);
+let idx = indexHtml;
+let js = mainJs;
 
-fs.writeFileSync(mainPath, main);
-fs.writeFileSync(htmlPath, html);
+idx = idx.replace(/(\.\/src\/main\.js\?v=)(\d+\.\d+\.\d+)/g, `$1${next}`);
+idx = idx.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${next}`);
+js = js.replace(/version\s*:\s*'v\d+\.\d+\.\d+'/m, `version: 'v${next}'`);
 
-console.log(`Bumped to ${next} (main.js?v=${q})`);
+if (idx===indexHtml) die('index.html not updated (no matches)');
+if (js===mainJs) die('src/main.js not updated (no matches)');
+
+fs.writeFileSync(INDEX, idx);
+fs.writeFileSync(MAIN, js);
+
+console.log(`Bumped version: ${cur} -> ${next}`);
