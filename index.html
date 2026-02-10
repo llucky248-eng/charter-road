@@ -107,7 +107,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.50</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.51</div>
     </div>
   </div>
 
@@ -131,7 +131,9 @@
         var ua = (navigator && navigator.userAgent) ? navigator.userAgent : '';
         var isIOS = /iP(hone|od|ad)/.test(ua);
         var isInApp = /(FBAN|FBAV|Instagram|Line|WeChat|MicroMessenger)/i.test(ua);
-        if (isIOS && isInApp) {
+        var inAppIOS = isIOS && isInApp;
+        window.__INAPP_IOS = inAppIOS;
+        if (inAppIOS) {
           var host = document.getElementById('devlog');
           if (host && !document.getElementById('inapp-hint')) {
             var hint = document.createElement('div');
@@ -149,7 +151,11 @@
       function showFatal(msg){
         try {
           fatalEl.style.display = 'block';
-          fatalEl.textContent = 'Charter Road failed to start. Please screenshot this:\n\n' + String(msg || 'Unknown error');
+          var extra = '';
+          if (window.__INAPP_IOS) {
+            extra = '\n\nPossible cause: iOS in-app browser blocked scripts. Try: Share → Open in Browser (Safari).';
+          }
+          fatalEl.textContent = 'Charter Road failed to start. Please screenshot this:\n\n' + String(msg || 'Unknown error') + extra;
         } catch(e) {}
       }
       window.addEventListener('error', function(e){
@@ -162,7 +168,7 @@
       });
 
       var s = document.createElement('script');
-      s.src = './src/main.js?v=0.0.50';
+      s.src = './src/main.js?v=0.0.51';
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);

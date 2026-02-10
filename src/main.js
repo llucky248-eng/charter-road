@@ -478,9 +478,9 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                             const ITERATION = {
-    version: 'v0.0.50',
+    version: 'v0.0.51',
     whatsNew: [
-      'iOS in-app browsers: show an early "Open in Safari" hint to recover from blank/Loading screens.',
+      'Boot failures now include iOS in-app browser guidance ("Open in Safari") in the fatal overlay.',
     ],
     whatsNext: [
       'Confirm whether blank starts correlate with specific in-app browsers (FB/IG/Line/WeChat) and tighten detection.',
