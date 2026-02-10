@@ -132,10 +132,19 @@
       });
 
       var s = document.createElement('script');
-      s.src = './src/main.js?v=0.0.47';
+      s.src = './src/main.js?v=0.0.48';
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);
+
+      // BOOT_WATCHDOG: if game doesn't signal boot within 1.5s, show a helpful message.
+      setTimeout(function(){
+        if (!window.__BOOT_OK) {
+          showFatal('Boot watchdog: main.js loaded but did not start the game loop.
+Try: hard refresh / clear site data. If persists, screenshot this page.');
+        }
+      }, 1500);
+
     })();
   </script>
 </body>

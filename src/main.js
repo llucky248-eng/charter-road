@@ -3,6 +3,7 @@
 */
 
 (() => {
+  window.__BOOT_OK = true;
   const canvas = document.getElementById('game');
   if (!canvas) throw new Error('Missing canvas');
 
@@ -476,16 +477,13 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                      const ITERATION = {
-    version: 'v0.0.47',
+                                                                        const ITERATION = {
+    version: 'v0.0.48',
     whatsNew: [
-      'Hotfix: added early boot crash overlay in index.html (shows errors even if main.js fails to start).',
-      'Contracts Board (v0.0.46) + crash guard (carryover).',
+      'Hotfix: boot watchdog now shows a visible error if the game fails to start (even with no JS error).',
     ],
     whatsNext: [
-      'Pinpoint the v0.0.46 black-screen root cause and re-enable contracts safely.',
-      'Contracts: minimap marker + reward scaling.',
-      'Checkpoint/patrol events outside cities.',
+      'Identify and fix the contracts regression causing blank starts on some phones.',
     ],
   };
 
@@ -1318,6 +1316,7 @@
     const maxTextW = IS_MOBILE
       ? Math.max(80, VIEW_W - pad - titleX)
       : (() => {
+  window.__BOOT_OK = true;
           const rightX = VIEW_W - pad;
           const coinX = rightX - Math.round(180 * UI_SCALE);
           const textRight = coinX - Math.round(18 * UI_SCALE);
