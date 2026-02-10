@@ -477,13 +477,13 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                        const ITERATION = {
-    version: 'v0.0.48',
+                                                                          const ITERATION = {
+    version: 'v0.0.49',
     whatsNew: [
-      'Hotfix: boot watchdog now shows a visible error if the game fails to start (even with no JS error).',
+      'Hotfix: HTML shows build tag + inline JS probe so we can tell if scripts are being blocked.',
     ],
     whatsNext: [
-      'Identify and fix the contracts regression causing blank starts on some phones.',
+      'If scripts are blocked in iOS in-app browser, add an explicit "Open in Safari" prompt.',
     ],
   };
 
