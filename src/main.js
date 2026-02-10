@@ -477,13 +477,13 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                          const ITERATION = {
-    version: 'v0.0.49',
+                                                                            const ITERATION = {
+    version: 'v0.0.50',
     whatsNew: [
-      'Hotfix: HTML shows build tag + inline JS probe so we can tell if scripts are being blocked.',
+      'Hotfix: fixed inline boot watchdog string (prevents JS parse error that caused Loading… + black screen).',
     ],
     whatsNext: [
-      'If scripts are blocked in iOS in-app browser, add an explicit "Open in Safari" prompt.',
+      'Re-validate contracts board UI on iOS after boot guard works.',
     ],
   };
 
