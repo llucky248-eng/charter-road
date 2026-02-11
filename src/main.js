@@ -525,11 +525,10 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                  const ITERATION = {
-    version: 'v0.0.62',
+                                                                                                    const ITERATION = {
+    version: 'v0.0.63',
     whatsNew: [
-      'Mobile Market: fixed modal bounds math (no more overlap creep).',
-      'Mobile Market: tap an item to select it; drag scrolling tuned and unified.',
+      'Mobile Market: fixed list escaping modal by rebalancing modal/header/footer sizing and anchoring cards to sheet bounds.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1555,10 +1554,10 @@
 
       // True modal sheet: full-screen dim, bounded parchment panel above on-screen controls
       // NOTE: VIEW_H is small on mobile; avoid scaling safe area with UI_SCALE.
-      const CONTROLS_SAFE_H = 240; // px in internal canvas space
+      const CONTROLS_SAFE_H = 190; // px in internal canvas space
       const sheetTop = pad;
-      const sheetBottom = Math.max(sheetTop + 220, VIEW_H - CONTROLS_SAFE_H);
-      const sheetH = Math.max(220, sheetBottom - sheetTop);
+      const sheetBottom = Math.max(sheetTop + 300, VIEW_H - CONTROLS_SAFE_H);
+      const sheetH = Math.max(300, sheetBottom - sheetTop);
       const sheetX = pad;
       const sheetW = VIEW_W - pad*2;
 
@@ -1578,7 +1577,7 @@
 
       
       // header
-      const headerH = Math.round(108 * UI_SCALE);
+      const headerH = 96;
       const innerX = sheetX + 16;
       const innerW = sheetW - 32;
 
@@ -1610,8 +1609,8 @@
       ctx.fillText('CLOSE', closeX + Math.round(12*UI_SCALE), closeY + Math.round(20*UI_SCALE));
 
       // BUY/SELL tabs (tap friendly)
-      const tabY = sheetTop + Math.round(64 * UI_SCALE);
-      const tabH = Math.round(44 * UI_SCALE);
+      const tabY = sheetTop + 58;
+      const tabH = 40;
       const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
       const tabGap = Math.round(12 * UI_SCALE);
       const buyX = innerX;
@@ -1639,11 +1638,11 @@
       drawTab(sellX, 'SELL', ui.mode === 'sell');
 
       // list viewport
-      const footerH = Math.round(92 * UI_SCALE);
+      const footerH = 86;
       const listTop = sheetTop + headerH;
       const listBottom = sheetTop + sheetH - Math.round(12 * UI_SCALE) - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = Math.round(64 * UI_SCALE); // card height
+      const rowH = 60; // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
 
       const totalN = ITEMS.length + 1; // +1 permit row
@@ -1669,8 +1668,8 @@
         ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(pad + 12, cardY, VIEW_W - pad*2 - 24, cardH, 14);
-        else ctx.rect(pad + 12, cardY, VIEW_W - pad*2 - 24, cardH);
+        if (ctx.roundRect) ctx.roundRect(sheetX + 12, cardY, sheetW - 24, cardH, 14);
+        else ctx.rect(sheetX + 12, cardY, sheetW - 24, cardH);
         ctx.fill();
         ctx.stroke();
 
@@ -1686,7 +1685,7 @@
 
         // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, VIEW_W - pad - 16, cardY + Math.round(20 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, sheetX + sheetW - 16, cardY + Math.round(20 * UI_SCALE));
         ctx.textAlign = 'left';
 
         // subline
@@ -1698,7 +1697,7 @@
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
           ctx.strokeStyle = 'rgba(249,115,22,0.55)';
           ctx.beginPath();
-          const bx = VIEW_W - pad - 16 - Math.round(86 * UI_SCALE);
+          const bx = sheetX + sheetW - 16 - Math.round(86 * UI_SCALE);
           const byy = cardY + Math.round(30 * UI_SCALE);
           const bw = Math.round(86 * UI_SCALE);
           const bh = Math.round(22 * UI_SCALE);
