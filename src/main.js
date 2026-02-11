@@ -202,14 +202,19 @@
   };
 
   canvas.addEventListener('touchstart', (e) => {
-    if (!IS_MOBILE || !ui.marketOpen) return;
+    if (!IS_MOBILE) return;
+    if (!ui.marketOpen && !ui.eventOpen) return;
+
     const t = e.touches && e.touches[0];
     if (!t) return;
     const { sx, sy } = getTouchPos(t);
-    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
+
+    const kind = ui.marketOpen ? 'market' : 'event';
+    const L = kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
+
     if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
-      ui._drag = { kind: 'market', lastY: sy, acc: 0 };
+      ui._drag = { kind, lastY: sy, acc: 0 };
       e.preventDefault();
     }
   }, { passive: false });
@@ -477,10 +482,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                    const ITERATION = {
-    version: 'v0.0.55',
+                                                                                      const ITERATION = {
+    version: 'v0.0.56',
     whatsNew: [
-      'Mobile Market: sheet no longer overlaps on-screen controls (reserves bottom safe area).',
+      'Hotfix: fixed mobile touchstart crash when starting a drag scroll (Market/Event).',
+      'Mobile Market: keeps bottom safe area (no overlap with on-screen controls).',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
