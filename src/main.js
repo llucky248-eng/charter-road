@@ -123,6 +123,17 @@
       }
     }
 
+
+
+    // list: tap to select item (does not auto-confirm)
+    const L = ui._marketList;
+    if (L && sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
+      const vi = Math.floor((sy - L.y) / L.rowH);
+      const i = clamp(ui.marketScroll + vi, 0, ITEMS.length); // includes permit row
+      ui.selection = i;
+      toast('Selected', 0.6);
+      return true;
+    }
     return false;
   }
 // Touch UI -> virtual keys
@@ -165,7 +176,13 @@
 
 
 
-  // Canvas touch drag for scrolling lists (mobile popups)
+  
+
+  function dragScrollMove(dy) {
+    if (!ui._drag) return;
+    dragScrollMove(dy);
+  }
+// Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
     if (!IS_MOBILE) return;
     if (!ui.marketOpen && !ui.eventOpen) return;
@@ -263,17 +280,7 @@
     const { sy } = getTouchPos(t);
     const dy = sy - ui._drag.lastY;
     ui._drag.lastY = sy;
-    ui._drag.acc += dy;
-
-    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
-    if (!L) return;
-    const step = Math.max(8, L.rowH * 0.6);
-    if (Math.abs(ui._drag.acc) >= step) {
-      const n = (ui._drag.acc / step) | 0;
-      if (ui._drag.kind === 'market') ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
-      else ui.eventScroll = clamp(ui.eventScroll - n, 0, L.scrollMax);
-      ui._drag.acc -= n * step;
-    }
+    dragScrollMove(dy);
     e.preventDefault();
   }, { passive: false });
 
@@ -518,11 +525,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                const ITERATION = {
-    version: 'v0.0.61',
+                                                                                                  const ITERATION = {
+    version: 'v0.0.62',
     whatsNew: [
-      'Mobile Market: BUY/SELL tabs + CLOSE are now tappable (touch + pointer).',
-      'Mobile Market: true modal sheet redesign (carryover).',
+      'Mobile Market: fixed modal bounds math (no more overlap creep).',
+      'Mobile Market: tap an item to select it; drag scrolling tuned and unified.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1547,10 +1554,11 @@
     if (IS_MOBILE) {      const pad = Math.round(14 * UI_SCALE);
 
       // True modal sheet: full-screen dim, bounded parchment panel above on-screen controls
-      const CONTROLS_SAFE_H = Math.round(260 * UI_SCALE);
+      // NOTE: VIEW_H is small on mobile; avoid scaling safe area with UI_SCALE.
+      const CONTROLS_SAFE_H = 240; // px in internal canvas space
       const sheetTop = pad;
-      const sheetBottom = Math.max(sheetTop + Math.round(260 * UI_SCALE), VIEW_H - CONTROLS_SAFE_H);
-      const sheetH = Math.max(Math.round(320 * UI_SCALE), sheetBottom - sheetTop);
+      const sheetBottom = Math.max(sheetTop + 220, VIEW_H - CONTROLS_SAFE_H);
+      const sheetH = Math.max(220, sheetBottom - sheetTop);
       const sheetX = pad;
       const sheetW = VIEW_W - pad*2;
 
@@ -1732,7 +1740,6 @@
       ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(10 * UI_SCALE));
 
-      return;
       return;
     }
 
