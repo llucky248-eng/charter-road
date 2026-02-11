@@ -483,10 +483,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                            const ITERATION = {
-    version: 'v0.0.59',
+                                                                                              const ITERATION = {
+    version: 'v0.0.60',
     whatsNew: [
-      'Mobile Market: fixed BUY/SELL tab overlap by keeping item cards fully inside the list viewport.',
+      'Mobile Market: redesigned as a true modal sheet (no more HUD/text bleed).',
+      'Mobile Market: added a tap CLOSE button in the header.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -502,6 +503,7 @@
     marketScroll: 0, // first visible item index
     _marketList: null,
     _marketTabs: null,
+    _marketClose: null,
     _drag: null,
     mode: 'buy', // buy|sell
     navT: 0,
@@ -1507,15 +1509,15 @@
 
 
     // MOBILE MARKET SHEET (full-screen)
-    if (IS_MOBILE) {
-      const pad = Math.round(14 * UI_SCALE);
-      const boxW = VIEW_W;
-      // Reserve space for on-screen controls so the sheet doesn’t overlap them.
-      const CONTROLS_SAFE_H = Math.round(240 * UI_SCALE);
-      const bottomY = Math.max(0, VIEW_H - CONTROLS_SAFE_H);
-      const boxH = Math.max(Math.round(280 * UI_SCALE), bottomY);
-      const bx = 0;
-      const by = 0;
+    if (IS_MOBILE) {      const pad = Math.round(14 * UI_SCALE);
+
+      // True modal sheet: full-screen dim, bounded parchment panel above on-screen controls
+      const CONTROLS_SAFE_H = Math.round(260 * UI_SCALE);
+      const sheetTop = pad;
+      const sheetBottom = Math.max(sheetTop + Math.round(260 * UI_SCALE), VIEW_H - CONTROLS_SAFE_H);
+      const sheetH = Math.max(Math.round(320 * UI_SCALE), sheetBottom - sheetTop);
+      const sheetX = pad;
+      const sheetW = VIEW_W - pad*2;
 
       // dim backdrop
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1526,27 +1528,46 @@
       ctx.strokeStyle = 'rgba(120, 92, 60, 0.85)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(pad, pad, boxW - pad*2, boxH - pad*2, 18);
-      else ctx.rect(pad, pad, boxW - pad*2, boxH - pad*2);
+      if (ctx.roundRect) ctx.roundRect(sheetX, sheetTop, sheetW, sheetH, 18);
+      else ctx.rect(sheetX, sheetTop, sheetW, sheetH);
       ctx.fill();
       ctx.stroke();
 
       
       // header
-      const headerH = Math.round(126 * UI_SCALE);
-      const innerX = pad + 16;
-      const innerW = VIEW_W - pad*2 - 32;
+      const headerH = Math.round(108 * UI_SCALE);
+      const innerX = sheetX + 16;
+      const innerW = sheetW - 32;
 
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`${c.name} Market`, innerX, pad + 30);
+      ctx.fillText(`${c.name} Market`, innerX, sheetTop + Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(rules.vibe, innerX, pad + 48);
+      ctx.fillText(rules.vibe, innerX, sheetTop + Math.round(50 * UI_SCALE));
+
+
+      // close button (tap)
+      const closeW = Math.round(72 * UI_SCALE);
+      const closeH = Math.round(30 * UI_SCALE);
+      const closeX = sheetX + sheetW - closeW - Math.round(10 * UI_SCALE);
+      const closeY = sheetTop + Math.round(14 * UI_SCALE);
+      ui._marketClose = { x: closeX, y: closeY, w: closeW, h: closeH };
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.strokeStyle = 'rgba(120, 92, 60, 0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(closeX, closeY, closeW, closeH, 10);
+      else ctx.rect(closeX, closeY, closeW, closeH);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#2a1f14';
+      ctx.font = `900 ${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText('CLOSE', closeX + Math.round(12*UI_SCALE), closeY + Math.round(20*UI_SCALE));
 
       // BUY/SELL tabs (tap friendly)
-      const tabY = pad + Math.round(58 * UI_SCALE);
+      const tabY = sheetTop + Math.round(64 * UI_SCALE);
       const tabH = Math.round(44 * UI_SCALE);
       const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
       const tabGap = Math.round(12 * UI_SCALE);
@@ -1575,9 +1596,9 @@
       drawTab(sellX, 'SELL', ui.mode === 'sell');
 
       // list viewport
-      const footerH = Math.round(96 * UI_SCALE);
-      const listTop = pad + headerH;
-      const listBottom = by + boxH - pad - footerH;
+      const footerH = Math.round(92 * UI_SCALE);
+      const listTop = sheetTop + headerH;
+      const listBottom = sheetTop + sheetH - Math.round(12 * UI_SCALE) - footerH;
       const listH = Math.max(40, listBottom - listTop);
       const rowH = Math.round(64 * UI_SCALE); // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
@@ -1587,7 +1608,7 @@
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
 
       // expose list rect for touch scrolling
-      ui._marketList = { x: pad, y: listTop, w: VIEW_W - pad*2, h: listH, rowH, scrollMax };
+      ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax };
 
       for (let vi = 0; vi < visibleN; vi++) {
         const i = ui.marketScroll + vi;
@@ -1650,7 +1671,7 @@
 
       // scrollbar indicator
       if (scrollMax > 0) {
-        const trackX = VIEW_W - pad - Math.round(10 * UI_SCALE);
+        const trackX = sheetX + sheetW - Math.round(10 * UI_SCALE);
         const trackY = listTop;
         const trackH = visibleN * rowH;
         ctx.fillStyle = 'rgba(0,0,0,0.10)';
@@ -1664,17 +1685,17 @@
 
       // pinned footer
       ctx.fillStyle = 'rgba(10, 14, 20, 0.10)';
-      ctx.fillRect(pad, by + boxH - pad - footerH, VIEW_W - pad*2, footerH);
+      ctx.fillRect(sheetX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - footerH, sheetW, footerH);
 
       const w = invWeight();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Gold: ${player.gold}g`, innerX, by + boxH - pad - Math.round(56 * UI_SCALE));
-      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, by + boxH - pad - Math.round(28 * UI_SCALE));
+      ctx.fillText(`Gold: ${player.gold}g`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(56 * UI_SCALE));
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, by + boxH - pad - Math.round(10 * UI_SCALE));
+      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(10 * UI_SCALE));
 
       return;
       return;
