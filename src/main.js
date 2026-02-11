@@ -95,7 +95,37 @@
     return true;
   };
 
-  // Touch UI -> virtual keys
+  
+
+  function handleMarketTap(sx, sy) {
+    if (!ui.marketOpen) return false;
+
+    // close
+    const C = ui._marketClose;
+    if (C && sx >= C.x && sx <= C.x + C.w && sy >= C.y && sy <= C.y + C.h) {
+      ui.marketOpen = false;
+      toast('Market closed', 1.6);
+      return true;
+    }
+
+    // tabs
+    const T = ui._marketTabs;
+    if (T) {
+      if (sx >= T.buy.x && sx <= T.buy.x + T.buy.w && sy >= T.buy.y && sy <= T.buy.y + T.buy.h) {
+        ui.mode = 'buy';
+        toast('BUY', 0.7);
+        return true;
+      }
+      if (sx >= T.sell.x && sx <= T.sell.x + T.sell.w && sy >= T.sell.y && sy <= T.sell.y + T.sell.h) {
+        ui.mode = 'sell';
+        toast('SELL', 0.7);
+        return true;
+      }
+    }
+
+    return false;
+  }
+// Touch UI -> virtual keys
   const touchUi = document.getElementById('touch-ui');
   if (touchUi) {
     // Prevent iOS/Android long-press selection/callout + context menu
@@ -142,6 +172,8 @@
     const r = canvas.getBoundingClientRect();
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
+
+    if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
     const kind = ui.marketOpen ? 'market' : 'event';
     const L = kind === 'market' ? ui._marketList : ui._eventList;
     if (!L) return;
@@ -209,6 +241,9 @@
     const t = e.touches && e.touches[0];
     if (!t) return;
     const { sx, sy } = getTouchPos(t);
+
+
+    if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
 
     const kind = ui.marketOpen ? 'market' : 'event';
     const L = kind === 'market' ? ui._marketList : ui._eventList;
@@ -483,11 +518,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                              const ITERATION = {
-    version: 'v0.0.60',
+                                                                                                const ITERATION = {
+    version: 'v0.0.61',
     whatsNew: [
-      'Mobile Market: redesigned as a true modal sheet (no more HUD/text bleed).',
-      'Mobile Market: added a tap CLOSE button in the header.',
+      'Mobile Market: BUY/SELL tabs + CLOSE are now tappable (touch + pointer).',
+      'Mobile Market: true modal sheet redesign (carryover).',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
