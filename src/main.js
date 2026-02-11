@@ -483,11 +483,10 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                          const ITERATION = {
-    version: 'v0.0.58',
+                                                                                            const ITERATION = {
+    version: 'v0.0.59',
     whatsNew: [
-      'Mobile Market: tightened header so BUY/SELL tabs sit higher (more room for the list).',
-      'Hotfixes: mobile drag scrolling is stable (touch + pointer).',
+      'Mobile Market: fixed BUY/SELL tab overlap by keeping item cards fully inside the list viewport.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1599,13 +1598,15 @@
         const y = listTop + vi * rowH;
         const selected = i === ui.selection;
 
-        // card background
+        // card background (keep fully inside the list viewport)
+        const cardY = y + Math.round(6 * UI_SCALE);
+        const cardH = rowH - Math.round(12 * UI_SCALE);
         ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.16)' : 'rgba(0,0,0,0.05)';
         ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(pad + 12, y - Math.round(44 * UI_SCALE), VIEW_W - pad*2 - 24, Math.round(56 * UI_SCALE), 14);
-        else ctx.rect(pad + 12, y - Math.round(44 * UI_SCALE), VIEW_W - pad*2 - 24, Math.round(56 * UI_SCALE));
+        if (ctx.roundRect) ctx.roundRect(pad + 12, cardY, VIEW_W - pad*2 - 24, cardH, 14);
+        else ctx.rect(pad + 12, cardY, VIEW_W - pad*2 - 24, cardH);
         ctx.fill();
         ctx.stroke();
 
@@ -1617,24 +1618,24 @@
         // name
         ctx.fillStyle = '#2a1f14';
         ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, y - Math.round(18 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + Math.round(20 * UI_SCALE));
 
         // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, VIEW_W - pad - 16, y - Math.round(18 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, VIEW_W - pad - 16, cardY + Math.round(20 * UI_SCALE));
         ctx.textAlign = 'left';
 
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, y + Math.round(4 * UI_SCALE));
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + Math.round(42 * UI_SCALE));
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
           ctx.strokeStyle = 'rgba(249,115,22,0.55)';
           ctx.beginPath();
           const bx = VIEW_W - pad - 16 - Math.round(86 * UI_SCALE);
-          const byy = y + Math.round(8 * UI_SCALE);
+          const byy = cardY + Math.round(30 * UI_SCALE);
           const bw = Math.round(86 * UI_SCALE);
           const bh = Math.round(22 * UI_SCALE);
           if (ctx.roundRect) ctx.roundRect(bx, byy, bw, bh, 10);
