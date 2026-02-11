@@ -477,15 +477,14 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                  const ITERATION = {
-    version: 'v0.0.54',
+                                                                                    const ITERATION = {
+    version: 'v0.0.55',
     whatsNew: [
-      'Contracts: added compass arrow on the minimap pointing to your active contract destination.',
-      'Stability: keeps crash/fatal overlay + no-cache loader.',
+      'Mobile Market: sheet no longer overlaps on-screen controls (reserves bottom safe area).',
     ],
     whatsNext: [
-      'Contracts: reward scaling + minimap destination highlight.',
-      'Checkpoint/patrol events outside cities (rep consequences).',
+      'Contracts: pinned active contract HUD line + reward scaling.',
+      'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
     ],
   };
 
@@ -1505,7 +1504,10 @@
     if (IS_MOBILE) {
       const pad = Math.round(14 * UI_SCALE);
       const boxW = VIEW_W;
-      const boxH = VIEW_H;
+      // Reserve space for on-screen controls so the sheet doesn’t overlap them.
+      const CONTROLS_SAFE_H = Math.round(240 * UI_SCALE);
+      const bottomY = Math.max(0, VIEW_H - CONTROLS_SAFE_H);
+      const boxH = Math.max(Math.round(280 * UI_SCALE), bottomY);
       const bx = 0;
       const by = 0;
 
@@ -1569,7 +1571,7 @@
       // list viewport
       const footerH = Math.round(96 * UI_SCALE);
       const listTop = pad + headerH;
-      const listBottom = VIEW_H - pad - footerH;
+      const listBottom = by + boxH - pad - footerH;
       const listH = Math.max(40, listBottom - listTop);
       const rowH = Math.round(64 * UI_SCALE); // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
@@ -1654,17 +1656,17 @@
 
       // pinned footer
       ctx.fillStyle = 'rgba(10, 14, 20, 0.10)';
-      ctx.fillRect(pad, VIEW_H - pad - footerH, VIEW_W - pad*2, footerH);
+      ctx.fillRect(pad, by + boxH - pad - footerH, VIEW_W - pad*2, footerH);
 
       const w = invWeight();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Gold: ${player.gold}g`, innerX, VIEW_H - pad - Math.round(56 * UI_SCALE));
-      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, VIEW_H - pad - Math.round(28 * UI_SCALE));
+      ctx.fillText(`Gold: ${player.gold}g`, innerX, by + boxH - pad - Math.round(56 * UI_SCALE));
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, by + boxH - pad - Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, VIEW_H - pad - Math.round(10 * UI_SCALE));
+      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, by + boxH - pad - Math.round(10 * UI_SCALE));
 
       return;
       return;
