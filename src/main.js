@@ -483,10 +483,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                        const ITERATION = {
-    version: 'v0.0.57',
+                                                                                          const ITERATION = {
+    version: 'v0.0.58',
     whatsNew: [
-      'Hotfix: fixed pointerdown drag crash on mobile (Market/Event list scrolling).',
+      'Mobile Market: tightened header so BUY/SELL tabs sit higher (more room for the list).',
+      'Hotfixes: mobile drag scrolling is stable (touch + pointer).',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1533,20 +1534,20 @@
 
       
       // header
-      const headerH = Math.round(150 * UI_SCALE);
+      const headerH = Math.round(126 * UI_SCALE);
       const innerX = pad + 16;
       const innerW = VIEW_W - pad*2 - 32;
 
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`${c.name} Market`, innerX, pad + 34);
+      ctx.fillText(`${c.name} Market`, innerX, pad + 30);
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(rules.vibe, innerX, pad + 56);
+      ctx.fillText(rules.vibe, innerX, pad + 48);
 
       // BUY/SELL tabs (tap friendly)
-      const tabY = pad + Math.round(70 * UI_SCALE);
+      const tabY = pad + Math.round(58 * UI_SCALE);
       const tabH = Math.round(44 * UI_SCALE);
       const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
       const tabGap = Math.round(12 * UI_SCALE);
