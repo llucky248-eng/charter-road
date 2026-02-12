@@ -17,6 +17,11 @@ Rule: **No change ships without closing the loop**.
 5) **Verify Pages** (Gate)
    - open Pages (mobile + desktop)
    - confirm Iteration Notes shows expected version
+   - **take a screenshot of the new build** (for regression tracking)
+   - **check for visible errors**:
+     - fatal overlay box present?
+     - devlog stuck on “Loading…”?
+     - blank canvas?
 
 If any gate fails: **stop and fix** (or rollback).
 
@@ -25,6 +30,12 @@ If any gate fails: **stop and fix** (or rollback).
 - Load `index.html` locally (optional) and confirm:
   - canvas renders
   - Iteration Notes is not stuck on “Loading…”
+
+## Screenshot validation (required)
+After deploy + Pages verification:
+- Take **one screenshot** of the running build (mobile preferred).
+- If a fatal overlay appears, screenshot it (it contains the stack trace).
+- Save/attach screenshots in the chat log for quick regression comparisons.
 
 ## GitHub Pages cache rules (critical)
 - Always load JS as `./src/main.js?v=<number>`.
