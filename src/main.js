@@ -518,6 +518,15 @@
 
 
 
+  const ITEMS = [
+    { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
+    { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
+    { id: 'herbs', name: 'Moon Herbs', base: 16, weight: 1 },
+    { id: 'potion', name: 'Minor Potion', base: 34, weight: 1 },
+    { id: 'relic', name: 'Old Relic', base: 55, weight: 2 },
+    { id: 'ink', name: 'Demon Ink', base: 70, weight: 1, contrabandName: 'Demon Ink' },
+  ];
+
   const CONTRACT_ITEMS = ['food','ore','herbs','potion','relic'];
 
 
@@ -545,25 +554,17 @@
     },
     active: null,
   };
-  const ITEMS = [
-    { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
-    { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
-    { id: 'herbs', name: 'Moon Herbs', base: 16, weight: 1 },
-    { id: 'potion', name: 'Minor Potion', base: 34, weight: 1 },
-    { id: 'relic', name: 'Old Relic', base: 55, weight: 2 },
-    { id: 'ink', name: 'Demon Ink', base: 70, weight: 1, contrabandName: 'Demon Ink' },
-  ];
+
 
   // --- UI / time
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                            const ITERATION = {
-    version: 'v0.0.67',
+                                                                                                              const ITERATION = {
+    version: 'v0.0.68',
     whatsNew: [
-      'Contracts v2: pinned active contract line on mobile HUD (always visible).',
-      'Contracts: improved reward scaling by item value + quantity.',
-      'UI: mobile modals remain full-screen with clipped lists.',
+      'Hotfix: fixed contracts startup crash (reward scaling now initializes after ITEMS).',
+      'Contracts v2: pinned active contract HUD line + reward scaling (carryover).',
     ],
     whatsNext: [
       'Contracts: destination city highlight on minimap.',
