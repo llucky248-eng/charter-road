@@ -537,10 +537,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                      const ITERATION = {
-    version: 'v0.0.64',
+                                                                                                        const ITERATION = {
+    version: 'v0.0.65',
     whatsNew: [
-      'Modals: reduced text size inside Market/Contracts/Event (mobile-first).',
+      'Mobile Market: fixed layout using fixed-geometry modal + list clipping (no more list escaping the sheet).',
+      'Modals: kept smaller text sizing.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1547,16 +1548,16 @@
 
     // MOBILE MARKET SHEET (full-screen)
     if (IS_MOBILE) {
-      const T_SCALE = UI_SCALE * 0.88;      const pad = Math.round(14 * UI_SCALE);
+      const T_SCALE = UI_SCALE * 0.86;
+      const pad = 14;
 
-      // True modal sheet: full-screen dim, bounded parchment panel above on-screen controls
-      // NOTE: VIEW_H is small on mobile; avoid scaling safe area with UI_SCALE.
-      const CONTROLS_SAFE_H = 190; // px in internal canvas space
-      const sheetTop = pad;
-      const sheetBottom = Math.max(sheetTop + 300, VIEW_H - CONTROLS_SAFE_H);
-      const sheetH = Math.max(300, sheetBottom - sheetTop);
+      // Fixed-geometry modal (all layout in canvas px; fonts use T_SCALE)
+      const SAFE_BOTTOM = 190;
       const sheetX = pad;
+      const sheetTop = pad;
       const sheetW = VIEW_W - pad*2;
+      const sheetBottom = Math.max(sheetTop + 320, VIEW_H - SAFE_BOTTOM);
+      const sheetH = sheetBottom - sheetTop;
 
       // dim backdrop
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1574,7 +1575,7 @@
 
       
       // header
-      const headerH = 96;
+      const headerH = 94;
       const innerX = sheetX + 16;
       const innerW = sheetW - 32;
 
@@ -1635,11 +1636,11 @@
       drawTab(sellX, 'SELL', ui.mode === 'sell');
 
       // list viewport
-      const footerH = 86;
+      const footerH = 84;
       const listTop = sheetTop + headerH;
-      const listBottom = sheetTop + sheetH - Math.round(12 * UI_SCALE) - footerH;
+      const listBottom = sheetTop + sheetH - 12 - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = 60; // card height
+      const rowH = 62; // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
 
       const totalN = ITEMS.length + 1; // +1 permit row
@@ -1648,6 +1649,12 @@
 
       // expose list rect for touch scrolling
       ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax };
+
+      // clip list viewport so cards never draw outside the modal
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sheetX, listTop, sheetW, listH);
+      ctx.clip();
 
       for (let vi = 0; vi < visibleN; vi++) {
         const i = ui.marketScroll + vi;
@@ -1659,8 +1666,8 @@
         const selected = i === ui.selection;
 
         // card background (keep fully inside the list viewport)
-        const cardY = y + Math.round(6 * UI_SCALE);
-        const cardH = rowH - Math.round(12 * UI_SCALE);
+        const cardY = y + 6;
+        const cardH = rowH - 12;
         ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.16)' : 'rgba(0,0,0,0.05)';
         ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
         ctx.lineWidth = 2;
@@ -1678,24 +1685,24 @@
         // name
         ctx.fillStyle = '#2a1f14';
         ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + Math.round(20 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 20);
 
         // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, sheetX + sheetW - 16, cardY + Math.round(20 * UI_SCALE));
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, sheetX + sheetW - 16, cardY + 20);
         ctx.textAlign = 'left';
 
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + Math.round(42 * UI_SCALE));
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + 42);
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
           ctx.strokeStyle = 'rgba(249,115,22,0.55)';
           ctx.beginPath();
           const bx = sheetX + sheetW - 16 - Math.round(86 * UI_SCALE);
-          const byy = cardY + Math.round(30 * UI_SCALE);
+          const byy = cardY + 30;
           const bw = Math.round(86 * UI_SCALE);
           const bh = Math.round(22 * UI_SCALE);
           if (ctx.roundRect) ctx.roundRect(bx, byy, bw, bh, 10);
@@ -1707,6 +1714,8 @@
           ctx.fillText('CONTRABAND', bx + Math.round(12 * UI_SCALE), byy + Math.round(15 * UI_SCALE));
         }
       }
+
+      ctx.restore();
 
       // scrollbar indicator
       if (scrollMax > 0) {
@@ -1724,17 +1733,17 @@
 
       // pinned footer
       ctx.fillStyle = 'rgba(10, 14, 20, 0.10)';
-      ctx.fillRect(sheetX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - footerH, sheetW, footerH);
+      ctx.fillRect(sheetX, sheetTop + sheetH - 12 - footerH, sheetW, footerH);
 
       const w = invWeight();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Gold: ${player.gold}g`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(56 * UI_SCALE));
-      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(28 * UI_SCALE));
+      ctx.fillText(`Gold: ${player.gold}g`, innerX, sheetTop + sheetH - 12 - 56);
+      ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, sheetTop + sheetH - 12 - 28);
 
       ctx.fillStyle = '#4a3b2a';
       ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(10 * UI_SCALE));
+      ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - 12 - 10);
 
       return;
     }
