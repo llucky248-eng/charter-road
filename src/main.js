@@ -180,7 +180,19 @@
 
   function dragScrollMove(dy) {
     if (!ui._drag) return;
-    dragScrollMove(dy);
+    if (ui._drag.kind !== 'market' && ui._drag.kind !== 'event') return;
+    ui._drag.acc += dy;
+
+    const L = ui._drag.kind === 'market' ? ui._marketList : ui._eventList;
+    if (!L) return;
+
+    const step = L.rowH;
+    if (Math.abs(ui._drag.acc) >= step) {
+      const n = (ui._drag.acc / step) | 0;
+      if (ui._drag.kind === 'market') ui.marketScroll = clamp(ui.marketScroll - n, 0, L.scrollMax);
+      else ui.eventScroll = clamp(ui.eventScroll - n, 0, L.scrollMax);
+      ui._drag.acc -= n * step;
+    }
   }
 // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
@@ -525,10 +537,10 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                    const ITERATION = {
-    version: 'v0.0.63',
+                                                                                                      const ITERATION = {
+    version: 'v0.0.64',
     whatsNew: [
-      'Mobile Market: fixed list escaping modal by rebalancing modal/header/footer sizing and anchoring cards to sheet bounds.',
+      'Modals: reduced text size inside Market/Contracts/Event (mobile-first).',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -950,22 +962,6 @@
 
 
 
-    if (ui.contractsOpen) {
-      if (consumeVKey('Escape')) { ui.contractsOpen = false; toast('Contracts closed', 2); }
-      ui.contractsNavT -= dt;
-      if (ui.contractsNavT <= 0) {
-        if (isDown('ArrowUp') || isDown('KeyW')) { ui.contractsSel = (ui.contractsSel + 2) % 3; ui.contractsNavT = 0.14; }
-        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % 3; ui.contractsNavT = 0.14; }
-      }
-      if (consumeVKey('Enter') || consumeVKey('Space')) {
-        const c = currentCity();
-        if (c) {
-          contracts.active = contracts.byCity[c.id][ui.contractsSel];
-          toast('Contract accepted.', 2.2);
-          ui.contractsOpen = false;
-        }
-      }
-    }
     if (ui.marketOpen) {
       if (e.code === 'Escape') { ui.marketOpen = false; toast('Market closed', 2); }
       if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
@@ -1550,7 +1546,8 @@
 
 
     // MOBILE MARKET SHEET (full-screen)
-    if (IS_MOBILE) {      const pad = Math.round(14 * UI_SCALE);
+    if (IS_MOBILE) {
+      const T_SCALE = UI_SCALE * 0.88;      const pad = Math.round(14 * UI_SCALE);
 
       // True modal sheet: full-screen dim, bounded parchment panel above on-screen controls
       // NOTE: VIEW_H is small on mobile; avoid scaling safe area with UI_SCALE.
@@ -1582,11 +1579,11 @@
       const innerW = sheetW - 32;
 
       ctx.fillStyle = '#2a1f14';
-      ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.font = `900 ${Math.round(20*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText(`${c.name} Market`, innerX, sheetTop + Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
-      ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.font = `${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText(rules.vibe, innerX, sheetTop + Math.round(50 * UI_SCALE));
 
 
@@ -1605,8 +1602,8 @@
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = '#2a1f14';
-      ctx.font = `900 ${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('CLOSE', closeX + Math.round(12*UI_SCALE), closeY + Math.round(20*UI_SCALE));
+      ctx.font = `900 ${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText('CLOSE', closeX + Math.round(12*T_SCALE), closeY + Math.round(20*T_SCALE));
 
       // BUY/SELL tabs (tap friendly)
       const tabY = sheetTop + 58;
@@ -1629,7 +1626,7 @@
         ctx.stroke();
 
         ctx.fillStyle = '#2a1f14';
-        ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         const tw = ctx.measureText(label).width;
         ctx.fillText(label, x + (tabW - tw) / 2, tabY + Math.round(29 * UI_SCALE));
       };
@@ -1680,7 +1677,7 @@
 
         // name
         ctx.fillStyle = '#2a1f14';
-        ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + Math.round(20 * UI_SCALE));
 
         // price (right)
@@ -1690,7 +1687,7 @@
 
         // subline
         ctx.fillStyle = '#4a3b2a';
-        ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + Math.round(42 * UI_SCALE));
 
         if (contra) {
@@ -1706,7 +1703,7 @@
           ctx.fill();
           ctx.stroke();
           ctx.fillStyle = '#9a3412';
-          ctx.font = `900 ${Math.round(11*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+          ctx.font = `900 ${Math.round(11*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
           ctx.fillText('CONTRABAND', bx + Math.round(12 * UI_SCALE), byy + Math.round(15 * UI_SCALE));
         }
       }
@@ -1731,12 +1728,12 @@
 
       const w = invWeight();
       ctx.fillStyle = '#2a1f14';
-      ctx.font = `900 ${Math.round(15*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText(`Gold: ${player.gold}g`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(56 * UI_SCALE));
       ctx.fillText(`Pack: ${w}/${player.capacity}`, innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(28 * UI_SCALE));
 
       ctx.fillStyle = '#4a3b2a';
-      ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - Math.round(12 * UI_SCALE) - Math.round(10 * UI_SCALE));
 
       return;
@@ -1858,6 +1855,7 @@
   
 
   function drawContracts() {
+    const T_SCALE = UI_SCALE * 0.88;
     if (!ui.contractsOpen) return;
     const c = currentCity();
     if (!c) return;
@@ -1884,11 +1882,11 @@
     const innerW = boxW - pad*2 - 32;
 
     ctx.fillStyle = '#2a1f14';
-    ctx.font = `900 ${Math.round(20*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `900 ${Math.round(20*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(`${c.name} Contracts`, innerX, by + pad + 34);
 
     ctx.fillStyle = '#4a3b2a';
-    ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     if (contracts.active) {
       const it = ITEMS.find(x=>x.id===contracts.active.want);
       ctx.fillText(`Active: Deliver ${contracts.active.qty} ${it.name} → ${contracts.active.toId} for ${contracts.active.reward}g`, innerX, by + pad + 56);
@@ -1910,26 +1908,27 @@
       ctx.strokeStyle = selected ? 'rgba(120, 92, 60, 0.75)' : 'rgba(120, 92, 60, 0.30)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(innerX, y - Math.round(28*UI_SCALE), innerW, Math.round(40*UI_SCALE), 14);
-      else ctx.rect(innerX, y - Math.round(28*UI_SCALE), innerW, Math.round(40*UI_SCALE));
+      if (ctx.roundRect) ctx.roundRect(innerX, y - Math.round(28*T_SCALE), innerW, Math.round(40*T_SCALE), 14);
+      else ctx.rect(innerX, y - Math.round(28*T_SCALE), innerW, Math.round(40*T_SCALE));
       ctx.fill();
       ctx.stroke();
 
       ctx.fillStyle = '#2a1f14';
-      ctx.font = `800 ${Math.round(14*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText(`Deliver ${job.qty}× ${it.name} → ${job.toId}`, innerX + 12, y - Math.round(6*UI_SCALE));
+      ctx.font = `800 ${Math.round(14*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(`Deliver ${job.qty}× ${it.name} → ${job.toId}`, innerX + 12, y - Math.round(6*T_SCALE));
 
       ctx.textAlign = 'right';
-      ctx.fillText(`${job.reward}g`, innerX + innerW - 12, y - Math.round(6*UI_SCALE));
+      ctx.fillText(`${job.reward}g`, innerX + innerW - 12, y - Math.round(6*T_SCALE));
       ctx.textAlign = 'left';
     }
 
     // footer
     ctx.fillStyle = '#4a3b2a';
-    ctx.font = `${Math.round(12*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText('Enter: accept · Esc: close', innerX, by + boxH - pad - 18);
   }
 function drawEvent() {
+    const T_SCALE = UI_SCALE * 0.88;
     if (!ui.eventOpen) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1949,12 +1948,12 @@ function drawEvent() {
     ctx.stroke();
 
     ctx.fillStyle = '#2a1f14';
-    ctx.font = `700 ${Math.round(18*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `700 ${Math.round(18*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ui.eventTitle, bx + 18, by + 34);
 
 
     // wrap text
-    const bodyFont = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const bodyFont = `${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillStyle = '#3a2a1a';
     ctx.font = bodyFont;
 
@@ -1999,7 +1998,7 @@ function drawEvent() {
         ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(26 * UI_SCALE));
       }
       ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
-      ctx.font = selected ? `600 ${Math.round(14*UI_SCALE)}px system-ui` : `${Math.round(14*UI_SCALE)}px system-ui`;
+      ctx.font = selected ? `600 ${Math.round(14*T_SCALE)}px system-ui` : `${Math.round(14*T_SCALE)}px system-ui`;
       ctx.fillText(ui.eventChoices[i].label, bx + 22, y);
     }
 
@@ -2019,7 +2018,7 @@ function drawEvent() {
       ctx.fillRect(trackX, thumbY, Math.round(4 * UI_SCALE), thumbH);
     }
     ctx.fillStyle = '#4a3b2a';
-    ctx.font = `${Math.round(13*UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.font = `${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - Math.round(20 * UI_SCALE));
   }
 
@@ -2187,6 +2186,15 @@ function drawEvent() {
       if (consumeVKey('Enter') || consumeVKey('Space')) {
         const ch = ui.eventChoices[ui.eventSel]
         if (ch && typeof ch.run === 'function') ch.run();
+      }
+    }
+
+    // Contracts navigation
+    if (ui.contractsOpen) {
+      ui.contractsNavT -= dt;
+      if (ui.contractsNavT <= 0) {
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.contractsSel = (ui.contractsSel + 2) % 3; ui.contractsNavT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % 3; ui.contractsNavT = 0.14; }
       }
     }
     moveWithCollision(dt);
