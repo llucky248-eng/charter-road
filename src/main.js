@@ -210,6 +210,17 @@
       ui._drag = { kind, lastY: sy, acc: 0 };
       canvas.setPointerCapture?.(e.pointerId);
       e.preventDefault();
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -509,11 +520,21 @@
 
   const CONTRACT_ITEMS = ['food','ore','herbs','potion','relic'];
 
+
+  function rewardForContract(want, qty) {
+    const it = ITEMS.find(x => x.id === want);
+    const base = it ? it.base : 20;
+    // Scale with item value and quantity; add a small premium so contracts feel worthwhile.
+    const premium = want === 'relic' ? 22 : (want === 'potion' ? 10 : 6);
+    const r = 10 + premium + Math.round(base * qty * 0.85);
+    return clamp(r, 18, 160);
+  }
+
   function makeContract(fromId) {
     const want = randChoice(CONTRACT_ITEMS);
     const qty = 1 + (Math.random()*2|0);
     const toId = fromId === 'sunspire' ? 'gloomwharf' : 'sunspire';
-    const reward = 18 + qty*12 + (want === 'relic' ? 18 : 0);
+    const reward = rewardForContract(want, qty);
     return { fromId, toId, want, qty, reward };
   }
 
@@ -537,14 +558,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                          const ITERATION = {
-    version: 'v0.0.66',
+                                                                                                            const ITERATION = {
+    version: 'v0.0.67',
     whatsNew: [
-      'UI: Market/Contracts/Event modals are now full-screen on mobile.',
-      'Market: keeps list clipping for stability.',
+      'Contracts v2: pinned active contract line on mobile HUD (always visible).',
+      'Contracts: improved reward scaling by item value + quantity.',
+      'UI: mobile modals remain full-screen with clipped lists.',
     ],
     whatsNext: [
-      'Contracts: pinned active contract HUD line + reward scaling.',
+      'Contracts: destination city highlight on minimap.',
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
     ],
   };
@@ -823,6 +845,17 @@
         { label: 'Leave', run: closeEvent },
       ];
       ui.eventSel = 0;
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -843,6 +876,17 @@
         { label: 'Move on', run: closeEvent },
       ];
       ui.eventSel = 0;
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -862,6 +906,17 @@
         { label: 'Leave it', run: closeEvent },
       ];
       ui.eventSel = 0;
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
   }
@@ -905,6 +960,17 @@
           },
         ],
       });
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -917,6 +983,17 @@
           { label: 'Detour (slow)', run: () => { road.cooldown = 12.0; toast('You detour. No toll, but it wastes time.', 3); closeEvent(); } },
         ],
       });
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1035,6 +1112,17 @@
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1049,6 +1137,17 @@
       if (tileAt(tx, ty+1) !== 1) ctx.fillRect(x, y + TILE - 2, TILE, 2);
       if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 2, TILE);
       if (tileAt(tx+1, ty) !== 1) ctx.fillRect(x + TILE - 2, y, 2, TILE);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1065,6 +1164,17 @@
       const phase = (stateTime * 0.004 + (tx*7 + ty*11)) % 6;
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x, y + Math.floor(phase), TILE, 2);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1073,6 +1183,17 @@
       ctx.fillRect(x, y, TILE, TILE);
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1090,6 +1211,17 @@
         ctx.fillRect(x + 3, y + 3, 4, 3);
         ctx.fillRect(x + 9, y + 9, 3, 4);
       }
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1102,6 +1234,17 @@
       ctx.fillRect(x+5, y+6, TILE-10, TILE-12);
       ctx.fillStyle = 'rgba(56,189,248,0.18)';
       ctx.fillRect(x+6, y+4, TILE-12, 2);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1123,6 +1266,17 @@
       ctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
       ctx.fillStyle = 'rgba(255,255,255,0.22)';
       ctx.fillRect(x + 5, y + 4, TILE - 10, 2);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1138,6 +1292,17 @@
       ctx.fill();
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.fillRect(x + 5, y + TILE - 6, TILE - 10, 2);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1148,8 +1313,30 @@
       ctx.fillRect(x + 2, y + 2, 4, 4);
       ctx.fillRect(x + TILE - 6, y + 3, 4, 4);
       ctx.fillRect(x + 5, y + TILE - 6, 6, 4);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1167,6 +1354,17 @@
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1187,6 +1385,17 @@
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1198,6 +1407,17 @@
       ctx.fillStyle = '#0b0f14';
       ctx.fillRect(x+4, y+5, TILE-8, 2);
       ctx.fillRect(x+4, y+9, TILE-8, 2);
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1372,12 +1592,13 @@
 
     // MOBILE HUD (minimal; minimap + stats are overlayed on gameplay)
     if (IS_MOBILE) {
+      const topH = Math.round((contracts.active ? 62 : 44) * UI_SCALE);
       ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
-      ctx.fillRect(0, 0, VIEW_W, Math.round(44 * UI_SCALE));
+      ctx.fillRect(0, 0, VIEW_W, topH);
       ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(44 * UI_SCALE) + 0.5);
-      ctx.lineTo(VIEW_W, Math.round(44 * UI_SCALE) + 0.5);
+      ctx.moveTo(0, topH + 0.5);
+      ctx.lineTo(VIEW_W, topH + 0.5);
       ctx.stroke();
 
       ctx.fillStyle = '#e8edf2';
@@ -1391,6 +1612,17 @@
       const detail = rules ? `${rules.vibe}` : 'Travel the road. E interacts.';
       ctx.fillText(ellipsizeText(detail, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(40 * UI_SCALE));
 
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
@@ -1743,6 +1975,17 @@
       ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - 12 - 10);
 
+
+
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
       return;
     }
 
