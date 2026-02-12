@@ -537,11 +537,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                        const ITERATION = {
-    version: 'v0.0.65',
+                                                                                                          const ITERATION = {
+    version: 'v0.0.66',
     whatsNew: [
-      'Mobile Market: fixed layout using fixed-geometry modal + list clipping (no more list escaping the sheet).',
-      'Modals: kept smaller text sizing.',
+      'UI: Market/Contracts/Event modals are now full-screen on mobile.',
+      'Market: keeps list clipping for stability.',
     ],
     whatsNext: [
       'Contracts: pinned active contract HUD line + reward scaling.',
@@ -1549,15 +1549,13 @@
     // MOBILE MARKET SHEET (full-screen)
     if (IS_MOBILE) {
       const T_SCALE = UI_SCALE * 0.86;
-      const pad = 14;
+      const pad = 0;
 
-      // Fixed-geometry modal (all layout in canvas px; fonts use T_SCALE)
-      const SAFE_BOTTOM = 190;
-      const sheetX = pad;
-      const sheetTop = pad;
-      const sheetW = VIEW_W - pad*2;
-      const sheetBottom = Math.max(sheetTop + 320, VIEW_H - SAFE_BOTTOM);
-      const sheetH = sheetBottom - sheetTop;
+      // Full-screen modal (no reserved safe area).
+      const sheetX = 0;
+      const sheetTop = 0;
+      const sheetW = VIEW_W;
+      const sheetH = VIEW_H;
 
       // dim backdrop
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
