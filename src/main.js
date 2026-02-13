@@ -560,11 +560,11 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                                const ITERATION = {
-    version: 'v0.0.69',
+                                                                                                                  const ITERATION = {
+    version: 'v0.0.70',
     whatsNew: [
-      'Contracts v2: destination city is now highlighted on the minimap when a contract is active.',
-      'Ops: validation now includes desktop+mobile screenshot test script (see ops/RUNBOOK).',
+      'Hotfix: Contracts modal now opens reliably (stores city id on open).',
+      'Validation: screenshot test script is available in ops/scripts (Playwright required).',
     ],
     whatsNext: [
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
@@ -588,6 +588,7 @@
     eventOpen: false,
 
     contractsOpen: false,
+    contractsCityId: null,
     eventTitle: '',
     eventText: '',
     eventChoices: [], // {label, run:()=>void}
@@ -1033,6 +1034,7 @@
       } else if (c && nearContractsTile()) {
         ui.contractsOpen = !ui.contractsOpen;
         ui.contractsSel = 0;
+        ui.contractsCityId = c.id;
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
       } else {
         toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
@@ -1259,6 +1261,17 @@
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       ctx.fillRect(x+3, y+3, TILE-6, 1);
 
+      // active contract (pinned)
+      if (contracts.active) {
+        const destCity = getCityById(contracts.active.toId);
+        const it = ITEMS.find(x => x.id === contracts.active.want);
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+      }
+      return;
+    }
 
     if (id === 7) { // shrine
       ctx.fillStyle = '#5b4b3a';
@@ -1790,7 +1803,7 @@
 
   function drawMarket() {
     if (!ui.marketOpen) return;
-    const c = currentCity();
+    const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
     const rules = CITY_RULES[c.id];
 
@@ -2124,7 +2137,7 @@
   function drawContracts() {
     const T_SCALE = UI_SCALE * 0.88;
     if (!ui.contractsOpen) return;
-    const c = currentCity();
+    const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
 
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
