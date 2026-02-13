@@ -27,6 +27,80 @@
 
     #stage { position: relative; width: min(920px, calc(100vw - 28px)); }
 
+    /* HTML UI overlay (modals above the canvas) */
+    #ui-root { position:absolute; inset:0; pointer-events:none; display:none; }
+    body.ui-open #ui-root { display:block; pointer-events:auto; }
+    body.ui-open { overflow:hidden; }
+
+    .cr-backdrop { position:absolute; inset:0; background: rgba(0,0,0,0.62); display:flex; align-items:center; justify-content:center; padding: clamp(10px, 2vw, 18px); }
+    .cr-panel {
+      width: min(860px, 96%);
+      max-height: 96%;
+      overflow:hidden;
+      border-radius: 18px;
+      border: 1px solid rgba(120, 92, 60, 0.65);
+      background: rgba(235, 219, 185, 0.98);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+      color: #2a1f14;
+    }
+    @media (pointer: coarse) {
+      .cr-panel { width: 100%; height: 100%; max-height: 100%; border-radius: 18px; }
+    }
+
+    .cr-head { display:flex; gap: 12px; align-items:flex-start; justify-content:space-between; padding: 14px 16px 10px; border-bottom: 1px solid rgba(120, 92, 60, 0.25); }
+    .cr-title { font-weight: 900; font-size: 18px; line-height: 1.15; }
+    .cr-sub { margin-top: 4px; color: rgba(74, 59, 42, 0.95); font-size: 13px; }
+    .cr-close {
+      border: 1px solid rgba(120, 92, 60, 0.35);
+      background: rgba(0,0,0,0.04);
+      color: #2a1f14;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .cr-close:active { transform: translateY(1px); }
+
+    .cr-tabs { display:flex; gap: 10px; padding: 10px 16px; }
+    .cr-tab {
+      flex: 1;
+      border: 1px solid rgba(120, 92, 60, 0.35);
+      background: rgba(0,0,0,0.04);
+      border-radius: 14px;
+      padding: 12px 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+    }
+    .cr-tab[aria-selected="true"] { background: rgba(120, 92, 60, 0.16); border-color: rgba(120, 92, 60, 0.70); }
+
+    .cr-body { padding: 0 16px 14px; }
+    .cr-list { overflow:auto; max-height: 56vh; padding: 6px 0 0; }
+    @media (pointer: coarse) { .cr-list { max-height: calc(100vh - 240px); } }
+
+    .cr-card {
+      width: 100%;
+      text-align: left;
+      border: 1px solid rgba(120, 92, 60, 0.28);
+      background: rgba(0,0,0,0.03);
+      border-radius: 16px;
+      padding: 12px 12px;
+      margin: 0 0 10px;
+      display:flex;
+      gap: 10px;
+      align-items:flex-start;
+      justify-content:space-between;
+    }
+    .cr-card[aria-current="true"] { border-color: rgba(120, 92, 60, 0.72); background: rgba(120, 92, 60, 0.12); }
+    .cr-card-title { font-weight: 900; }
+    .cr-card-sub { margin-top: 4px; font-size: 12px; color: rgba(74, 59, 42, 0.95); }
+    .cr-right { text-align:right; min-width: 86px; }
+    .cr-price { font-weight: 900; }
+    .cr-badge { display:inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 900; font-size: 11px; letter-spacing: 0.04em; border: 1px solid rgba(249,115,22,0.55); background: rgba(249,115,22,0.14); color: #9a3412; }
+
+    .cr-foot { display:flex; gap: 12px; justify-content:space-between; align-items:center; padding: 12px 16px; border-top: 1px solid rgba(120, 92, 60, 0.22); background: rgba(10,14,20,0.06); }
+    .cr-foot strong { font-weight: 900; }
+    .cr-hint { color: rgba(74, 59, 42, 0.90); font-size: 12px; }
+
     /* Touch controls under the stage */
     #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:stretch; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
@@ -81,6 +155,7 @@
   <div id="wrap">
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Charter Road game canvas"></canvas>
+      <div id="ui-root" aria-hidden="true"></div>
     </div>
 
     <!-- Touch controls (shown on coarse pointers). Placed UNDER the stage so it never blocks HUD/notes. -->
@@ -110,7 +185,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.71</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.72</div>
     </div>
   </div>
 
@@ -171,7 +246,7 @@
       });
 
       var s = document.createElement('script');
-      s.src = './src/main.js?v=0.0.71';
+      s.src = './src/main.js?v=0.0.72';
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);

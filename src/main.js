@@ -561,7 +561,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.71',
+    version: 'v0.0.72',
     whatsNew: [
       'Hotfix: Contracts modal now opens reliably (stores city id on open).',
       'Validation: screenshot test script is available in ops/scripts (Playwright required).',
@@ -607,6 +607,329 @@
     const v = ITERATION.version ? ` ${ITERATION.version}` : '';
     devlogBody.textContent =
       `Version:${v}\n\nWhat’s new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat’s coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
+  }
+
+  // --- HTML UI overlay (Market / Contracts / Event)
+  const USE_DOM_MODALS = true;
+  const uiRoot = document.getElementById('ui-root');
+  const dom = {
+    kind: null,
+    key: null,
+  };
+
+  function domCloseAll() {
+    if (!uiRoot) return;
+    document.body.classList.remove('ui-open');
+    uiRoot.setAttribute('aria-hidden', 'true');
+    uiRoot.innerHTML = '';
+    dom.kind = null;
+    dom.key = null;
+  }
+
+  function domEnsureOpen() {
+    if (!uiRoot) return;
+    document.body.classList.add('ui-open');
+    uiRoot.setAttribute('aria-hidden', 'false');
+  }
+
+  function htmlEscape(s) {
+    return String(s ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function marketTryTrade(index) {
+    const c = currentCity();
+    if (!c) return;
+
+    const isPermitRow = index === ITEMS.length;
+    if (isPermitRow) {
+      if (player.permits[c.id]) { toast('Permit already owned.', 2); return; }
+      if (player.gold < PERMIT_PRICE) { toast('Not enough gold for permit.', 2); return; }
+      player.gold -= PERMIT_PRICE;
+      player.permits[c.id] = true;
+      toast('Purchased city permit.', 2.2);
+      return;
+    }
+
+    const it = ITEMS[index];
+    const p = priceFor(c.id, it);
+    if (ui.mode === 'buy') {
+      const w = invWeight();
+      if (w + it.weight > player.capacity) { toast('No space in pack.', 2); return; }
+      if (player.gold < p) { toast('Not enough gold.', 2); return; }
+      player.gold -= p;
+      player.inv[it.id] = (player.inv[it.id] || 0) + 1;
+      toast(`Bought 1 ${it.name} (-${p}g)`, 2);
+    } else {
+      const have = player.inv[it.id] || 0;
+      if (have <= 0) { toast('You have none to sell.', 2); return; }
+      const net = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
+      player.inv[it.id] = have - 1;
+      player.gold += net;
+      toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
+    }
+  }
+
+  function contractsAccept(idx) {
+    const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
+    if (!c) return;
+    const jobs = contracts.byCity[c.id] || [];
+    const job = jobs[idx];
+    if (!job) return;
+    contracts.active = { ...job };
+    toast('Accepted contract.', 2);
+    ui.contractsOpen = false;
+  }
+
+  function domRender() {
+    if (!USE_DOM_MODALS || !uiRoot) return;
+
+    const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : null));
+    if (!kind) { domCloseAll(); return; }
+
+    // NOTE: keep render keys small but sufficient; rebuild modal when state changes.
+    let key = kind;
+    if (kind === 'market') {
+      const c = currentCity();
+      key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}`;
+      for (const it of ITEMS) key += `|${player.inv[it.id] || 0}`;
+    } else if (kind === 'contracts') {
+      const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
+      key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
+    } else if (kind === 'event') {
+      key += `|${ui.eventTitle}|${ui.eventText}|${ui.eventSel}|${ui.eventChoices.length}`;
+    }
+
+    if (dom.key === key) return;
+    dom.key = key;
+    dom.kind = kind;
+    domEnsureOpen();
+
+    if (kind === 'market') {
+      const c = currentCity();
+      if (!c) { domCloseAll(); return; }
+      const rules = CITY_RULES[c.id];
+      const hasPermit = !!player.permits[c.id];
+
+      const totalN = ITEMS.length + 1;
+      const rows = [];
+      for (let i = 0; i < totalN; i++) {
+        const selected = i === ui.selection;
+        const isPermitRow = i === ITEMS.length;
+        const it = isPermitRow ? null : ITEMS[i];
+        const price = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
+        const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
+        const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
+
+        const title = isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name;
+        const sub = isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`;
+        const right = isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`;
+        const badge = contra ? '<span class="cr-badge">CONTRABAND</span>' : '';
+        const actionLabel = isPermitRow ? (hasPermit ? 'Owned' : 'Buy') : (ui.mode === 'buy' ? 'Buy' : 'Sell');
+        const actionDisabled = isPermitRow ? (hasPermit ? 'disabled' : '') : '';
+
+        rows.push(`
+          <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
+            <div>
+              <div class="cr-card-title">${htmlEscape(title)}</div>
+              <div class="cr-card-sub">${htmlEscape(sub)}</div>
+              ${badge}
+            </div>
+            <div class="cr-right">
+              <div class="cr-price">${htmlEscape(right)}</div>
+              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="trade" data-idx="${i}" ${actionDisabled}>${htmlEscape(actionLabel)}</button>
+            </div>
+          </div>
+        `);
+      }
+
+      const w = invWeight();
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
+          <div class="cr-panel">
+            <div class="cr-head">
+              <div>
+                <div class="cr-title">${htmlEscape(c.name)} Market</div>
+                <div class="cr-sub">${htmlEscape(rules.vibe)}</div>
+              </div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-tabs" role="tablist" aria-label="Buy or sell">
+              <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
+              <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
+            </div>
+            <div class="cr-body">
+              <div class="cr-list" aria-label="Items">
+                ${rows.join('')}
+              </div>
+            </div>
+            <div class="cr-foot">
+              <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity}</div>
+              <div class="cr-hint">Esc close · Tab switch · Enter trade</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Bind events (re-bound on re-render)
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; toast('Market closed', 2); }));
+      uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => { ui.mode = el.getAttribute('data-mode'); toast(ui.mode.toUpperCase(), 0.7); }));
+      uiRoot.querySelectorAll('[data-idx]').forEach(el => {
+        el.addEventListener('click', (ev) => {
+          const idx = Number(el.getAttribute('data-idx'));
+          if (Number.isFinite(idx)) ui.selection = idx;
+        });
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            const idx = Number(el.getAttribute('data-idx'));
+            if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx); }
+          }
+        });
+      });
+      uiRoot.querySelectorAll('[data-action="trade"]').forEach(el => el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = Number(el.getAttribute('data-idx'));
+        if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx); }
+      }));
+      return;
+    }
+
+    if (kind === 'contracts') {
+      const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
+      if (!c) { domCloseAll(); return; }
+      const jobs = contracts.byCity[c.id] || [];
+
+      const rows = jobs.map((job, i) => {
+        const it = ITEMS.find(x => x.id === job.want);
+        const selected = i === ui.contractsSel;
+        return `
+          <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
+            <div>
+              <div class="cr-card-title">Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
+              <div class="cr-card-sub">Reward: ${job.reward}g</div>
+            </div>
+            <div class="cr-right">
+              <div class="cr-price">${job.reward}g</div>
+              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="accept" data-cidx="${i}">Accept</button>
+            </div>
+          </div>
+        `;
+      });
+
+      const activeLine = contracts.active
+        ? (() => { const it = ITEMS.find(x=>x.id===contracts.active.want); return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`; })()
+        : 'Pick a job. Deliver to the other city for gold + rep.';
+
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Contracts">
+          <div class="cr-panel">
+            <div class="cr-head">
+              <div>
+                <div class="cr-title">${htmlEscape(c.name)} Contracts</div>
+                <div class="cr-sub">${activeLine}</div>
+              </div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              <div class="cr-list" aria-label="Jobs">
+                ${rows.join('') || '<div class="cr-sub">No jobs posted.</div>'}
+              </div>
+            </div>
+            <div class="cr-foot">
+              <div class="cr-hint">Esc close · ↑/↓ select</div>
+              <div class="cr-hint">Enter accept</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.contractsOpen = false; toast('Contracts board closed', 2); }));
+      uiRoot.querySelectorAll('[data-cidx]').forEach(el => {
+        el.addEventListener('click', () => { const idx = Number(el.getAttribute('data-cidx')); if (Number.isFinite(idx)) ui.contractsSel = idx; });
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            const idx = Number(el.getAttribute('data-cidx'));
+            if (Number.isFinite(idx)) { ui.contractsSel = idx; contractsAccept(idx); }
+          }
+        });
+      });
+      uiRoot.querySelectorAll('[data-action="accept"]').forEach(el => el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = Number(el.getAttribute('data-cidx'));
+        if (Number.isFinite(idx)) { ui.contractsSel = idx; contractsAccept(idx); }
+      }));
+      return;
+    }
+
+    if (kind === 'event') {
+      const rows = ui.eventChoices.map((ch, i) => {
+        const selected = i === ui.eventSel;
+        return `
+          <div class="cr-card" role="button" tabindex="0" data-eidx="${i}" aria-current="${selected}">
+            <div>
+              <div class="cr-card-title">${htmlEscape(ch.label)}</div>
+            </div>
+            <div class="cr-right">
+              <button class="cr-tab" style="padding:10px 10px;" data-action="choose" data-eidx="${i}">Choose</button>
+            </div>
+          </div>
+        `;
+      });
+
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Event">
+          <div class="cr-panel">
+            <div class="cr-head">
+              <div>
+                <div class="cr-title">${htmlEscape(ui.eventTitle || 'On the road')}</div>
+                <div class="cr-sub">${htmlEscape(ui.eventText || '')}</div>
+              </div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              <div class="cr-list" aria-label="Choices">
+                ${rows.join('')}
+              </div>
+            </div>
+            <div class="cr-foot">
+              <div class="cr-hint">Esc close · ↑/↓ select · Enter choose</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { closeEvent(); toast('You move on.', 2); }));
+      uiRoot.querySelectorAll('[data-eidx]').forEach(el => {
+        el.addEventListener('click', () => { const idx = Number(el.getAttribute('data-eidx')); if (Number.isFinite(idx)) ui.eventSel = idx; });
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            const idx = Number(el.getAttribute('data-eidx'));
+            if (Number.isFinite(idx)) {
+              ui.eventSel = idx;
+              const ch = ui.eventChoices[idx];
+              if (ch && typeof ch.run === 'function') ch.run();
+            }
+          }
+        });
+      });
+      uiRoot.querySelectorAll('[data-action="choose"]').forEach(el => el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const idx = Number(el.getAttribute('data-eidx'));
+        if (Number.isFinite(idx)) {
+          ui.eventSel = idx;
+          const ch = ui.eventChoices[idx];
+          if (ch && typeof ch.run === 'function') ch.run();
+        }
+      }));
+      return;
+    }
   }
 
   // --- Player
@@ -659,7 +982,7 @@
   }
 
   function moveWithCollision(dt) {
-    if (ui.marketOpen || ui.eventOpen) return;
+    if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return;
     const ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
     const ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
     const mag = Math.hypot(ax, ay);
@@ -812,6 +1135,8 @@
   }
 
   function openEvent({ title, text, choices }) {
+    ui.marketOpen = false;
+    ui.contractsOpen = false;
     ui.eventOpen = true;
     ui.eventTitle = title;
     ui.eventText = text;
@@ -1027,11 +1352,13 @@
     if (e.code === 'KeyE') {
       const c = currentCity();
       if (c && nearMarketTile()) {
+        ui.contractsOpen = false;
         ui.marketOpen = !ui.marketOpen;
         ui.selection = 0;
         ui.mode = 'buy';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
       } else if (c && nearContractsTile()) {
+        ui.marketOpen = false;
         ui.contractsOpen = !ui.contractsOpen;
         ui.contractsSel = 0;
         ui.contractsCityId = c.id;
@@ -1044,32 +1371,24 @@
 
 
     if (ui.marketOpen) {
+      const totalN = ITEMS.length + 1; // +1 permit row
       if (e.code === 'Escape') { ui.marketOpen = false; toast('Market closed', 2); }
       if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
-      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + ITEMS.length - 1) % ITEMS.length;
-      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % ITEMS.length;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + totalN - 1) % totalN;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % totalN;
       if (e.code === 'Enter' || e.code === 'Space') {
-        const c = currentCity();
-        if (!c) return;
-        const it = ITEMS[ui.selection];
-        const p = priceFor(c.id, it);
-        if (ui.mode === 'buy') {
-          const w = invWeight();
-          if (w + it.weight > player.capacity) { toast('No space in pack.', 2); return; }
-          if (player.gold < p) { toast('Not enough gold.', 2); return; }
-          player.gold -= p;
-          player.inv[it.id] = (player.inv[it.id] || 0) + 1;
-          toast(`Bought 1 ${it.name} (-${p}g)`, 2);
-        } else {
-          const have = player.inv[it.id] || 0;
-          if (have <= 0) { toast('You have none to sell.', 2); return; }
-          const gross = p;
-          const net = Math.max(1, Math.round(gross * (1 - CITY_RULES[c.id].taxRate)));
-          player.inv[it.id] = have - 1;
-          player.gold += net;
-          toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
-        }
+        marketTryTrade(ui.selection);
       }
+    }
+
+    if (ui.contractsOpen) {
+      const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
+      const jobs = c ? (contracts.byCity[c.id] || []) : [];
+      const n = Math.max(1, jobs.length);
+      if (e.code === 'Escape') { ui.contractsOpen = false; toast('Contracts board closed', 2); }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.contractsSel = (ui.contractsSel + n - 1) % n;
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.contractsSel = (ui.contractsSel + 1) % n;
+      if (e.code === 'Enter' || e.code === 'Space') contractsAccept(ui.contractsSel);
     }
 
 
@@ -1789,6 +2108,7 @@
   }
 
   function drawMarket() {
+    if (USE_DOM_MODALS) return;
     if (!ui.marketOpen) return;
     const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
@@ -2122,6 +2442,7 @@
   
 
   function drawContracts() {
+    if (USE_DOM_MODALS) return;
     const T_SCALE = UI_SCALE * 0.88;
     if (!ui.contractsOpen) return;
     const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
@@ -2195,6 +2516,7 @@
     ctx.fillText('Enter: accept · Esc: close', innerX, by + boxH - pad - 18);
   }
 function drawEvent() {
+    if (USE_DOM_MODALS) return;
     const T_SCALE = UI_SCALE * 0.88;
     if (!ui.eventOpen) return;
 
@@ -2352,67 +2674,45 @@ function drawEvent() {
     if (consumeVKey('KeyE')) {
       const c = currentCity();
       if (c && nearMarketTile()) {
+        ui.contractsOpen = false;
         ui.marketOpen = !ui.marketOpen;
         ui.selection = 0;
         ui.mode = 'buy';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
+      } else if (c && nearContractsTile()) {
+        ui.marketOpen = false;
+        ui.contractsOpen = !ui.contractsOpen;
+        ui.contractsSel = 0;
+        ui.contractsCityId = c.id;
+        toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
       } else {
         const poi = nearPOITile();
         if (poi) triggerPOIEvent(poi);
-        else toast('Find the market stall inside a city (gold tile).', 2.5);
+        else toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
       }
     }
 
     if (ui.marketOpen) {
+      const totalN = ITEMS.length + 1;
       if (consumeVKey('Escape')) { ui.marketOpen = false; toast('Market closed', 2); }
       if (consumeVKey('Tab')) { ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
 
       // selection via touch/hold arrows
       ui.navT -= dt;
       if (ui.navT <= 0) {
-        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = (ui.selection + ITEMS.length - 1) % ITEMS.length; ui.navT = 0.14; }
-        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = (ui.selection + 1) % ITEMS.length; ui.navT = 0.14; }
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = (ui.selection + totalN - 1) % totalN; ui.navT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = (ui.selection + 1) % totalN; ui.navT = 0.14; }
 
-        // auto-scroll selection into view
+        // auto-scroll selection into view (legacy canvas list; keep state consistent)
         const visibleN = Math.max(3, Math.floor((Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE)) - Math.round(110 * UI_SCALE) - Math.round(52 * UI_SCALE)) / Math.round(28 * UI_SCALE)));
-        ui.marketScroll = clamp(ui.marketScroll, 0, Math.max(0, ITEMS.length - visibleN));
+        ui.marketScroll = clamp(ui.marketScroll, 0, Math.max(0, totalN - visibleN));
         if (ui.selection < ui.marketScroll) ui.marketScroll = ui.selection;
         if (ui.selection >= ui.marketScroll + visibleN) ui.marketScroll = ui.selection - visibleN + 1;
       }
 
       if (consumeVKey('Enter') || consumeVKey('Space')) {
-        const c = currentCity();
-        if (c) {
-          const isPermitRow = ui.selection === ITEMS.length;
-          const it = isPermitRow ? null : ITEMS[ui.selection];
-          const p = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
-
-          if (isPermitRow) {
-            if (player.permits[c.id]) { toast('Permit already owned.', 2); }
-            else if (player.gold < PERMIT_PRICE) toast('Not enough gold for permit.', 2);
-            else { player.gold -= PERMIT_PRICE; player.permits[c.id] = true; toast('Purchased city permit.', 2.2); }
-            return;
-          }
-
-          if (ui.mode === 'buy') {
-            const w = invWeight();
-            if (w + it.weight > player.capacity) toast('No space in pack.', 2);
-            else if (player.gold < p) toast('Not enough gold.', 2);
-            else { player.gold -= p; player.inv[it.id] = (player.inv[it.id] || 0) + 1; toast(`Bought 1 ${it.name} (-${p}g)`, 2); }
-          } else {
-            const have = player.inv[it.id] || 0;
-            if (have <= 0) toast('You have none to sell.', 2);
-            else {
-              const net = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
-              player.inv[it.id] = have - 1;
-              player.gold += net;
-              toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
-            }
-          }
-        }
+        marketTryTrade(ui.selection);
       }
-
-      // allow touch selection via holding arrows too (handled in key checks below)
     }
 
     // Road travel tracking + encounters
@@ -2439,15 +2739,7 @@ function drawEvent() {
         if (isDown('ArrowUp') || isDown('KeyW')) { ui.eventSel = (ui.eventSel + ui.eventChoices.length - 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
         else if (isDown('ArrowDown') || isDown('KeyS')) { ui.eventSel = (ui.eventSel + 1) % ui.eventChoices.length; ui.eventNavT = 0.14; }
 
-        // auto-scroll event selection into view
-        const choiceRowH = Math.round(30 * UI_SCALE);
-        const footerPad = Math.round(34 * UI_SCALE);
-        const startY = Math.max(by + Math.round(140 * UI_SCALE), (by + 62) + Math.round(12 * UI_SCALE)); // conservative
-        const listH = (by + boxH - footerPad) - startY;
-        const visibleN = Math.max(1, Math.floor(listH / choiceRowH));
-        ui.eventScroll = clamp(ui.eventScroll, 0, Math.max(0, ui.eventChoices.length - visibleN));
-        if (ui.eventSel < ui.eventScroll) ui.eventScroll = ui.eventSel;
-        if (ui.eventSel >= ui.eventScroll + visibleN) ui.eventScroll = ui.eventSel - visibleN + 1;
+        // NOTE: event list scrolling is handled by the DOM overlay; keep selection only.
       }
       if (consumeVKey('Escape')) { closeEvent(); toast('You move on.', 2); }
       if (consumeVKey('Enter') || consumeVKey('Space')) {
@@ -2458,10 +2750,17 @@ function drawEvent() {
 
     // Contracts navigation
     if (ui.contractsOpen) {
+      const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
+      const jobs = c ? (contracts.byCity[c.id] || []) : [];
+      const n = Math.max(1, jobs.length);
+
+      if (consumeVKey('Escape')) { ui.contractsOpen = false; toast('Contracts board closed', 2); }
+      if (consumeVKey('Enter') || consumeVKey('Space')) contractsAccept(ui.contractsSel);
+
       ui.contractsNavT -= dt;
       if (ui.contractsNavT <= 0) {
-        if (isDown('ArrowUp') || isDown('KeyW')) { ui.contractsSel = (ui.contractsSel + 2) % 3; ui.contractsNavT = 0.14; }
-        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % 3; ui.contractsNavT = 0.14; }
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.contractsSel = (ui.contractsSel + n - 1) % n; ui.contractsNavT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % n; ui.contractsNavT = 0.14; }
       }
     }
     moveWithCollision(dt);
@@ -2473,6 +2772,9 @@ function drawEvent() {
     camera.y = lerp(camera.y, targetY, 1 - Math.exp(-10 * dt));
     camera.x = clamp(camera.x, 0, MAP_W*TILE - VIEW_W);
     camera.y = clamp(camera.y, 0, MAP_H*TILE - VIEW_H);
+
+    // Sync HTML overlay UI (modals)
+    domRender();
 
     // draw
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
