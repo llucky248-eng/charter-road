@@ -14,4 +14,5 @@ const html = await res.text();
 if (!html.includes(`HTML build: v${expected}`)) die(`HTML build mismatch (expected v${expected})`);
 if (!html.includes(`./src/main.js?v=${expected}`)) die(`loader main.js?v mismatch (expected ${expected})`);
 
-console.log('PASS:', url);
+console.log("PASS:", url);
+console.log("Next: node ops/scripts/screenshot_pages.mjs v");

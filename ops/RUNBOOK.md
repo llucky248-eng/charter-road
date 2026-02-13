@@ -33,7 +33,10 @@ If any gate fails: **stop and fix** (or rollback).
 
 ## Screenshot validation (required)
 After deploy + Pages verification:
-- Take **one screenshot** of the running build (mobile preferred).
+- Run automated screenshot capture (best-effort):
+  - `node ops/scripts/screenshot_pages.mjs vX.Y.Z`
+  - Artifacts saved under `ops/artifacts/vX.Y.Z/`
+- If Playwright is not installed, take screenshots manually (mobile preferred).
 - If a fatal overlay appears, screenshot it (it contains the stack trace).
 - Save/attach screenshots in the chat log for quick regression comparisons.
 
