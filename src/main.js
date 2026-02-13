@@ -560,15 +560,15 @@
   let stateTime = 0;
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                              const ITERATION = {
-    version: 'v0.0.68',
+                                                                                                                const ITERATION = {
+    version: 'v0.0.69',
     whatsNew: [
-      'Hotfix: fixed contracts startup crash (reward scaling now initializes after ITEMS).',
-      'Contracts v2: pinned active contract HUD line + reward scaling (carryover).',
+      'Contracts v2: destination city is now highlighted on the minimap when a contract is active.',
+      'Ops: validation now includes desktop+mobile screenshot test script (see ops/RUNBOOK).',
     ],
     whatsNext: [
-      'Contracts: destination city highlight on minimap.',
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
+      'Contracts: tune rewards + add accept/abandon UX.',
     ],
   };
 
@@ -1506,6 +1506,22 @@
     const dx = tx - player.x;
     const dy = ty - player.y;
     const ang = Math.atan2(dy, dx); // world angle
+
+
+    // dest city marker (highlight on minimap)
+    const cx2 = mmX + ( (dest.x + dest.w/2) / MAP_W ) * mmSize;
+    const cy2 = mmY + ( (dest.y + dest.h/2) / MAP_H ) * mmSize;
+    ctx.save();
+    ctx.fillStyle = 'rgba(96,165,250,0.20)';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, Math.round(7 * UI_SCALE), 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(96,165,250,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, Math.round(3.5 * UI_SCALE), 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
 
     // draw arrow near top-right inside minimap
     const cx = mmX + mmSize - Math.round(14 * UI_SCALE);
