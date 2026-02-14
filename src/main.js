@@ -561,10 +561,11 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.72',
+    version: 'v0.0.73',
     whatsNew: [
       'Hotfix: Contracts modal now opens reliably (stores city id on open).',
       'Validation: screenshot test script is available in ops/scripts (Playwright required).',
+      'UI: Contract text rendering now consistently uses htmlEscape for safety across DOM and canvas.',
     ],
     whatsNext: [
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
@@ -2477,7 +2478,7 @@
     ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     if (contracts.active) {
       const it = ITEMS.find(x=>x.id===contracts.active.want);
-      ctx.fillText(`Active: Deliver ${contracts.active.qty} ${it.name} → ${contracts.active.toId} for ${contracts.active.reward}g`, innerX, by + pad + 56);
+      ctx.fillText(`Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`, innerX, by + pad + 56);
     } else {
       ctx.fillText('Pick a job. Deliver to the other city for gold + rep.', innerX, by + pad + 56);
     }
