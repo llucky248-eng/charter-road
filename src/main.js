@@ -210,18 +210,6 @@
       ui._drag = { kind, lastY: sy, acc: 0 };
       canvas.setPointerCapture?.(e.pointerId);
       e.preventDefault();
-
-
-      // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
       return;
     }
 
@@ -1510,6 +1498,7 @@
 
 
       // active contract (pinned)
+      // NOTE: drawTile() doesn't know the HUD layout; avoid using HUD-local vars (e.g. topH)
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
@@ -1517,7 +1506,7 @@
         const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
+        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(16 * UI_SCALE));
       }
       return;
     }
