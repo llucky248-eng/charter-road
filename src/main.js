@@ -216,7 +216,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -561,7 +562,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.73',
+    version: 'v0.0.74',
     whatsNew: [
       'Hotfix: Contracts modal now opens reliably (stores city id on open).',
       'Validation: screenshot test script is available in ops/scripts (Playwright required).',
@@ -823,7 +824,11 @@
       });
 
       const activeLine = contracts.active
-        ? (() => { const it = ITEMS.find(x=>x.id===contracts.active.want); return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`; })()
+        ? (() => {
+            const it = ITEMS.find(x=>x.id===contracts.active.want);
+            const prog = activeContractProgressLabel();
+            return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`;
+          })()
         : 'Pick a job. Deliver to the other city for gold + rep.';
 
       uiRoot.innerHTML = `
@@ -1105,6 +1110,14 @@
     ui.toastT = seconds;
   }
 
+  function activeContractProgressLabel() {
+    if (!contracts.active) return '';
+    const want = contracts.active.want;
+    const qty = contracts.active.qty;
+    const have = player.inv[want] || 0;
+    return `${Math.min(have, qty)}/${qty}`;
+  }
+
   // --- Road encounters
   const road = {
     travel: 0,
@@ -1179,7 +1192,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1210,7 +1224,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1240,7 +1255,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1294,7 +1310,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1317,7 +1334,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1441,7 +1459,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1466,7 +1485,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1493,7 +1513,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1512,7 +1533,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1540,7 +1562,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1563,7 +1586,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1585,7 +1609,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1606,7 +1631,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1632,7 +1658,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1653,7 +1680,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1681,7 +1709,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1712,7 +1741,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1734,7 +1764,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -1955,7 +1986,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -2319,7 +2351,8 @@
       if (contracts.active) {
         const destCity = getCityById(contracts.active.toId);
         const it = ITEMS.find(x => x.id === contracts.active.want);
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
+        const prog = activeContractProgressLabel();
+        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
         ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
         ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
@@ -2478,7 +2511,8 @@
     ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     if (contracts.active) {
       const it = ITEMS.find(x=>x.id===contracts.active.want);
-      ctx.fillText(`Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`, innerX, by + pad + 56);
+      const prog = activeContractProgressLabel();
+      ctx.fillText(`Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`, innerX, by + pad + 56);
     } else {
       ctx.fillText('Pick a job. Deliver to the other city for gold + rep.', innerX, by + pad + 56);
     }
