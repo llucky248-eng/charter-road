@@ -550,11 +550,11 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.74',
+    version: 'v0.0.75',
     whatsNew: [
-      'Hotfix: Contracts modal now opens reliably (stores city id on open).',
-      'Validation: screenshot test script is available in ops/scripts (Playwright required).',
-      'UI: Contract text rendering now consistently uses htmlEscape for safety across DOM and canvas.',
+      'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
+      'Contracts: rewards scale by item value + quantity (feels less flat).',
+      'Reliability: hard crash guard prevents silent black screens.',
     ],
     whatsNext: [
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
