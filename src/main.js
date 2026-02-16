@@ -670,9 +670,13 @@
     const jobs = contracts.byCity[c.id] || [];
     const job = jobs[idx];
     if (!job) return;
+
     contracts.active = { ...job };
     toast('Accepted contract.', 2);
+
+    // Close both UI systems (DOM overlay + canvas fallback) to avoid “stuck modal” / null-city crashes.
     ui.contractsOpen = false;
+    domCloseAll();
   }
 
   function domRender() {
