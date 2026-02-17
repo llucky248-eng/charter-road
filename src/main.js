@@ -52,7 +52,7 @@
       if (ctx.measureText(s).width <= maxW) lo = mid + 1;
       else hi = mid;
     }
-    const cut = max(0, lo - 1);
+    const cut = Math.max(0, lo - 1);
     return str.slice(0, cut) + ell;
   }
 
