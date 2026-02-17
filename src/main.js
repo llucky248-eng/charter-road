@@ -550,7 +550,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.75',
+    version: 'v0.0.76',
     whatsNew: [
       'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
       'Contracts: rewards scale by item value + quantity (feels less flat).',
@@ -1104,10 +1104,16 @@
 
   function activeContractProgressLabel() {
     if (!contracts.active) return '';
-    const want = contracts.active.want;
-    const qty = contracts.active.qty;
-    const have = player.inv[want] || 0;
-    return `${Math.min(have, qty)}/${qty}`;
+    try {
+      const want = contracts.active.want;
+      const qty = contracts.active.qty;
+      const have = player.inv[want] || 0;
+      return `${Math.min(have, qty)}/${qty}`;
+    } catch (e) {
+      console.warn('activeContractProgressLabel error', e);
+      contracts.active = null;
+      return '';
+    }
   }
 
   // --- Road encounters
@@ -1843,7 +1849,12 @@
   function drawCompassArrowOnMinimap(mmX, mmY, mmSize) {
     if (!contracts.active) return;
     const dest = getCityById(contracts.active.toId);
-    if (!dest) return;
+    if (!dest) {
+      // Defensive: clear invalid contract if city doesn't exist (prevents crash on mobile)
+      console.warn('drawCompass: contract target city not found, clearing active contract');
+      contracts.active = null;
+      return;
+    }
 
     const tx = (dest.x + dest.w/2) * TILE;
     const ty = (dest.y + dest.h/2) * TILE;
