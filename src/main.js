@@ -550,7 +550,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.78',
+    version: 'v0.0.79',
     whatsNew: [
       'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
       'Contracts: rewards scale by item value + quantity (feels less flat).',
@@ -2838,14 +2838,27 @@ function drawEvent() {
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.fillStyle = '#fecaca';
       ctx.font = `${Math.round(14 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-      const lines = String(window.__crash.msg).split('\n').slice(0, 10);
+      const rawLines = String(window.__crash.msg).split('\n');
+      // Wrap long lines so mobile screenshots capture the important part (error type + first frames).
+      const wrapChars = IS_MOBILE ? 46 : 120;
+      const lines = [];
+      for (const ln of rawLines) {
+        if (!ln) { lines.push(''); continue; }
+        for (let i = 0; i < ln.length; i += wrapChars) lines.push(ln.slice(i, i + wrapChars));
+      }
+      const shown = lines.slice(0, IS_MOBILE ? 18 : 12);
+
       let y = Math.round(28 * UI_SCALE);
       ctx.fillText('Runtime error (screenshot this):', Math.round(12 * UI_SCALE), y);
       y += Math.round(22 * UI_SCALE);
-      for (const ln of lines) {
-        ctx.fillText(ln.slice(0, 140), Math.round(12 * UI_SCALE), y);
+      for (const ln of shown) {
+        ctx.fillText(ln, Math.round(12 * UI_SCALE), y);
         y += Math.round(18 * UI_SCALE);
       }
+      // hint so people know how to report it
+      ctx.fillStyle = 'rgba(254,202,202,0.75)';
+      ctx.font = `${Math.round(12 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      ctx.fillText('Tip: send this screenshot + the top line above.', Math.round(12 * UI_SCALE), y + Math.round(10 * UI_SCALE));
       ctx.restore();
     }
 
