@@ -1,0 +1,26 @@
+{
+  "name": "medieval-trader",
+  "version": "1.0.0",
+  "description": "A **top-down 2D fantasy trading** prototype.",
+  "main": "index.js",
+  "scripts": {
+    "serve": "bash ops/scripts/serve_local.sh",
+    "qa:selftest": "node ops/scripts/qa_selftest.mjs",
+    "test": "node ops/scripts/qa_selftest.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/llucky248-eng/charter-road.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/llucky248-eng/charter-road/issues"
+  },
+  "homepage": "https://github.com/llucky248-eng/charter-road#readme",
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  }
+}

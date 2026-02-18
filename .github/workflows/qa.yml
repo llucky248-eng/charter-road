@@ -1,0 +1,43 @@
+name: QA
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: medieval-trader/package-lock.json
+
+      - name: Install deps
+        working-directory: medieval-trader
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: medieval-trader
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke (syntax + version tags)
+        working-directory: medieval-trader
+        run: |
+          node -c src/main.js
+          bash ops/scripts/smoke_local.sh
+
+      - name: QA selftest (desktop + mobile emu)
+        working-directory: medieval-trader
+        run: |
+          bash ops/scripts/serve_local.sh
+          node ops/scripts/qa_selftest.mjs http://127.0.0.1:8080/?qa=1
+          bash ops/scripts/kill_local_server.sh

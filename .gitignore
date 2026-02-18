@@ -3,3 +3,10 @@
 
 # Generated artifacts
 ops/artifacts/
+
+# Node / Playwright
+node_modules/
+
+# Local server PID file
+.server.pid
+

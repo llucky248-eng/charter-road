@@ -31,6 +31,28 @@
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
+  // --- QA harness (used by Playwright CI)
+  const __QA = {
+    enabled: new URLSearchParams(location.search).get('qa') === '1',
+    status: 'pending',
+    details: '',
+  };
+  // @ts-ignore
+  window.__QA = __QA;
+
+  function qaPass(details = '') {
+    if (!__QA.enabled) return;
+    __QA.status = 'pass';
+    __QA.details = details;
+    console.log('QA_PASS', details);
+  }
+  function qaFail(details = '') {
+    if (!__QA.enabled) return;
+    __QA.status = 'fail';
+    __QA.details = details;
+    console.error('QA_FAIL', details);
+  }
+
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
       const HUD_H = Math.round((IS_MOBILE ? 48 : 56) * UI_SCALE);
@@ -673,6 +695,9 @@
 
     contracts.active = { ...job };
     toast('Accepted contract.', 2);
+
+    // QA hook: accepting a contract must not crash and should activate a job.
+    if (__QA.enabled && !contracts.active) qaFail('accept: contracts.active not set');
 
     // Close both UI systems (DOM overlay + canvas fallback) to avoid “stuck modal” / null-city crashes.
     ui.contractsOpen = false;
@@ -2681,6 +2706,32 @@ function drawEvent() {
     }
 
     requestAnimationFrame(tick);
+  }
+
+  // If QA enabled, run a deterministic self-test (no input required).
+  if (__QA.enabled) {
+    try {
+      // Put player inside Sunspire near contracts tile (id 12) and open contracts.
+      const c = world.cityA;
+      player.x = (c.x + Math.floor(c.w / 2)) * TILE;
+      player.y = (c.y + Math.floor(c.h / 2)) * TILE;
+      ui.contractsCityId = 'sunspire';
+      ui.contractsOpen = true;
+      ui.contractsSel = 0;
+
+      // Render once so DOM exists, then accept.
+      domRender();
+      contractsAccept(0);
+
+      if (!contracts.active) throw new Error('QA: contracts.active not set after accept');
+
+      // Basic render sanity: ensure progress label computes.
+      activeContractProgressLabel();
+
+      qaPass('contracts accept + render');
+    } catch (e) {
+      qaFail(String(e && (e.stack || e.message) || e));
+    }
   }
 
   tick();
