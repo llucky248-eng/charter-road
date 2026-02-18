@@ -1139,42 +1139,49 @@
 
   // --- Player
   // Sprite sheet (8-direction, animated). Falls back to the old marker if not loaded.
+  // Sheet layout (assets/player_adventurer.png):
+  // - 32x32 frames
+  // - 8 columns allocated
+  // - 16 rows total:
+  //   - rows 0..7: idle (4 frames used: cols 0..3)
+  //   - rows 8..15: walk (8 frames used: cols 0..7)
+  // Direction row order: N, NE, E, SE, S, SW, W, NW
   const playerSprite = (() => {
     const img = new Image();
     img.src = 'assets/player_adventurer.png';
     const s = {
       img,
       ready: false,
-      // Defaults assume a 4-frame walk cycle per direction.
-      // If the sheet differs, tweak these constants.
+
       frameW: 32,
       frameH: 32,
-      cols: 4,
-      rows: 8,
-      walkFrames: 4,
-      idleFrames: 1,
-      // 8 dirs mapped to rows: 0..7
-      // Order: E, SE, S, SW, W, NW, N, NE (common clockwise set)
-      dir: 2, // start facing S
+      cols: 8,
+      rows: 16,
+
+      walkFrames: 8,
+      idleFrames: 4,
+      walkRowBase: 8,
+      idleRowBase: 0,
+
+      // 8 dirs mapped to rows: 0..7 in the order below
+      dirOrder: ['N','NE','E','SE','S','SW','W','NW'],
+      dir: 4, // start facing S
       anim: 'idle', // 'idle' | 'walk'
       frame: 0,
       t: 0,
-      fpsWalk: 10,
-      fpsIdle: 1,
+      fpsWalk: 12,
+      fpsIdle: 4,
+
+      _loggedError: false,
     };
-    img.onload = () => {
-      s.ready = true;
-      // If the asset has different dimensions, try to infer cell size.
-      // Keep safe defaults if inference fails.
-      if (img.naturalWidth && img.naturalHeight) {
-        const w = img.naturalWidth;
-        const h = img.naturalHeight;
-        const fw = Math.floor(w / s.cols);
-        const fh = Math.floor(h / s.rows);
-        if (fw > 0 && fh > 0) { s.frameW = fw; s.frameH = fh; }
+    img.onload = () => { s.ready = true; };
+    img.onerror = () => {
+      s.ready = false;
+      if (!s._loggedError) {
+        s._loggedError = true;
+        console.warn('Player sprite failed to load: assets/player_adventurer.png');
       }
     };
-    img.onerror = () => { s.ready = false; };
     return s;
   })();
 
@@ -1935,23 +1942,25 @@
 
     // Sprite draw (preferred)
     if (playerSprite && playerSprite.ready) {
-      // Map movement vector to 8 dirs (matches playerSprite row order)
+      // Map facing vector -> 8-way direction index in the order:
+      // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW
       const fx = player.facing?.x ?? 0;
       const fy = player.facing?.y ?? 1;
       const ang = Math.atan2(fy, fx); // -pi..pi
       const step = Math.PI / 4;
-      // 0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
-      const dir = ((Math.round(ang / step) % 8) + 8) % 8;
+      // Compute E-based index, then rotate to make 0=N.
+      const eBased = ((Math.round(ang / step) % 8) + 8) % 8; // 0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
+      const dir = (eBased + 6) % 8; // rotate so 0=N
       playerSprite.dir = dir;
 
-      const moving = Math.hypot(player.vx, player.vy) > 1e-3;
+      const moving = Math.hypot(player.vx, player.vy) > 0.01;
       playerSprite.anim = moving ? 'walk' : 'idle';
 
       const frames = (playerSprite.anim === 'walk') ? playerSprite.walkFrames : playerSprite.idleFrames;
       const fw = playerSprite.frameW;
       const fh = playerSprite.frameH;
       const col = clamp(playerSprite.frame, 0, Math.max(0, frames - 1));
-      const row = clamp(playerSprite.dir, 0, playerSprite.rows - 1);
+      const row = clamp((playerSprite.anim === 'walk' ? playerSprite.walkRowBase : playerSprite.idleRowBase) + playerSprite.dir, 0, playerSprite.rows - 1);
 
       const sx = col * fw;
       const sy = row * fh;
