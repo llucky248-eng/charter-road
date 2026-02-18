@@ -1138,6 +1138,46 @@
   }
 
   // --- Player
+  // Sprite sheet (8-direction, animated). Falls back to the old marker if not loaded.
+  const playerSprite = (() => {
+    const img = new Image();
+    img.src = 'assets/player_adventurer.png';
+    const s = {
+      img,
+      ready: false,
+      // Defaults assume a 4-frame walk cycle per direction.
+      // If the sheet differs, tweak these constants.
+      frameW: 32,
+      frameH: 32,
+      cols: 4,
+      rows: 8,
+      walkFrames: 4,
+      idleFrames: 1,
+      // 8 dirs mapped to rows: 0..7
+      // Order: E, SE, S, SW, W, NW, N, NE (common clockwise set)
+      dir: 2, // start facing S
+      anim: 'idle', // 'idle' | 'walk'
+      frame: 0,
+      t: 0,
+      fpsWalk: 10,
+      fpsIdle: 1,
+    };
+    img.onload = () => {
+      s.ready = true;
+      // If the asset has different dimensions, try to infer cell size.
+      // Keep safe defaults if inference fails.
+      if (img.naturalWidth && img.naturalHeight) {
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const fw = Math.floor(w / s.cols);
+        const fh = Math.floor(h / s.rows);
+        if (fw > 0 && fh > 0) { s.frameW = fw; s.frameH = fh; }
+      }
+    };
+    img.onerror = () => { s.ready = false; };
+    return s;
+  })();
+
   const player = {
     x: (world.cityA.x + world.cityA.w/2) * TILE,
     y: (world.cityA.y + world.cityA.h + 4) * TILE,
@@ -1145,6 +1185,9 @@
     vx: 0,
     vy: 0,
     speed: 120,
+
+    // Movement-derived facing/anim
+    facing: { x: 0, y: 1 },
 
     gold: 120,
     capacity: 18,
@@ -1197,6 +1240,9 @@
 
     player.vx = nx * player.speed;
     player.vy = ny * player.speed;
+
+    // Track last facing direction from input (for 8-way sprite)
+    if (mag > 0) player.facing = { x: nx, y: ny };
 
     const stepX = player.vx * dt;
     const stepY = player.vy * dt;
@@ -1887,6 +1933,49 @@
     ctx.fill();
     ctx.globalAlpha = 1;
 
+    // Sprite draw (preferred)
+    if (playerSprite && playerSprite.ready) {
+      // Map movement vector to 8 dirs (matches playerSprite row order)
+      const fx = player.facing?.x ?? 0;
+      const fy = player.facing?.y ?? 1;
+      const ang = Math.atan2(fy, fx); // -pi..pi
+      const step = Math.PI / 4;
+      // 0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
+      const dir = ((Math.round(ang / step) % 8) + 8) % 8;
+      playerSprite.dir = dir;
+
+      const moving = Math.hypot(player.vx, player.vy) > 1e-3;
+      playerSprite.anim = moving ? 'walk' : 'idle';
+
+      const frames = (playerSprite.anim === 'walk') ? playerSprite.walkFrames : playerSprite.idleFrames;
+      const fw = playerSprite.frameW;
+      const fh = playerSprite.frameH;
+      const col = clamp(playerSprite.frame, 0, Math.max(0, frames - 1));
+      const row = clamp(playerSprite.dir, 0, playerSprite.rows - 1);
+
+      const sx = col * fw;
+      const sy = row * fh;
+
+      // Draw scaled to match old marker size; keep pixel crisp.
+      const scale = (TILE >= 16) ? 1 : 0.75;
+      const dw = Math.round(fw * scale);
+      const dh = Math.round(fh * scale);
+      const dx = Math.round(x - dw / 2);
+      const dy = Math.round(y - dh + 10); // feet near shadow
+
+      const prevSmooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      try {
+        ctx.drawImage(playerSprite.img, sx, sy, fw, fh, dx, dy, dw, dh);
+      } catch (e) {
+        // If drawImage fails for any reason, fall back to marker.
+        playerSprite.ready = false;
+      }
+      ctx.imageSmoothingEnabled = prevSmooth;
+      return;
+    }
+
+    // Fallback: old marker
     // outline
     ctx.fillStyle = '#111827';
     ctx.beginPath();
@@ -2711,6 +2800,31 @@ function drawEvent() {
     last = now;
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
+
+    // Player animation timer (kept independent of render)
+    {
+      const moving = Math.hypot(player.vx, player.vy) > 1e-3;
+      const anim = moving ? 'walk' : 'idle';
+      if (playerSprite && playerSprite.ready) {
+        if (playerSprite.anim !== anim) {
+          playerSprite.anim = anim;
+          playerSprite.frame = 0;
+          playerSprite.t = 0;
+        }
+        const fps = (playerSprite.anim === 'walk') ? playerSprite.fpsWalk : playerSprite.fpsIdle;
+        const frames = (playerSprite.anim === 'walk') ? playerSprite.walkFrames : playerSprite.idleFrames;
+        if (frames > 1 && fps > 0) {
+          playerSprite.t += dt;
+          const frameDur = 1 / fps;
+          while (playerSprite.t >= frameDur) {
+            playerSprite.t -= frameDur;
+            playerSprite.frame = (playerSprite.frame + 1) % frames;
+          }
+        } else {
+          playerSprite.frame = 0;
+        }
+      }
+    }
 
     try {
 
