@@ -1,4 +1,11 @@
 # Iteration Log — The Charter Road
 
+## v0.0.82 — 2026-02-18
+- Travel time: moving on roads consumes days (~1 day per 1200px travel).
+- Upkeep: each day consumes 1 rations; if none, pay 3g penalty.
+- Market drift: prices drift slightly per day per city/item (+/-2% daily, clamped 0.85-1.20x).
+- Road events: added Good Omen (+5-12g instant) and Merchant Escort (+8g choice).
+- Deterministic PRNG for drift/events (seeded, reproducible for testing).
+
 ## v0.0.77 — 2026-02-16
 - Fix: `ellipsizeText` used `max()` (non-existent) instead of `Math.max()`, which could crash HUD text rendering in edge cases.

@@ -538,6 +538,82 @@
     { id: 'ink', name: 'Demon Ink', base: 70, weight: 1, contrabandName: 'Demon Ink' },
   ];
 
+  // --- Market model (minimal, deterministic)
+  // Goals:
+  // - Per-town price differences that persist for a run (seeded by city+item).
+  // - Avoid degenerate buy->sell loops in the same town (spread).
+  // - Provide profit clarity via “reference/base” and “last seen” prices.
+  const MARKET = {
+    spread: 0.14,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2)
+    lastSeen: {
+      // cityId: { itemId: { buy:number, sell:number, t:number } }
+    },
+  };
+
+  function citySeed(cityId) {
+    // Keep stable across reloads within a run; if a global seed exists, incorporate later.
+    // 1..1e9-ish.
+    const a = cityId === 'sunspire' ? 1337 : 7331;
+    return a;
+  }
+
+  function seeded01(a, b, c = 0) {
+    // deterministic 0..1 based on 3 ints
+    let n = (a * 374761393 + b * 668265263 + c * 362437) >>> 0;
+    n = (n ^ (n >> 13)) >>> 0;
+    n = (n * 1274126177) >>> 0;
+    return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+  }
+
+  function townItemModifier(cityId, itemId) {
+    const cs = citySeed(cityId);
+    // ~ +/-18% persistent skew per item per city
+    const u = seeded01(cs, itemId.length, itemId.charCodeAt(0) || 0);
+    const skew = (u * 2 - 1) * 0.18;
+
+    // A tiny city-wide tilt as well (keeps towns feeling distinct even if per-item skews coincide)
+    const v = seeded01(cs, 999, 42);
+    const cityTilt = (v * 2 - 1) * 0.06;
+    return 1 + skew + cityTilt;
+  }
+
+  function referencePrice(item) {
+    // The “fair” reference the UI can compare against.
+    return Math.max(1, Math.round(item.base));
+  }
+
+  function midPriceFor(cityId, item) {
+    // persistent town differences + tiny time wobble
+    const mod = townItemModifier(cityId, item.id);
+    const wob = 0.97 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.03;
+    return Math.max(1, Math.round(item.base * mod * wob));
+  }
+
+  function quoteFor(cityId, item) {
+    const mid = midPriceFor(cityId, item);
+    const half = MARKET.spread / 2;
+    const buy = Math.max(1, Math.round(mid * (1 + half)));
+    const sell = Math.max(1, Math.round(mid * (1 - half)));
+    return { mid, buy, sell };
+  }
+
+  function rememberLastSeen(cityId, itemId, q) {
+    if (!MARKET.lastSeen[cityId]) MARKET.lastSeen[cityId] = {};
+    MARKET.lastSeen[cityId][itemId] = { buy: q.buy, sell: q.sell, t: stateTime };
+  }
+
+  function lastSeenFor(cityId, itemId) {
+    return MARKET.lastSeen?.[cityId]?.[itemId] || null;
+  }
+
+  function fmtDeltaPct(cur, ref) {
+    if (!ref) return '';
+    const d = (cur - ref) / ref;
+    const pct = Math.round(d * 100);
+    return (pct >= 0 ? `+${pct}%` : `${pct}%`);
+  }
+
+
   const CONTRACT_ITEMS = ['food','ore','herbs','potion','relic'];
 
 
@@ -567,20 +643,63 @@
   };
 
 
-  // --- UI / time
+  // --- Time / travel pressure
   let stateTime = 0;
+
+  const time = {
+    day: 1,
+    frac: 0, // fractional day progress [0,1)
+    seed: 1,
+  };
+
+  // Deterministic PRNG for travel events & market drift (stable for testing)
+  function rand01() {
+    time.seed = (time.seed * 1664525 + 1013904223) >>> 0;
+    return time.seed / 4294967296;
+  }
+
+  // Simple, slow market drift by day (small per-item per-city multipliers)
+  const marketDrift = {
+    sunspire: Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+    gloomwharf: Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+  };
+
+  function advanceDays(days, reason = '') {
+    if (!Number.isFinite(days) || days <= 0) return;
+    time.frac += days;
+    let advanced = 0;
+    while (time.frac >= 1) {
+      time.frac -= 1;
+      time.day += 1;
+      advanced += 1;
+      // tiny drift; mean ~0 over time; clamp to keep prices sane
+      for (const cityId of Object.keys(marketDrift)) {
+        for (const it of ITEMS) {
+          const r = rand01();
+          const delta = (r - 0.5) * 0.04; // +/-2% per day
+          marketDrift[cityId][it.id] = clamp(marketDrift[cityId][it.id] * (1 + delta), 0.85, 1.20);
+        }
+      }
+    }
+
+    if (advanced > 0) {
+      toast(reason ? `Day +${advanced} (${reason}).` : `Day +${advanced}.`, 1.8);
+    }
+  }
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.81',
+    version: 'v0.0.82',
     whatsNew: [
-      'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
-      'Contracts: rewards scale by item value + quantity (feels less flat).',
-      'Reliability: hard crash guard prevents silent black screens.',
+      'Travel time: moving on roads consumes days; each day consumes 1 rations (or 3g penalty).',
+      'Market drift: prices slowly drift day-by-day (small +/- changes per city/item).',
+      'Road events: added Good Omen (+5-12g) and Merchant Escort (+8g) encounters.',
+      'UI: Active contract pinned on mobile HUD; minimap compass arrow to destination.',
     ],
     whatsNext: [
       'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
       'Contracts: tune rewards + add accept/abandon UX.',
+      'Balance: tune travel speed, food upkeep, and event frequency.',
     ],
   };
 
@@ -653,37 +772,64 @@
       .replaceAll("'", '&#39;');
   }
 
-  function marketTryTrade(index) {
+  function marketTryTrade(index, qty = 1) {
     const c = currentCity();
     if (!c) return;
 
+    const q = Math.max(1, Math.floor(Number(qty) || 1));
+
     const isPermitRow = index === ITEMS.length;
     if (isPermitRow) {
+      // permit only supports qty=1
       if (player.permits[c.id]) { toast('Permit already owned.', 2); return; }
-      if (player.gold < PERMIT_PRICE) { toast('Not enough gold for permit.', 2); return; }
+      if (player.gold < PERMIT_PRICE) { toast(`Not enough gold (need ${PERMIT_PRICE}g).`, 2); return; }
       player.gold -= PERMIT_PRICE;
+      if (player.gold < 0) { player.gold = 0; toast('Trade blocked (gold would go negative).', 2); return; }
       player.permits[c.id] = true;
       toast('Purchased city permit.', 2.2);
       return;
     }
 
     const it = ITEMS[index];
+    if (!it) return;
     const p = priceFor(c.id, it);
+
     if (ui.mode === 'buy') {
       const w = invWeight();
-      if (w + it.weight > player.capacity) { toast('No space in pack.', 2); return; }
-      if (player.gold < p) { toast('Not enough gold.', 2); return; }
-      player.gold -= p;
-      player.inv[it.id] = (player.inv[it.id] || 0) + 1;
-      toast(`Bought 1 ${it.name} (-${p}g)`, 2);
-    } else {
-      const have = player.inv[it.id] || 0;
-      if (have <= 0) { toast('You have none to sell.', 2); return; }
-      const net = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
-      player.inv[it.id] = have - 1;
-      player.gold += net;
-      toast(`Sold 1 ${it.name} (+${net}g after tax)`, 2);
+      const free = Math.max(0, player.capacity - w);
+      const maxBySpace = it.weight > 0 ? Math.floor(free / it.weight) : 0;
+      const maxByGold = p > 0 ? Math.floor(player.gold / p) : 0;
+      const can = Math.max(0, Math.min(maxBySpace, maxByGold));
+      if (can <= 0) {
+        if (maxBySpace <= 0) toast('No space in pack.', 2);
+        else toast('Not enough gold.', 2);
+        return;
+      }
+      const buyN = Math.min(q, can);
+      const cost = buyN * p;
+      if (cost <= 0 || player.gold < cost) { toast('Not enough gold.', 2); return; }
+      if (w + buyN * it.weight > player.capacity) { toast('No space in pack.', 2); return; }
+
+      player.gold -= cost;
+      if (player.gold < 0) { player.gold += cost; toast('Trade blocked (gold would go negative).', 2); return; }
+      player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
+      toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
+      return;
     }
+
+    // sell
+    const have = player.inv[it.id] || 0;
+    if (have <= 0) { toast('You have none to sell.', 2); return; }
+    const sellN = Math.min(q, have);
+    if (sellN <= 0) { toast('Invalid quantity.', 2); return; }
+    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
+    const gain = sellN * netEach;
+
+    player.inv[it.id] = have - sellN;
+    if (player.inv[it.id] < 0) { player.inv[it.id] = have; toast('Trade blocked (qty would go negative).', 2); return; }
+    player.gold += gain;
+    if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
+    toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
   }
 
   function contractsAccept(idx) {
@@ -748,22 +894,54 @@
         const sub = isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`;
         const right = isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`;
         const badge = contra ? '<span class="cr-badge">CONTRABAND</span>' : '';
-        const actionLabel = isPermitRow ? (hasPermit ? 'Owned' : 'Buy') : (ui.mode === 'buy' ? 'Buy' : 'Sell');
-        const actionDisabled = isPermitRow ? (hasPermit ? 'disabled' : '') : '';
 
-        rows.push(`
-          <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
-            <div>
-              <div class="cr-card-title">${htmlEscape(title)}</div>
-              <div class="cr-card-sub">${htmlEscape(sub)}</div>
-              ${badge}
+        if (isPermitRow) {
+          const actionLabel = hasPermit ? 'Owned' : 'Buy';
+          const actionDisabled = hasPermit ? 'disabled' : '';
+          rows.push(`
+            <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
+              <div>
+                <div class="cr-card-title">${htmlEscape(title)}</div>
+                <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                ${badge}
+              </div>
+              <div class="cr-right">
+                <div class="cr-price">${htmlEscape(right)}</div>
+                <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="trade" data-idx="${i}" data-qty="1" ${actionDisabled}>${htmlEscape(actionLabel)}</button>
+              </div>
             </div>
-            <div class="cr-right">
-              <div class="cr-price">${htmlEscape(right)}</div>
-              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="trade" data-idx="${i}" ${actionDisabled}>${htmlEscape(actionLabel)}</button>
+          `);
+        } else {
+          // Quick actions for regular items
+          const w = invWeight();
+          const free = Math.max(0, player.capacity - w);
+          const maxBySpace = it.weight > 0 ? Math.floor(free / it.weight) : 0;
+          const maxByGold = price > 0 ? Math.floor(player.gold / price) : 0;
+          const maxBuy = ui.mode === 'buy' ? Math.max(0, Math.min(maxBySpace, maxByGold)) : have;
+
+          const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
+          const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+
+          const q1 = mkBtn('±1', 1, false);
+          const q5 = mkBtn('±5', 5, maxBuy < 5);
+          const qMax = mkBtn(ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, maxBuy <= 0);
+
+          rows.push(`
+            <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
+              <div>
+                <div class="cr-card-title">${htmlEscape(title)}</div>
+                <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                ${badge}
+              </div>
+              <div class="cr-right">
+                <div class="cr-price">${htmlEscape(right)}</div>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
+                  ${q1}${q5}${qMax}
+                </div>
+              </div>
             </div>
-          </div>
-        `);
+          `);
+        }
       }
 
       const w = invWeight();
@@ -806,15 +984,19 @@
           if (ev.key === 'Enter' || ev.key === ' ') {
             ev.preventDefault();
             const idx = Number(el.getAttribute('data-idx'));
-            if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx); }
+            if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx, 1); }
           }
         });
       });
+
+      // quick quantity actions
       uiRoot.querySelectorAll('[data-action="trade"]').forEach(el => el.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const idx = Number(el.getAttribute('data-idx'));
-        if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx); }
+        const qty = Number(el.getAttribute('data-qty') || '1');
+        if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx, qty); }
       }));
+
       return;
     }
 
@@ -995,7 +1177,8 @@
       : (item.id === 'relic' ? 1.25 : item.id === 'food' ? 0.85 : 1.05);
     // tiny wobble so it feels alive
     const wob = 0.95 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.04;
-    return Math.max(1, Math.round(item.base * mult * wob));
+    const drift = (marketDrift[cityId] && marketDrift[cityId][item.id]) ? marketDrift[cityId][item.id] : 1;
+    return Math.max(1, Math.round(item.base * mult * wob * drift));
   }
 
   function isSolidAt(px, py) {
@@ -1145,6 +1328,7 @@
   const road = {
     travel: 0,
     cooldown: 0,
+    dayCarry: 0, // accumulates fractional day progress from movement
   };
 
   function randChoice(arr) {
@@ -1273,7 +1457,7 @@
     road.travel = 0;
     road.cooldown = 6.0;
 
-    const kind = randChoice(['bandits', 'toll', 'storm']);
+    const kind = randChoice(['bandits', 'toll', 'storm', 'omen', 'escort']);
 
     if (kind === 'bandits') {
       openEvent({
@@ -1343,6 +1527,32 @@
         { label: 'Take shelter (-5g)', run: () => { const paid = Math.min(player.gold, 5); player.gold -= paid; toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
       ],
     });
+
+    if (kind === 'omen') {
+      // Good omen: small windfall
+      const g = 5 + Math.floor(rand01() * 8);
+      player.gold += g;
+      toast(`Good omen on the road! Found ${g}g.`, 2.4);
+      closeEvent();
+      return;
+    }
+
+    if (kind === 'escort') {
+      openEvent({
+        title: 'Merchant Escort',
+        text: 'A nervous merchant asks for protection through a rough stretch. Tip: 8g.',
+        choices: [
+          { label: 'Escort (+8g)', run: () => {
+              player.gold += 8;
+              toast('You escort the merchant safely. (+8g)', 2.4);
+              closeEvent();
+            }
+          },
+          { label: 'Decline', run: () => { toast('The merchant finds others.', 2); closeEvent(); } },
+        ],
+      });
+      return;
+    }
   }
 
   window.addEventListener('keydown', (e) => {
@@ -2597,7 +2807,7 @@ function drawEvent() {
       }
     }
 
-    // Road travel tracking + encounters
+    // Road travel tracking + encounters + day consumption
     const cityNow = currentCity();
     if (!cityNow && !ui.eventOpen) {
       const tx = Math.floor(player.x / TILE);
@@ -2606,7 +2816,25 @@ function drawEvent() {
       if (onRoad) {
         const dx = player.x - (player._px ?? player.x);
         const dy = player.y - (player._py ?? player.y);
-        road.travel += Math.hypot(dx, dy);
+        const dist = Math.hypot(dx, dy);
+        road.travel += dist;
+        // Travel consumes time: ~1 day per 1200px (tune for feel)
+        road.dayCarry += dist / 1200;
+        if (road.dayCarry >= 1) {
+          const days = Math.floor(road.dayCarry);
+          road.dayCarry -= days;
+          advanceDays(days, 'travel');
+          // Upkeep: consume 1 food per day if carrying any
+          if (player.inv['food'] > 0) {
+            player.inv['food'] -= 1;
+            toast('Consumed 1 rations.', 1.4);
+          } else {
+            // No food: small gold penalty (starvation/hire help)
+            const penalty = 3;
+            player.gold = Math.max(0, player.gold - penalty);
+            toast(`No rations! Paid ${penalty}g for supplies.`, 1.8);
+          }
+        }
       }
     }
     player._px = player.x;
