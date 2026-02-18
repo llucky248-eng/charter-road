@@ -550,7 +550,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.79',
+    version: 'v0.0.80',
     whatsNew: [
       'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
       'Contracts: rewards scale by item value + quantity (feels less flat).',
@@ -1185,17 +1185,8 @@
       ];
       ui.eventSel = 0;
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1217,17 +1208,8 @@
       ];
       ui.eventSel = 0;
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1248,17 +1230,8 @@
       ];
       ui.eventSel = 0;
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
   }
@@ -1303,17 +1276,8 @@
         ],
       });
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1327,17 +1291,8 @@
         ],
       });
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1452,17 +1407,8 @@
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1478,17 +1424,8 @@
       if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 2, TILE);
       if (tileAt(tx+1, ty) !== 1) ctx.fillRect(x + TILE - 2, y, 2, TILE);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1506,18 +1443,8 @@
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x, y + Math.floor(phase), TILE, 2);
 
-
       // active contract (pinned)
-      // NOTE: drawTile() doesn't know the HUD layout; avoid using HUD-local vars (e.g. topH)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(16 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1527,17 +1454,8 @@
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1556,17 +1474,8 @@
         ctx.fillRect(x + 9, y + 9, 3, 4);
       }
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1580,17 +1489,8 @@
       ctx.fillStyle = 'rgba(56,189,248,0.18)';
       ctx.fillRect(x+6, y+4, TILE-12, 2);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1605,15 +1505,7 @@
       ctx.fillRect(x+3, y+3, TILE-6, 1);
 
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1625,17 +1517,8 @@
       ctx.fillStyle = 'rgba(255,255,255,0.22)';
       ctx.fillRect(x + 5, y + 4, TILE - 10, 2);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1652,17 +1535,8 @@
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.fillRect(x + 5, y + TILE - 6, TILE - 10, 2);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1674,17 +1548,8 @@
       ctx.fillRect(x + TILE - 6, y + 3, 4, 4);
       ctx.fillRect(x + 5, y + TILE - 6, 6, 4);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1703,17 +1568,8 @@
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1735,17 +1591,8 @@
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1758,17 +1605,8 @@
       ctx.fillRect(x+4, y+5, TILE-8, 2);
       ctx.fillRect(x+4, y+9, TILE-8, 2);
 
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -1984,18 +1822,8 @@
       const detail = rules ? `${rules.vibe}` : 'Travel the road. E interacts.';
       ctx.fillText(ellipsizeText(detail, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(40 * UI_SCALE));
 
-
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
@@ -2349,18 +2177,8 @@
       ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText('Drag list to scroll · ↑/↓ select · Enter confirm · Esc close', innerX, sheetTop + sheetH - 12 - 10);
 
-
-
       // active contract (pinned)
-      if (contracts.active) {
-        const destCity = getCityById(contracts.active.toId);
-        const it = ITEMS.find(x => x.id === contracts.active.want);
-        const prog = activeContractProgressLabel();
-        const label = `Contract: ${contracts.active.qty}× ${it ? it.name : contracts.active.want} (${prog}) → ${destCity ? destCity.name : contracts.active.toId} (${contracts.active.reward}g)`;
-        ctx.fillStyle = 'rgba(230, 248, 255, 0.92)';
-        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(ellipsizeText(label, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), topH - Math.round(8 * UI_SCALE));
-      }
+      // moved to drawHUD(); keeping tile rendering pure
       return;
     }
 
