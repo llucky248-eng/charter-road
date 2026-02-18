@@ -25,10 +25,21 @@ else if (arg.startsWith('v')) next = arg.slice(1);
 else next = arg;
 if (!parse(next)) die(`Invalid version arg: ${arg}`);
 
+// No-op bump is OK (useful when re-running validation for the same version)
+if (next === cur) {
+  console.log(`Version unchanged: ${cur}`);
+  process.exit(0);
+}
+
 let idx = indexHtml;
 let js = mainJs;
 
+// Update the script tag cache-buster (static form)
 idx = idx.replace(/(\.\/src\/main\.js\?v=)(\d+\.\d+\.\d+)/g, `$1${next}`);
+
+// Update the dynamic loader fallback that hardcodes a default version: ('?v=0.0.81')
+idx = idx.replace(/\('\?v=\d+\.\d+\.\d+'\)/g, `('?v=${next}')`);
+
 idx = idx.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${next}`);
 js = js.replace(/version\s*:\s*'v\d+\.\d+\.\d+'/m, `version: 'v${next}'`);
 

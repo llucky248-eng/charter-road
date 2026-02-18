@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Local smoke:
 # - starts a tiny server
-# - fetches /index.html and checks HTML build + main.js?v match expected
+# - fetches /index.html and checks HTML build + loader looks sane
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
@@ -41,9 +41,16 @@ echo "${HTML}" | grep -q "HTML build: v${EXPECTED}" || {
   exit 1
 }
 
-echo "${HTML}" | grep -Eq "src/main\\.js\\?v=${EXPECTED}(['\"])?" || {
-  echo "ERROR: index.html main.js cache-buster mismatch (expected ?v=${EXPECTED})" >&2
+# Loader can be static or dynamic.
+# Accept either:
+# - static: ./src/main.js?v=EXPECTED
+# - dynamic: encodeURIComponent(v) (and fallback '?v=EXPECTED')
+(
+  echo "${HTML}" | grep -Eq "src/main\\.js\\?v=${EXPECTED}(['\"])"? \
+  || (echo "${HTML}" | grep -q "encodeURIComponent(v)" && echo "${HTML}" | grep -q "'?v=${EXPECTED}'")
+) || {
+  echo "ERROR: index.html main.js loader mismatch (expected v=${EXPECTED} or dynamic loader w/ fallback)" >&2
   exit 1
 }
 
-echo "SMOKE OK: HTML build v${EXPECTED} and main.js?v=${EXPECTED}"
+echo "SMOKE OK: HTML build v${EXPECTED} and loader ok"
