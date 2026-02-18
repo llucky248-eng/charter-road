@@ -1174,7 +1174,18 @@
 
       _loggedError: false,
     };
-    img.onload = () => { s.ready = true; };
+    img.onload = () => {
+      // Infer cell size from the actual image to avoid “grid of icons” cropping bugs.
+      // Expect 8 columns and 16 rows, but keep it resilient.
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w > 0 && h > 0) {
+        const fw = Math.floor(w / s.cols);
+        const fh = Math.floor(h / s.rows);
+        if (fw > 0 && fh > 0) { s.frameW = fw; s.frameH = fh; }
+      }
+      s.ready = true;
+    };
     img.onerror = () => {
       s.ready = false;
       if (!s._loggedError) {
