@@ -550,7 +550,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
                                                                                                                   const ITERATION = {
-    version: 'v0.0.76',
+    version: 'v0.0.77',
     whatsNew: [
       'UI: Mobile HUD now pins active contract text; minimap shows a compass arrow to the destination.',
       'Contracts: rewards scale by item value + quantity (feels less flat).',
