@@ -8,7 +8,7 @@
   if (!canvas) throw new Error('Missing canvas');
 
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
-    const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
   const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
@@ -55,7 +55,7 @@
 
   const TILE = IS_MOBILE ? 12 : 16;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
-      const HUD_H = Math.round((IS_MOBILE ? 48 : 56) * UI_SCALE);
+  const HUD_H = Math.round((IS_MOBILE ? 48 : 56) * UI_SCALE);
   const MAP_W = 140;
   const MAP_H = 90;
 
