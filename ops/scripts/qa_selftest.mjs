@@ -16,7 +16,7 @@ function die(msg) {
   process.exit(1);
 }
 
-const url = process.argv[2] || 'http://127.0.0.1:8080/?qa=1';
+const url = process.argv[2] || process.env.QA_URL || 'http://127.0.0.1:8080/?qa=1';
 
 async function runOnce({ name, contextOptions }) {
   const browser = await chromium.launch();

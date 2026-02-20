@@ -95,6 +95,18 @@
     keys.add(e.code);
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) e.preventDefault();
 
+    // Save/Load shortcuts (global, work even in modals)
+    if (e.code === 'KeyS' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      saveGame();
+      toast('Game saved.', 1.5);
+      scheduleAutoSave();
+    }
+    if (e.code === 'KeyL' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (loadGame()) { /* toast already shown in loadGame */ }
+      else toast('No save found.', 1.5);
+    }
 
     // Event controls (keyboard)
     if (ui.eventOpen) {
@@ -812,6 +824,7 @@
       if (player.gold < 0) { player.gold += cost; toast('Trade blocked (gold would go negative).', 2); return; }
       player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
+      scheduleAutoSave();
       return;
     }
 
@@ -828,6 +841,7 @@
     player.gold += gain;
     if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
+    scheduleAutoSave();
   }
 
   function contractsAccept(idx) {
@@ -1215,6 +1229,89 @@
     permits: { sunspire: false, gloomwharf: false },
 
   };
+
+  // --- Save/Load (localStorage)
+  const SAVE_KEY = 'charter-road-save-v1';
+
+  function saveGame() {
+    const state = {
+      player: {
+        x: player.x,
+        y: player.y,
+        gold: player.gold,
+        capacity: player.capacity,
+        inv: { ...player.inv },
+        lastCityId: player.lastCityId,
+        rep: { ...player.rep },
+        permits: { ...player.permits },
+        facing: { ...player.facing },
+      },
+      time: { ...time },
+      marketDrift: {
+        sunspire: { ...marketDrift.sunspire },
+        gloomwharf: { ...marketDrift.gloomwharf },
+      },
+      contracts: {
+        active: contracts.active ? { ...contracts.active } : null,
+      },
+      version: 'v0.0.85',
+    };
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+      console.log('[SAVE] Game saved');
+    } catch (e) {
+      console.warn('[SAVE] Failed to save:', e);
+    }
+  }
+
+  function loadGame() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) {
+        console.log('[LOAD] No save found');
+        return false;
+      }
+      const state = JSON.parse(raw);
+      if (!state || !state.player) {
+        console.warn('[LOAD] Invalid save data');
+        return false;
+      }
+      // Restore player
+      Object.assign(player, state.player);
+      // Restore time
+      Object.assign(time, state.time);
+      // Restore market drift
+      if (state.marketDrift?.sunspire) Object.assign(marketDrift.sunspire, state.marketDrift.sunspire);
+      if (state.marketDrift?.gloomwharf) Object.assign(marketDrift.gloomwharf, state.marketDrift.gloomwharf);
+      // Restore contracts
+      if (state.contracts?.active) contracts.active = state.contracts.active;
+      // Re-center camera on player
+      camera.x = player.x - VIEW_W/2;
+      camera.y = player.y - VIEW_H/2;
+      console.log('[LOAD] Game loaded (day', time.day, ')');
+      toast('Game loaded (day ' + time.day + ').', 2);
+      return true;
+    } catch (e) {
+      console.warn('[LOAD] Failed to load:', e);
+      return false;
+    }
+  }
+
+  function deleteSave() {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+      console.log('[SAVE] Save deleted');
+    } catch (e) {
+      console.warn('[SAVE] Failed to delete:', e);
+    }
+  }
+
+  // Auto-save on certain actions
+  let autoSaveTimer = null;
+  function scheduleAutoSave() {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(saveGame, 2000);
+  }
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
 
@@ -2966,6 +3063,7 @@ function drawEvent() {
             player.gold = Math.max(0, player.gold - penalty);
             toast(`No rations! Paid ${penalty}g for supplies.`, 1.8);
           }
+          scheduleAutoSave();
         }
       }
     }
