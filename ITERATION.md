@@ -1,5 +1,15 @@
 # Iteration Log — The Charter Road
 
+## v0.0.86 — 2026-02-20
+- HUD: desktop Save/Load buttons added (mouse/touchpad friendly).
+- HUD: shows last saved day after saving.
+
+## v0.0.85 — 2026-02-20
+- Save/Load: localStorage-based persistence (Ctrl/Cmd+S save, Ctrl/Cmd+L load).
+- Auto-save: after buying, selling, and travel day advancement.
+- Persists: player state (gold, inv, position, rep, permits), time (day, frac, seed), market drift, active contract.
+- QA: added `QA_URL` env var support for flexible test URLs.
+
 ## v0.0.84 — 2026-02-19
 - Cleanup: removed unused `max()` helper from `src/main.js` (use `Math.max` directly).
 

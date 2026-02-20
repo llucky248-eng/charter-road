@@ -228,11 +228,31 @@
   }
 // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
-    if (!IS_MOBILE) return;
-    if (!ui.marketOpen && !ui.eventOpen) return;
     const r = canvas.getBoundingClientRect();
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
+
+    // HUD Save/Load buttons (desktop)
+    if (!IS_MOBILE && sy <= HUD_H) {
+      const S = ui._btnSave;
+      const L = ui._btnLoad;
+      if (S && sx >= S.x && sx <= S.x + S.w && sy >= S.y && sy <= S.y + S.h) {
+        saveGame();
+        ui._lastSavedDay = time.day;
+        toast('Game saved.', 1.6);
+        e.preventDefault();
+        return;
+      }
+      if (L && sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
+        if (!loadGame()) toast('No save found.', 1.6);
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Mobile pointer handling: drag-scroll for canvas popups
+    if (!IS_MOBILE) return;
+    if (!ui.marketOpen && !ui.eventOpen) return;
 
     if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
     const kind = ui.marketOpen ? 'market' : 'event';
@@ -1233,6 +1253,9 @@
   // --- Save/Load (localStorage)
   const SAVE_KEY = 'charter-road-save-v1';
 
+  // UI bits
+  ui._lastSavedDay = null;
+
   function saveGame() {
     const state = {
       player: {
@@ -1258,6 +1281,7 @@
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+      ui._lastSavedDay = time.day;
       console.log('[SAVE] Game saved');
     } catch (e) {
       console.warn('[SAVE] Failed to save:', e);
@@ -2341,6 +2365,42 @@
     // stats (right side)
     const rightX = VIEW_W - pad;
     ctx.textAlign = 'right';
+    
+    // Save/Load buttons (desktop only, small icons in HUD)
+    if (!IS_MOBILE) {
+      const btnSaveX = rightX - Math.round(260 * UI_SCALE);
+      const btnSaveY = Math.round(14 * UI_SCALE);
+      const btnW = Math.round(48 * UI_SCALE);
+      const btnH = Math.round(20 * UI_SCALE);
+      
+      // Save button
+      ctx.fillStyle = 'rgba(34,197,94,0.85)';
+      if (ctx.roundRect) ctx.roundRect(btnSaveX, btnSaveY - btnH, btnW, btnH, 4);
+      else ctx.fillRect(btnSaveX, btnSaveY - btnH, btnW, btnH);
+      ctx.fillStyle = '#fff';
+      ctx.font = `700 ${Math.round(10 * UI_SCALE)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('💾', btnSaveX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
+      ui._btnSave = { x: btnSaveX, y: btnSaveY - btnH, w: btnW, h: btnH };
+      
+      // Load button
+      const btnLoadX = btnSaveX + btnW + Math.round(8 * UI_SCALE);
+      ctx.fillStyle = 'rgba(59,130,246,0.85)';
+      if (ctx.roundRect) ctx.roundRect(btnLoadX, btnSaveY - btnH, btnW, btnH, 4);
+      else ctx.fillRect(btnLoadX, btnSaveY - btnH, btnW, btnH);
+      ctx.fillStyle = '#fff';
+      ctx.fillText('📂', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
+      ui._btnLoad = { x: btnLoadX, y: btnSaveY - btnH, w: btnW, h: btnH };
+      
+      // Last saved indicator
+      if (ui._lastSavedDay) {
+        ctx.fillStyle = 'rgba(160,184,203,0.85)';
+        ctx.font = `${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`Day ${ui._lastSavedDay}`, btnSaveX + btnW + Math.round(4 * UI_SCALE), btnSaveY - Math.round(14 * UI_SCALE));
+      }
+    }
+    
     if (IS_MOBILE) {
       // align stats with minimap block (vertical stack)
       const statsY1 = mmY + Math.round(22 * UI_SCALE);
