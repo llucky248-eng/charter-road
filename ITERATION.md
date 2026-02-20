@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.84 — 2026-02-19
+- Cleanup: removed unused `max()` helper from `src/main.js` (use `Math.max` directly).
+
+
 ## v0.0.83 — 2026-02-18
 - Travel time: moving on roads consumes days (~1 day per 1200px travel).
 - Upkeep: each day consumes 1 rations; if none, pay 3g penalty.

@@ -78,8 +78,6 @@
     return str.slice(0, cut) + ell;
   }
 
-  function max(a, b) { return a > b ? a : b; }
-
   function hash2(x, y) {
     // deterministic 0..1
     let n = (x * 374761393 + y * 668265263) >>> 0;
