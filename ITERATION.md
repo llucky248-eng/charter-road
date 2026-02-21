@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.88 — 2026-02-21
+- Save/Load: added save schema versioning (`saveVersion`) + migration from legacy saves.
+- Save/Load: added validation + clearer load failure toasts (corrupt/incompatible save).
+- QA: expanded `?qa=1` harness to cover save missing/malformed/partial cases.
+
 ## v0.0.87 — 2026-02-21
 - Code style: fixed a stray unindented comment near pointer events (no functional change).
 

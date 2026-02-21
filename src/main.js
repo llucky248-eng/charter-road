@@ -1253,12 +1253,15 @@
 
   // --- Save/Load (localStorage)
   const SAVE_KEY = 'charter-road-save-v1';
+  const SAVE_SCHEMA_VERSION = 1; // bump when save format changes
 
   // UI bits
   ui._lastSavedDay = null;
 
   function saveGame() {
     const state = {
+      saveVersion: SAVE_SCHEMA_VERSION,
+      buildVersion: 'v0.0.88',
       player: {
         x: player.x,
         y: player.y,
@@ -1278,7 +1281,6 @@
       contracts: {
         active: contracts.active ? { ...contracts.active } : null,
       },
-      version: 'v0.0.85',
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -1289,6 +1291,101 @@
     }
   }
 
+  function isObj(x) { return !!x && typeof x === 'object'; }
+
+  function validateSave(s) {
+    const errors = [];
+
+    if (!isObj(s)) errors.push('save is not an object');
+
+    // saveVersion is optional for legacy saves; if present, must be an integer
+    if (s?.saveVersion !== undefined && !Number.isInteger(s.saveVersion)) {
+      errors.push('saveVersion must be an integer if present');
+    }
+
+    if (!isObj(s?.player)) errors.push('player missing');
+    else {
+      const p = s.player;
+      if (!Number.isFinite(p.x)) errors.push('player.x must be number');
+      if (!Number.isFinite(p.y)) errors.push('player.y must be number');
+      if (!Number.isFinite(p.gold)) errors.push('player.gold must be number');
+      if (!Number.isFinite(p.capacity)) errors.push('player.capacity must be number');
+
+      if (!isObj(p.inv)) errors.push('player.inv must be object');
+      if (!isObj(p.rep)) errors.push('player.rep must be object');
+      if (!isObj(p.permits)) errors.push('player.permits must be object');
+      if (!isObj(p.facing)) errors.push('player.facing must be object');
+      else {
+        if (!Number.isFinite(p.facing.x)) errors.push('player.facing.x must be number');
+        if (!Number.isFinite(p.facing.y)) errors.push('player.facing.y must be number');
+      }
+
+      if (p.lastCityId != null && typeof p.lastCityId !== 'string') {
+        errors.push('player.lastCityId must be string|null');
+      }
+    }
+
+    if (!isObj(s?.time)) errors.push('time missing');
+    else {
+      const t = s.time;
+      if (!Number.isFinite(t.day)) errors.push('time.day must be number');
+      if (!Number.isFinite(t.frac)) errors.push('time.frac must be number');
+      if (!Number.isFinite(t.seed)) errors.push('time.seed must be number');
+    }
+
+    if (s.marketDrift !== undefined) {
+      if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
+      else {
+        if (!isObj(s.marketDrift.sunspire)) errors.push('marketDrift.sunspire must be object');
+        if (!isObj(s.marketDrift.gloomwharf)) errors.push('marketDrift.gloomwharf must be object');
+      }
+    }
+
+    if (s.contracts !== undefined) {
+      if (!isObj(s.contracts)) errors.push('contracts must be object');
+      else {
+        const a = s.contracts.active;
+        if (a !== null && a !== undefined) {
+          if (!isObj(a)) errors.push('contracts.active must be object|null');
+        }
+      }
+    }
+
+    return { ok: errors.length === 0, errors };
+  }
+
+  function migrateSave(raw) {
+    let s;
+    try { s = structuredClone(raw); }
+    catch { s = JSON.parse(JSON.stringify(raw)); }
+
+    const v = Number.isInteger(s?.saveVersion) ? s.saveVersion : 0;
+
+    if (v === 0) {
+      s.saveVersion = 1;
+
+      // Legacy saves used `version` as a build string.
+      if (s.version && !s.buildVersion) {
+        s.buildVersion = s.version;
+        // keep s.version for backward compatibility
+      }
+
+      s.player ||= {};
+      s.player.inv ||= {};
+      s.player.rep ||= { sunspire: 0, gloomwharf: 0 };
+      s.player.permits ||= { sunspire: false, gloomwharf: false };
+      s.player.facing ||= { x: 0, y: 1 };
+
+      s.time ||= { day: 1, frac: 0, seed: 1 };
+      s.marketDrift ||= { sunspire: {}, gloomwharf: {} };
+
+      s.contracts ||= { active: null };
+      if (s.contracts.active === undefined) s.contracts.active = null;
+    }
+
+    return s;
+  }
+
   function loadGame() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -1296,11 +1393,24 @@
         console.log('[LOAD] No save found');
         return false;
       }
-      const state = JSON.parse(raw);
-      if (!state || !state.player) {
-        console.warn('[LOAD] Invalid save data');
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        console.warn('[LOAD] Failed to parse save JSON:', e);
+        toast('Load failed: corrupted save data.', 2.5);
         return false;
       }
+
+      const state = migrateSave(parsed);
+      const vr = validateSave(state);
+      if (!vr.ok) {
+        console.warn('[LOAD] Invalid save data:', vr.errors);
+        toast('Load failed: incompatible save.', 2.5);
+        return false;
+      }
+
       // Restore player
       Object.assign(player, state.player);
       // Restore time
@@ -1309,15 +1419,23 @@
       if (state.marketDrift?.sunspire) Object.assign(marketDrift.sunspire, state.marketDrift.sunspire);
       if (state.marketDrift?.gloomwharf) Object.assign(marketDrift.gloomwharf, state.marketDrift.gloomwharf);
       // Restore contracts
-      if (state.contracts?.active) contracts.active = state.contracts.active;
+      contracts.active = state.contracts?.active || null;
+
       // Re-center camera on player
       camera.x = player.x - VIEW_W/2;
       camera.y = player.y - VIEW_H/2;
+
+      // Opportunistically re-save after migration/validation
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {
+        console.warn('[SAVE] Failed to re-save after load:', e);
+      }
+
       console.log('[LOAD] Game loaded (day', time.day, ')');
       toast('Game loaded (day ' + time.day + ').', 2);
       return true;
     } catch (e) {
       console.warn('[LOAD] Failed to load:', e);
+      toast('Load failed.', 2.5);
       return false;
     }
   }
@@ -3230,6 +3348,39 @@ function drawEvent() {
   // If QA enabled, run a deterministic self-test (no input required).
   if (__QA.enabled) {
     try {
+      function assert(cond, msg) {
+        if (!cond) throw new Error('QA: ' + msg);
+      }
+
+      // --- Save/Load robustness
+      const snap = {
+        x: player.x,
+        y: player.y,
+        gold: player.gold,
+        day: time.day,
+      };
+
+      // A) Missing save key
+      localStorage.removeItem(SAVE_KEY);
+      assert(loadGame() === false, 'loadGame should return false when no save exists');
+      assert(player.gold === snap.gold, 'player state should not change on missing save');
+
+      // B) Malformed JSON
+      localStorage.setItem(SAVE_KEY, '{not valid json');
+      assert(loadGame() === false, 'loadGame should return false on malformed JSON');
+      assert(player.gold === snap.gold, 'player state should not change on malformed JSON');
+
+      // C) Partial save (missing time)
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player: { gold: 5 } }));
+      assert(loadGame() === false, 'loadGame should return false on partial save');
+      assert(player.gold === snap.gold, 'player state should not change on partial save');
+
+      // D) Autosave trigger paths
+      // NOTE: buy/sell/travel triggers are hard to exercise deterministically from the QA block
+      // without building a dedicated test API. For now, Save/Load robustness tests cover the
+      // main persistence failure modes; autosave coverage can be added once actions are exposed.
+
+      // --- Existing contracts smoke test
       // Put player inside Sunspire near contracts tile (id 12) and open contracts.
       const c = world.cityA;
       player.x = (c.x + Math.floor(c.w / 2)) * TILE;
@@ -3242,12 +3393,12 @@ function drawEvent() {
       domRender();
       contractsAccept(0);
 
-      if (!contracts.active) throw new Error('QA: contracts.active not set after accept');
+      assert(!!contracts.active, 'contracts.active not set after accept');
 
       // Basic render sanity: ensure progress label computes.
       activeContractProgressLabel();
 
-      qaPass('contracts accept + render');
+      qaPass('save/load robustness + contracts accept');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
