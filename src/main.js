@@ -226,7 +226,8 @@
       ui._drag.acc -= n * step;
     }
   }
-// Canvas touch drag for scrolling lists (mobile popups)
+
+  // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
     const r = canvas.getBoundingClientRect();
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);

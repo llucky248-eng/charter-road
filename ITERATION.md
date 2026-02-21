@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.0.87 — 2026-02-21
+- Code style: fixed a stray unindented comment near pointer events (no functional change).
+
 ## v0.0.86 — 2026-02-20
 - HUD: desktop Save/Load buttons added (mouse/touchpad friendly).
 - HUD: shows last saved day after saving.
