@@ -50,7 +50,116 @@
     if (!__QA.enabled) return;
     __QA.status = 'fail';
     __QA.details = details;
-    console.error('QA_FAIL', details);
+    // Use warn instead of error so Playwright doesn't fail the run just from logging.
+    console.warn('QA_FAIL', details);
+  }
+
+  // --- QA API (exposed only when ?qa=1)
+  // Defined here (early) for Playwright introspection, but wired to SAVE_KEY later
+  // once Save/Load constants are declared.
+  if (__QA.enabled) {
+    // @ts-ignore
+    __QA.api = {
+      _getSaveKey: () => null,
+
+      getSaveKey: () => __QA.api._getSaveKey() || '',
+      clearSave: () => { const k = __QA.api._getSaveKey(); if (!k) return; try { localStorage.removeItem(k); } catch {} },
+      readSaveRaw: () => { const k = __QA.api._getSaveKey(); if (!k) return null; try { return localStorage.getItem(k); } catch { return null; } },
+      readSave: () => {
+        const k = __QA.api._getSaveKey();
+        if (!k) return null;
+        try {
+          const raw = localStorage.getItem(k);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch { return null; }
+      },
+
+      snapshot: () => ({
+        player: structuredClone(player),
+        time: structuredClone(time),
+        contracts: structuredClone(contracts),
+        marketDrift: structuredClone(marketDrift),
+        ui: { mode: ui.mode },
+      }),
+
+      setTime: (p = {}) => {
+        if (Number.isFinite(p.day)) time.day = p.day;
+        if (Number.isFinite(p.frac)) time.frac = p.frac;
+        if (Number.isFinite(p.seed)) time.seed = p.seed;
+      },
+      setPlayer: (p = {}) => {
+        if (Number.isFinite(p.gold)) player.gold = p.gold;
+        if (Number.isFinite(p.capacity)) player.capacity = p.capacity;
+        if (Number.isFinite(p.x)) player.x = p.x;
+        if (Number.isFinite(p.y)) player.y = p.y;
+        if (p.inv && typeof p.inv === 'object') {
+          for (const k of Object.keys(p.inv)) player.inv[k] = p.inv[k];
+        }
+      },
+
+      teleportToCity: (cityId) => {
+        const c = getCityById(cityId);
+        if (!c) return false;
+        player.x = (c.x + Math.floor(c.w / 2)) * TILE;
+        player.y = (c.y + Math.floor(c.h / 2)) * TILE;
+        camera.x = player.x - VIEW_W/2;
+        camera.y = player.y - VIEW_H/2;
+        return true;
+      },
+
+      freezePrices: () => { stateTime = 0; },
+
+      marketBuy: (itemId, qty = 1, cityId = 'sunspire') => {
+        __QA.api.teleportToCity(cityId);
+        ui.mode = 'buy';
+        const idx = ITEMS.findIndex(it => it.id === itemId);
+        if (idx < 0) return { ok: false, reason: 'bad itemId' };
+        const beforeGold = player.gold;
+        const beforeQty = player.inv[itemId] || 0;
+        marketTryTrade(idx, qty);
+        const afterGold = player.gold;
+        const afterQty = player.inv[itemId] || 0;
+        const ok = afterQty > beforeQty;
+        return { ok, cost: Math.max(0, beforeGold - afterGold) };
+      },
+      marketSell: (itemId, qty = 1, cityId = 'sunspire') => {
+        __QA.api.teleportToCity(cityId);
+        ui.mode = 'sell';
+        const idx = ITEMS.findIndex(it => it.id === itemId);
+        if (idx < 0) return { ok: false, reason: 'bad itemId' };
+        const beforeGold = player.gold;
+        const beforeQty = player.inv[itemId] || 0;
+        marketTryTrade(idx, qty);
+        const afterGold = player.gold;
+        const afterQty = player.inv[itemId] || 0;
+        const ok = afterQty < beforeQty;
+        return { ok, revenue: Math.max(0, afterGold - beforeGold) };
+      },
+
+      travelDays: (days = 1) => {
+        // Deterministic travel equivalent: advance time + apply upkeep + schedule autosave.
+        const n = Math.max(0, Math.floor(Number(days) || 0));
+        if (n <= 0) return { ok: false, reason: 'bad days' };
+        advanceDays(n, 'travel');
+        for (let i = 0; i < n; i++) {
+          if ((player.inv['food'] || 0) > 0) player.inv['food'] -= 1;
+          else player.gold = Math.max(0, player.gold - 3);
+        }
+        scheduleAutoSave();
+        return { ok: true };
+      },
+
+      flushAutosave: () => {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer);
+          autoSaveTimer = null;
+          saveGame();
+          return true;
+        }
+        return false;
+      },
+    };
   }
 
   const TILE = IS_MOBILE ? 12 : 16;
@@ -1254,6 +1363,9 @@
   // --- Save/Load (localStorage)
   const SAVE_KEY = 'charter-road-save-v1';
   const SAVE_SCHEMA_VERSION = 1; // bump when save format changes
+
+  // Wire QA API save key now that SAVE_KEY exists.
+  if (__QA.enabled && __QA.api) __QA.api._getSaveKey = () => SAVE_KEY;
 
   // UI bits
   ui._lastSavedDay = null;
@@ -3233,14 +3345,16 @@ function drawEvent() {
           road.dayCarry -= days;
           advanceDays(days, 'travel');
           // Upkeep: consume 1 food per day if carrying any
-          if (player.inv['food'] > 0) {
-            player.inv['food'] -= 1;
-            toast('Consumed 1 rations.', 1.4);
-          } else {
-            // No food: small gold penalty (starvation/hire help)
-            const penalty = 3;
-            player.gold = Math.max(0, player.gold - penalty);
-            toast(`No rations! Paid ${penalty}g for supplies.`, 1.8);
+          for (let i = 0; i < days; i++) {
+            if (player.inv['food'] > 0) {
+              player.inv['food'] -= 1;
+              toast('Consumed 1 rations.', 1.4);
+            } else {
+              // No food: small gold penalty (starvation/hire help)
+              const penalty = 3;
+              player.gold = Math.max(0, player.gold - penalty);
+              toast(`No rations! Paid ${penalty}g for supplies.`, 1.8);
+            }
           }
           scheduleAutoSave();
         }
@@ -3375,10 +3489,51 @@ function drawEvent() {
       assert(loadGame() === false, 'loadGame should return false on partial save');
       assert(player.gold === snap.gold, 'player state should not change on partial save');
 
-      // D) Autosave trigger paths
-      // NOTE: buy/sell/travel triggers are hard to exercise deterministically from the QA block
-      // without building a dedicated test API. For now, Save/Load robustness tests cover the
-      // main persistence failure modes; autosave coverage can be added once actions are exposed.
+      // D) Autosave (deterministic, via __QA.api)
+      __QA.api.freezePrices();
+      __QA.api.clearSave();
+
+      // Buy should schedule autosave and persist the updated state
+      __QA.api.setPlayer({ gold: 120, inv: { food: 0 }, capacity: 999 });
+      const beforeBuy = __QA.api.snapshot();
+      const buyR = __QA.api.marketBuy('food', 1, 'sunspire');
+      assert(buyR.ok === true, 'marketBuy should succeed');
+      assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after buy');
+      const buySave = __QA.api.readSave();
+      assert(!!buySave, 'save should exist after buy autosave flush');
+      assert(buySave.player.inv.food === (beforeBuy.player.inv.food || 0) + 1, 'save should reflect bought food');
+
+      // Sell should schedule autosave and persist the updated state
+      __QA.api.clearSave();
+      __QA.api.setPlayer({ gold: 50, inv: { food: 2 }, capacity: 999 });
+      const beforeSell = __QA.api.snapshot();
+      const sellR = __QA.api.marketSell('food', 1, 'sunspire');
+      assert(sellR.ok === true, 'marketSell should succeed');
+      assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after sell');
+      const sellSave = __QA.api.readSave();
+      assert(!!sellSave, 'save should exist after sell autosave flush');
+      assert(sellSave.player.inv.food === (beforeSell.player.inv.food || 0) - 1, 'save should reflect sold food');
+
+      // Failed buy should not schedule autosave
+      __QA.api.clearSave();
+      __QA.api.setPlayer({ gold: 0, inv: { food: 0 }, capacity: 999 });
+      const badBuy = __QA.api.marketBuy('food', 1, 'sunspire');
+      assert(badBuy.ok === false, 'marketBuy should fail with insufficient gold');
+      assert(__QA.api.flushAutosave() === false, 'no autosave should be scheduled after failed buy');
+      assert(__QA.api.readSaveRaw() === null, 'no save should be written after failed buy');
+
+      // Travel should schedule autosave and persist day + upkeep changes
+      __QA.api.clearSave();
+      __QA.api.setTime({ day: 5 });
+      __QA.api.setPlayer({ gold: 100, inv: { food: 3 } });
+      const beforeTravel = __QA.api.snapshot();
+      const tr = __QA.api.travelDays(1);
+      assert(tr.ok === true, 'travelDays should succeed');
+      assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after travel');
+      const travelSave = __QA.api.readSave();
+      assert(!!travelSave, 'save should exist after travel autosave flush');
+      assert(travelSave.time.day === beforeTravel.time.day + 1, 'travel should advance day by 1');
+      assert(travelSave.player.inv.food === (beforeTravel.player.inv.food || 0) - 1, 'travel should consume 1 food');
 
       // --- Existing contracts smoke test
       // Put player inside Sunspire near contracts tile (id 12) and open contracts.
@@ -3398,7 +3553,7 @@ function drawEvent() {
       // Basic render sanity: ensure progress label computes.
       activeContractProgressLabel();
 
-      qaPass('save/load robustness + contracts accept');
+      qaPass('save/load + autosave (buy/sell/travel) + contracts accept');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

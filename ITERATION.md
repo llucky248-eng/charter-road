@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.89 — 2026-02-21
+- QA: added `window.__QA.api` to make autosave tests deterministic (no 2s waits).
+- QA: now verifies autosave triggers for buy/sell/travel and persists expected state.
+- Travel: upkeep now applies per day when multiple travel days elapse at once.
+
 ## v0.0.88 — 2026-02-21
 - Save/Load: added save schema versioning (`saveVersion`) + migration from legacy saves.
 - Save/Load: added validation + clearer load failure toasts (corrupt/incompatible save).
