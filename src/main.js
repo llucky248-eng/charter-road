@@ -986,18 +986,17 @@
   }
 
   // Iteration notes (rendered into the bottom textbox)
-                                                                                                                  const ITERATION = {
-    version: 'v0.0.82',
+  const ITERATION = {
+    version: 'v0.0.91',
     whatsNew: [
-      'Travel time: moving on roads consumes days; each day consumes 1 rations (or 3g penalty).',
-      'Market drift: prices slowly drift day-by-day (small +/- changes per city/item).',
-      'Road events: added Good Omen (+5-12g) and Merchant Escort (+8g) encounters.',
-      'UI: Active contract pinned on mobile HUD; minimap compass arrow to destination.',
+      'Contracts: rep tiers gate which jobs appear (T0<3, T1 3–6, T2 7+).',
+      'Contracts: reward scales with tier + reputation; city permits add +10% payout bonus.',
+      'QA: deterministic checks for contract tiers + permit bonus.',
     ],
     whatsNext: [
-      'Checkpoint/patrol encounters outside cities (rep/permit consequences).',
-      'Contracts: tune rewards + add accept/abandon UX.',
-      'Balance: tune travel speed, food upkeep, and event frequency.',
+      'Map: more roads + branching (alternate routes).',
+      'Contracts: add higher-tier contract types (multi-item, risk/reward).',
+      'Balance: tune tier multipliers and permit bonus.',
     ],
   };
 
