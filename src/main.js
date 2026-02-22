@@ -1369,6 +1369,14 @@
 
   // UI bits
   ui._lastSavedDay = null;
+  ui._saveToastUntilMs = 0;
+  ui._saveToastText = '';
+  ui._saveToastTimer = null;
+
+  function notifySaved(text) {
+    ui._saveToastText = text;
+    ui._saveToastUntilMs = performance.now() + 1200;
+  }
 
   function saveGame() {
     const state = {
@@ -1397,6 +1405,7 @@
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
       ui._lastSavedDay = time.day;
+      notifySaved(`Saved (Day ${time.day})`);
       console.log('[SAVE] Game saved');
     } catch (e) {
       console.warn('[SAVE] Failed to save:', e);
@@ -2542,7 +2551,6 @@
     const maxTextW = IS_MOBILE
       ? Math.max(80, VIEW_W - pad - titleX)
       : (() => {
-  window.__BOOT_OK = true;
           const rightX = VIEW_W - pad;
           const coinX = rightX - Math.round(180 * UI_SCALE);
           const textRight = coinX - Math.round(18 * UI_SCALE);
@@ -2623,12 +2631,20 @@
       ctx.fillText('📂', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnLoad = { x: btnLoadX, y: btnSaveY - btnH, w: btnW, h: btnH };
       
-      // Last saved indicator
-      if (ui._lastSavedDay) {
+      // Save toast + last-saved indicator
+      const nowMs = performance.now();
+      if (ui._saveToastUntilMs && nowMs < ui._saveToastUntilMs && ui._saveToastText) {
+        const tLeft = Math.max(0, ui._saveToastUntilMs - nowMs);
+        const a = Math.min(1, tLeft / 220);
+        ctx.fillStyle = `rgba(160,184,203,${(0.92 * a).toFixed(3)})`;
+        ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(ui._saveToastText, btnLoadX + btnW + Math.round(10 * UI_SCALE), btnSaveY - Math.round(6 * UI_SCALE));
+      } else if (ui._lastSavedDay) {
         ctx.fillStyle = 'rgba(160,184,203,0.85)';
         ctx.font = `${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(`Day ${ui._lastSavedDay}`, btnSaveX + btnW + Math.round(4 * UI_SCALE), btnSaveY - Math.round(14 * UI_SCALE));
+        ctx.textAlign = 'left';
+        ctx.fillText(`Day ${ui._lastSavedDay}`, btnLoadX + btnW + Math.round(10 * UI_SCALE), btnSaveY - Math.round(6 * UI_SCALE));
       }
     }
     
