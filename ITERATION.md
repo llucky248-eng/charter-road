@@ -4,6 +4,10 @@
 - HUD: added brief “Saved (Day X)” toast when saves complete (autosave + manual save).
 - Fix: removed accidental `window.__BOOT_OK` stray injection inside HUD layout calc.
 
+## v0.0.90 — 2026-02-21
+- Contracts: auto-complete on entering destination city (deliver goods, gain gold + rep, clear contract, autosave).
+- QA: added deterministic contract completion tests via `__QA.api`.
+
 ## v0.0.89 — 2026-02-21
 - QA: added `window.__QA.api` to make autosave tests deterministic (no 2s waits).
 - QA: now verifies autosave triggers for buy/sell/travel and persists expected state.

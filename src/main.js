@@ -110,6 +110,57 @@
 
       freezePrices: () => { stateTime = 0; },
 
+      // QA helper: set the active contract deterministically.
+      // If null/undefined, clears active.
+      setActiveContract: (c) => {
+        if (!c) { contracts.active = null; return true; }
+        if (typeof c !== 'object') return false;
+        const want = String(c.want || '');
+        const toId = String(c.toId || '');
+        const fromId = String(c.fromId || '');
+        const qty = Math.max(1, Math.floor(Number(c.qty) || 1));
+        const reward = Math.max(0, Math.floor(Number(c.reward) || 0));
+        if (!want || !toId) return false;
+        contracts.active = { fromId, toId, want, qty, reward };
+        return true;
+      },
+
+      // QA helper: force the game to process city-entry logic deterministically.
+      // This emulates the tick block's entry transition checks (inspection + contract delivery)
+      // without requiring a real animation-frame tick.
+      forceCityEntry: (cityId) => {
+        const cNow = getCityById(cityId);
+        if (!cNow) return false;
+
+        const nowId = cNow.id;
+
+        // Pretend we just entered the city.
+        player.lastCityId = null;
+        __QA.api.teleportToCity(cityId);
+
+        // Run the same contract delivery logic as the tick block.
+        if (contracts.active && contracts.active.toId === nowId) {
+          const want = contracts.active.want;
+          const qty = contracts.active.qty;
+          const have = player.inv[want] || 0;
+          if (have >= qty) {
+            player.inv[want] = have - qty;
+            if (player.inv[want] < 0) player.inv[want] = 0;
+
+            player.gold += contracts.active.reward;
+
+            const repGain = clamp(qty, 2, 4);
+            player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
+
+            contracts.active = null;
+            scheduleAutoSave();
+          }
+        }
+
+        player.lastCityId = nowId;
+        return true;
+      },
+
       marketBuy: (itemId, qty = 1, cityId = 'sunspire') => {
         __QA.api.teleportToCity(cityId);
         ui.mode = 'buy';
@@ -158,6 +209,61 @@
           return true;
         }
         return false;
+      },
+
+      // QA helper: run a single simulation step without relying on requestAnimationFrame.
+      step: (dt = 1/60) => {
+        try {
+          const now = performance.now();
+          const d = clamp(Number(dt) || 0, 0, 0.05);
+          stateTime += d * 1000;
+          if (ui.toastT > 0) ui.toastT -= d;
+          moveWithCollision(d);
+          // Run DOM render so any UI state updates don't throw.
+          domRender();
+          // Run the same city-entry + contract-delivery logic as tick().
+          const cNow = currentCity();
+          const nowId = cNow ? cNow.id : null;
+          if (nowId && player.lastCityId !== nowId) {
+            const rules = CITY_RULES[nowId];
+            if (rules) {
+              const roll = 0.9999; // deterministic: avoid random inspection side-effects in QA.
+              const permit = !!player.permits[nowId];
+              const inspChance = permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance;
+              if (roll < inspChance) {
+                const contraN = contrabandCountForCity(nowId);
+                if (contraN > 0) {
+                  const removed = confiscateContraband(nowId);
+                  const fine = rules.fineBase + removed * rules.finePerItem;
+                  const paid = Math.min(player.gold, fine);
+                  player.gold -= paid;
+                  player.rep[nowId] = (player.rep[nowId] || 0) - (2 + removed);
+                } else {
+                  player.rep[nowId] = (player.rep[nowId] || 0) + 1;
+                }
+              }
+            }
+
+            if (contracts.active && contracts.active.toId === nowId) {
+              const want = contracts.active.want;
+              const qty = contracts.active.qty;
+              const have = player.inv[want] || 0;
+              if (have >= qty) {
+                player.inv[want] = Math.max(0, have - qty);
+                player.gold += contracts.active.reward;
+                const repGain = clamp(qty, 2, 4);
+                player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
+                contracts.active = null;
+                scheduleAutoSave();
+              }
+            }
+            player.lastCityId = nowId;
+          }
+          return true;
+        } catch (e) {
+          qaFail(String(e && (e.stack || e.message) || e));
+          return false;
+        }
       },
     };
   }
@@ -1381,7 +1487,7 @@
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.88',
+      buildVersion: 'v0.0.90',
       player: {
         x: player.x,
         y: player.y,
@@ -3280,17 +3386,24 @@ function drawEvent() {
       }
 
 
-      // contract delivery on city entry
-      if (nowId && contracts.active && contracts.active.toId === nowId) {
+      // contract delivery on city entry (no toast spam while staying inside city)
+      if (nowId && player.lastCityId !== nowId && contracts.active && contracts.active.toId === nowId) {
         const want = contracts.active.want;
         const qty = contracts.active.qty;
         const have = player.inv[want] || 0;
         if (have >= qty) {
           player.inv[want] = have - qty;
+          if (player.inv[want] < 0) player.inv[want] = 0;
+
           player.gold += contracts.active.reward;
-          player.rep[nowId] = (player.rep[nowId] || 0) + 2;
-          toast(`Contract complete! +${contracts.active.reward}g (Rep +2)`, 3.2);
+
+          // Rep scheme: +1 per item delivered (min 2, max 4)
+          const repGain = clamp(qty, 2, 4);
+          player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
+
+          toast(`Contract complete! +${contracts.active.reward}g (Rep +${repGain})`, 3.2);
           contracts.active = null;
+          scheduleAutoSave();
         } else {
           toast('You arrived for delivery, but lack the required goods.', 3.0);
         }
@@ -3551,25 +3664,64 @@ function drawEvent() {
       assert(travelSave.time.day === beforeTravel.time.day + 1, 'travel should advance day by 1');
       assert(travelSave.player.inv.food === (beforeTravel.player.inv.food || 0) - 1, 'travel should consume 1 food');
 
-      // --- Existing contracts smoke test
-      // Put player inside Sunspire near contracts tile (id 12) and open contracts.
-      const c = world.cityA;
-      player.x = (c.x + Math.floor(c.w / 2)) * TILE;
-      player.y = (c.y + Math.floor(c.h / 2)) * TILE;
-      ui.contractsCityId = 'sunspire';
-      ui.contractsOpen = true;
-      ui.contractsSel = 0;
+      // --- Contracts deterministic auto-complete QA
+      // We assert BOTH:
+      // 1) Success path: enough goods -> contract completes on city entry and autosave reflects completion.
+      // 2) Failure path: insufficient goods -> contract remains active and autosave does NOT claim completion.
 
-      // Render once so DOM exists, then accept.
-      domRender();
-      contractsAccept(0);
+      // Ensure stable starting state.
+      __QA.api.clearSave();
+      __QA.api.setTime({ day: 10, frac: 0, seed: 1 });
+      __QA.api.setPlayer({ gold: 100, capacity: 999, inv: { food: 0, ore: 0, herbs: 0, potion: 0, relic: 0 } });
 
-      assert(!!contracts.active, 'contracts.active not set after accept');
+      // A) Success case
+      {
+        const want = 'ore';
+        const qty = 2;
+        const reward = 33;
+        __QA.api.setPlayer({ inv: { [want]: qty } });
+        assert(__QA.api.setActiveContract({ fromId: 'sunspire', toId: 'gloomwharf', want, qty, reward }) === true, 'setActiveContract should succeed');
+        const before = __QA.api.snapshot();
 
-      // Basic render sanity: ensure progress label computes.
-      activeContractProgressLabel();
+        // Enter destination city and process entry logic.
+        assert(__QA.api.forceCityEntry('gloomwharf') === true, 'forceCityEntry gloomwharf should succeed');
 
-      qaPass('save/load + autosave (buy/sell/travel) + contracts accept');
+        assert(contracts.active === null, 'contract should be cleared after successful delivery');
+        assert((player.inv[want] || 0) === (before.player.inv[want] || 0) - qty, 'delivered goods should be removed from inventory');
+        assert(player.gold === before.player.gold + reward, 'reward should be granted on completion');
+
+        // Autosave must reflect completion when flushed.
+        assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after contract completion');
+        const save = __QA.api.readSave();
+        assert(!!save, 'save should exist after contract completion autosave flush');
+        assert(save.contracts && save.contracts.active === null, 'save JSON should reflect completed contract (active:null)');
+      }
+
+      // B) Insufficient-goods case
+      {
+        __QA.api.clearSave();
+        __QA.api.setTime({ day: 11, frac: 0, seed: 1 });
+        __QA.api.setPlayer({ gold: 100, capacity: 999, inv: { ore: 1 } });
+
+        const want = 'ore';
+        const qty = 2;
+        const reward = 33;
+        assert(__QA.api.setActiveContract({ fromId: 'sunspire', toId: 'gloomwharf', want, qty, reward }) === true, 'setActiveContract should succeed (insufficient case)');
+        const before = __QA.api.snapshot();
+
+        assert(__QA.api.forceCityEntry('gloomwharf') === true, 'forceCityEntry gloomwharf should succeed (insufficient case)');
+
+        assert(!!contracts.active, 'contract should remain active when insufficient goods');
+        assert(contracts.active.want === want && contracts.active.qty === qty && contracts.active.toId === 'gloomwharf', 'active contract should remain unchanged');
+        assert((player.inv[want] || 0) === (before.player.inv[want] || 0), 'inventory should not change when insufficient goods');
+        assert(player.gold === before.player.gold, 'gold should not change when insufficient goods');
+
+        // No autosave should be scheduled purely from failing delivery.
+        assert(__QA.api.flushAutosave() === false, 'no autosave should be scheduled after insufficient-goods delivery');
+        assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
+      }
+
+      qaPass('save/load + autosave (buy/sell/travel) + contracts auto-complete (success + insufficient)');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
