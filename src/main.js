@@ -80,8 +80,37 @@
         time: structuredClone(time),
         contracts: structuredClone(contracts),
         marketDrift: structuredClone(marketDrift),
+        contractsByCity: structuredClone(contracts.byCity),
         ui: { mode: ui.mode },
       }),
+
+      setRep: (cityId, val) => {
+        const id = String(cityId || '');
+        if (!id) return false;
+        player.rep[id] = Math.floor(Number(val) || 0);
+        return true;
+      },
+      setPermit: (cityId, on) => {
+        const id = String(cityId || '');
+        if (!id) return false;
+        player.permits[id] = !!on;
+        return true;
+      },
+      regenContracts: (cityId = null) => {
+        if (cityId) {
+          const id = String(cityId);
+          contracts.byCity[id] = regenContractsForCity(id);
+        } else {
+          contracts.byCity.sunspire = regenContractsForCity('sunspire');
+          contracts.byCity.gloomwharf = regenContractsForCity('gloomwharf');
+        }
+        return true;
+      },
+      listVisibleContracts: (cityId) => {
+        const id = String(cityId || '');
+        const repTier = contractTierForRep(player.rep?.[id] || 0);
+        return (contracts.byCity[id] || []).filter(j => (j?.tier ?? 0) <= repTier);
+      },
 
       setTime: (p = {}) => {
         if (Number.isFinite(p.day)) time.day = p.day;
@@ -872,18 +901,41 @@
     return clamp(r, 18, 160);
   }
 
-  function makeContract(fromId) {
+  const CONTRACT_TIER_THRESHOLDS = [3, 7]; // Tier0 <3, Tier1 3-6, Tier2 7+
+  const CONTRACT_TIER_MULT = [1.00, 1.15, 1.30];
+  const CONTRACT_PERMIT_BONUS = 0.10; // +10% if permit owned in posting city
+
+  function contractTierForRep(rep) {
+    const r = Number(rep) || 0;
+    if (r >= CONTRACT_TIER_THRESHOLDS[1]) return 2;
+    if (r >= CONTRACT_TIER_THRESHOLDS[0]) return 1;
+    return 0;
+  }
+
+  function makeContract(fromId, tier = 0) {
     const want = randChoice(CONTRACT_ITEMS);
-    const qty = 1 + (Math.random()*2|0);
+    // Higher tiers tend to request more goods.
+    const qty = 1 + (Math.random() * (2 + tier) | 0);
     const toId = fromId === 'sunspire' ? 'gloomwharf' : 'sunspire';
     const reward = rewardForContract(want, qty);
-    return { fromId, toId, want, qty, reward };
+    return { fromId, toId, want, qty, reward, tier };
+  }
+
+  function regenContractsForCity(cityId) {
+    // Generate a small mix of tiers; visibility is filtered by player rep at render time.
+    const jobs = [
+      makeContract(cityId, 0),
+      makeContract(cityId, 0),
+      makeContract(cityId, 1),
+      makeContract(cityId, 2),
+    ];
+    return jobs;
   }
 
   const contracts = {
     byCity: {
-      sunspire: [makeContract('sunspire'), makeContract('sunspire'), makeContract('sunspire')],
-      gloomwharf: [makeContract('gloomwharf'), makeContract('gloomwharf'), makeContract('gloomwharf')],
+      sunspire: regenContractsForCity('sunspire'),
+      gloomwharf: regenContractsForCity('gloomwharf'),
     },
     active: null,
   };
@@ -1080,15 +1132,29 @@
     scheduleAutoSave();
   }
 
+  function contractRewardForAccept(cityId, baseReward, jobTier) {
+    const repTier = contractTierForRep(player.rep?.[cityId] || 0);
+    const tier = clamp(jobTier ?? 0, 0, 2);
+    // Scaling uses the job's tier (difficulty) and can be further boosted by your rep tier.
+    const baseMult = CONTRACT_TIER_MULT[tier] || 1.0;
+    const repMult = 1.0 + 0.05 * repTier;
+    const permitMult = player.permits?.[cityId] ? (1.0 + CONTRACT_PERMIT_BONUS) : 1.0;
+    const r = Math.round((Number(baseReward) || 0) * baseMult * repMult * permitMult);
+    return Math.max(0, r);
+  }
+
   function contractsAccept(idx) {
     const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
-    const jobs = contracts.byCity[c.id] || [];
+
+    const repTier = contractTierForRep(player.rep?.[c.id] || 0);
+    const jobs = (contracts.byCity[c.id] || []).filter(j => (j?.tier ?? 0) <= repTier);
     const job = jobs[idx];
     if (!job) return;
 
-    contracts.active = { ...job };
-    toast('Accepted contract.', 2);
+    const finalReward = contractRewardForAccept(c.id, job.reward, job.tier);
+    contracts.active = { ...job, reward: finalReward };
+    toast(`Accepted contract. (Reward ${finalReward}g)`, 2.2);
 
     // QA hook: accepting a contract must not crash and should activate a job.
     if (__QA.enabled && !contracts.active) qaFail('accept: contracts.active not set');
@@ -1251,19 +1317,25 @@
     if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
       if (!c) { domCloseAll(); return; }
-      const jobs = contracts.byCity[c.id] || [];
+
+      const rep = player.rep?.[c.id] || 0;
+      const repTier = contractTierForRep(rep);
+      const jobsAll = contracts.byCity[c.id] || [];
+      const jobs = jobsAll.filter(j => (j?.tier ?? 0) <= repTier);
 
       const rows = jobs.map((job, i) => {
         const it = ITEMS.find(x => x.id === job.want);
         const selected = i === ui.contractsSel;
+        const tierTag = `[T${job.tier ?? 0}]`;
+        const shownReward = contractRewardForAccept(c.id, job.reward, job.tier);
         return `
           <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
             <div>
-              <div class="cr-card-title">Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
-              <div class="cr-card-sub">Reward: ${job.reward}g</div>
+              <div class="cr-card-title">${htmlEscape(tierTag)} Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
+              <div class="cr-card-sub">Reward: ${shownReward}g</div>
             </div>
             <div class="cr-right">
-              <div class="cr-price">${job.reward}g</div>
+              <div class="cr-price">${shownReward}g</div>
               <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="accept" data-cidx="${i}">Accept</button>
             </div>
           </div>
@@ -1487,7 +1559,7 @@
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.90',
+      buildVersion: 'v0.0.91',
       player: {
         x: player.x,
         y: player.y,
@@ -3663,6 +3735,30 @@ function drawEvent() {
       assert(!!travelSave, 'save should exist after travel autosave flush');
       assert(travelSave.time.day === beforeTravel.time.day + 1, 'travel should advance day by 1');
       assert(travelSave.player.inv.food === (beforeTravel.player.inv.food || 0) - 1, 'travel should consume 1 food');
+
+      // --- Contracts rep/permit tiers QA
+      {
+        __QA.api.setRep('sunspire', 0);
+        __QA.api.regenContracts('sunspire');
+        const vis0 = __QA.api.listVisibleContracts('sunspire');
+        assert(vis0.every(j => (j.tier ?? 0) <= 0), 'rep=0 should only show tier0 contracts');
+
+        __QA.api.setRep('sunspire', 3);
+        const vis1 = __QA.api.listVisibleContracts('sunspire');
+        assert(vis1.some(j => (j.tier ?? 0) === 1) || vis1.length === 0, 'rep=3 should allow tier1 contracts');
+
+        __QA.api.setRep('sunspire', 7);
+        const vis2 = __QA.api.listVisibleContracts('sunspire');
+        assert(vis2.some(j => (j.tier ?? 0) === 2) || vis2.length === 0, 'rep=7 should allow tier2 contracts');
+
+        // Reward math: permit should increase reward.
+        __QA.api.setRep('sunspire', 0);
+        __QA.api.setPermit('sunspire', false);
+        const rNo = contractRewardForAccept('sunspire', 100, 0);
+        __QA.api.setPermit('sunspire', true);
+        const rYes = contractRewardForAccept('sunspire', 100, 0);
+        assert(rYes > rNo, 'permit should increase contract reward');
+      }
 
       // --- Contracts deterministic auto-complete QA
       // We assert BOTH:
