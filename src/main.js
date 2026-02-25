@@ -112,6 +112,51 @@
         return (contracts.byCity[id] || []).filter(j => (j?.tier ?? 0) <= repTier);
       },
 
+      findTile: (tileId) => {
+        const id = Number(tileId);
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            if (tileAt(x, y) === id) return { x, y };
+          }
+        }
+        return null;
+      },
+      teleportToTile: (tx, ty) => {
+        const x = Number(tx), y = Number(ty);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+        player.x = (x + 0.5) * TILE;
+        player.y = (y + 0.5) * TILE;
+        camera.x = player.x - VIEW_W/2;
+        camera.y = player.y - VIEW_H/2;
+        return true;
+      },
+      openCacheAt: (tx, ty) => {
+        const x = Number(tx), y = Number(ty);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, reason: 'bad coords' };
+        if (tileAt(x, y) !== 13) return { ok: false, reason: 'not cache tile' };
+        const key = cacheKey(x, y);
+        if (openedCaches.has(key)) return { ok: false, reason: 'already opened' };
+
+        openedCaches.add(key);
+        const beforeGold = player.gold;
+
+        const r = rand01();
+        if (r < 0.55) {
+          const g = 6 + Math.floor(rand01() * 15);
+          player.gold += g;
+        } else if (r < 0.85) {
+          const pool = ['food','ore','herbs'];
+          const itId = pool[Math.floor(rand01() * pool.length)];
+          const n = 1 + (rand01() < 0.35 ? 1 : 0);
+          player.inv[itId] = (player.inv[itId] || 0) + n;
+        } else {
+          advanceDays(1, 'cache');
+        }
+
+        scheduleAutoSave();
+        return { ok: true, goldDelta: player.gold - beforeGold };
+      },
+
       setTime: (p = {}) => {
         if (Number.isFinite(p.day)) time.day = p.day;
         if (Number.isFinite(p.frac)) time.frac = p.frac;
@@ -598,7 +643,7 @@
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache
   const SOLID = new Set([2, 3]);
 
   function makeMap() {
@@ -674,6 +719,11 @@
 
     carveRoad(gateA.gx, gateA.gy+1, 70, 12);
 
+    // Branching detour: fork off the main road near the river crossing, loop through the NE lowlands,
+    // and rejoin the main route further east. Longer path, but has cache POIs.
+    carveRoad(74, 14, 92, 26);
+    carveRoad(92, 26, 104, 40);
+
     // biome patches (visual variety)
     const paintPatch = (cx, cy, r, tileId, density=0.9) => {
       for (let y = cy - r; y <= cy + r; y++) {
@@ -738,6 +788,37 @@
     for (let i = 0; i < 6; i++) placePOI(8);
     for (let i = 0; i < 4; i++) placePOI(9);
 
+    // Place a few cache POIs (tile 13), preferring the detour region so the longer route can pay off.
+    const placeCache = (tries=1200) => {
+      for (let t = 0; t < tries; t++) {
+        const x = 2 + (Math.random() * (MAP_W - 4) | 0);
+        const y = 2 + (Math.random() * (MAP_H - 4) | 0);
+        const i = y * MAP_W + x;
+        if (m[i] !== 0) continue;
+
+        // Prefer near roads
+        const nearRoad = (
+          m[i-1] === 1 || m[i+1] === 1 || m[i-MAP_W] === 1 || m[i+MAP_W] === 1 ||
+          m[i-MAP_W-1] === 1 || m[i-MAP_W+1] === 1 || m[i+MAP_W-1] === 1 || m[i+MAP_W+1] === 1
+        );
+        if (!nearRoad) continue;
+
+        // Prefer detour zone (NE-ish)
+        if (!(x >= 74 && x <= 112 && y >= 14 && y <= 48)) continue;
+
+        // Avoid city rectangles
+        const inA = (x >= cityA.x-3 && x < cityA.x + cityA.w + 3 && y >= cityA.y-3 && y < cityA.y + cityA.h + 3);
+        const inB = (x >= cityB.x-3 && x < cityB.x + cityB.w + 3 && y >= cityB.y-3 && y < cityB.y + cityB.h + 3);
+        if (inA || inB) continue;
+
+        m[i] = 13;
+        return true;
+      }
+      return false;
+    };
+
+    for (let i = 0; i < 3; i++) placeCache();
+
     return { m, cityA, cityB };
   }
 
@@ -772,6 +853,7 @@
         else if (id === 7) { r=167; g=139; b=250; } // shrine
         else if (id === 8) { r=217; g=119; b=6; }   // camp
         else if (id === 9) { r=156; g=163; b=175; } // ruins
+        else if (id === 13) { r=246; g=196; b=74; } // cache
         const i = (y * mini.w + x) * 4;
         d[i+0]=r; d[i+1]=g; d[i+2]=b; d[i+3]=255;
       }
@@ -987,16 +1069,16 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.91',
+    version: 'v0.0.93',
     whatsNew: [
-      'Contracts: rep tiers gate which jobs appear (T0<3, T1 3–6, T2 7+).',
-      'Contracts: reward scales with tier + reputation; city permits add +10% payout bonus.',
-      'QA: deterministic checks for contract tiers + permit bonus.',
+      'Map: added a branching road detour route between cities.',
+      'POIs: added hidden cache tiles on detours (single-use, saved).',
+      'QA: deterministic cache single-use + persistence checks.',
     ],
     whatsNext: [
-      'Map: more roads + branching (alternate routes).',
-      'Contracts: add higher-tier contract types (multi-item, risk/reward).',
-      'Balance: tune tier multipliers and permit bonus.',
+      'More cache variety (bigger scores, rare items, clearer risk).',
+      'More detours + alternate routes (time vs profit choices).',
+      'UI: cache marker/legend improvements on minimap.',
     ],
   };
 
@@ -1558,7 +1640,7 @@
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.91',
+      buildVersion: 'v0.0.93',
       player: {
         x: player.x,
         y: player.y,
@@ -1578,6 +1660,7 @@
       contracts: {
         active: contracts.active ? { ...contracts.active } : null,
       },
+      openedCaches: Array.from(openedCaches),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -1649,6 +1732,10 @@
       }
     }
 
+    if (s.openedCaches !== undefined) {
+      if (!Array.isArray(s.openedCaches)) errors.push('openedCaches must be an array if present');
+    }
+
     return { ok: errors.length === 0, errors };
   }
 
@@ -1679,7 +1766,12 @@
 
       s.contracts ||= { active: null };
       if (s.contracts.active === undefined) s.contracts.active = null;
+
+      if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
     }
+
+    // Ensure openedCaches exists for newer saves too.
+    if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
 
     return s;
   }
@@ -1718,6 +1810,12 @@
       if (state.marketDrift?.gloomwharf) Object.assign(marketDrift.gloomwharf, state.marketDrift.gloomwharf);
       // Restore contracts
       contracts.active = state.contracts?.active || null;
+
+      // Restore opened caches
+      openedCaches.clear();
+      if (Array.isArray(state.openedCaches)) {
+        for (const k of state.openedCaches) if (typeof k === 'string') openedCaches.add(k);
+      }
 
       // Re-center camera on player
       camera.x = player.x - VIEW_W/2;
@@ -1871,6 +1969,7 @@
       for (let ox = -1; ox <= 1; ox++) {
         const id = tileAt(tx + ox, ty + oy);
         if (id >= 7 && id <= 9) return id;
+        if (id === 13) return id; // cache
       }
     }
     return null;
@@ -1931,6 +2030,10 @@
     dayCarry: 0, // accumulates fractional day progress from movement
   };
 
+  // Cache POIs (tile 13) are single-use per save.
+  const openedCaches = new Set();
+  const cacheKey = (tx, ty) => `${tx},${ty}`;
+
   function randChoice(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
   }
@@ -1975,6 +2078,64 @@
 
   function triggerPOIEvent(poiId) {
     if (ui.eventOpen || ui.marketOpen) return;
+
+    if (poiId === 13) {
+      const tx = Math.floor(player.x / TILE);
+      const ty = Math.floor(player.y / TILE);
+      // find the actual cache tile within 1 tile radius
+      let ctx = null, cty = null;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const x = tx + ox;
+          const y = ty + oy;
+          if (tileAt(x, y) === 13) { ctx = x; cty = y; break; }
+        }
+        if (ctx !== null) break;
+      }
+      if (ctx === null) { toast('No cache here.', 1.6); return; }
+
+      const key = cacheKey(ctx, cty);
+      if (openedCaches.has(key)) {
+        toast('This cache has already been looted.', 2.2);
+        return;
+      }
+
+      openEvent({
+        title: 'Hidden Cache',
+        text: 'A half-buried stash sits beneath loose stones. Open it?',
+        choices: [
+          { label: 'Open it', run: () => {
+              openedCaches.add(key);
+
+              // Deterministic reward via rand01 (seeded), so QA is stable.
+              const r = rand01();
+              if (r < 0.55) {
+                const g = 6 + Math.floor(rand01() * 15);
+                player.gold += g;
+                toast(`Cache: +${g}g`, 2.2);
+              } else if (r < 0.85) {
+                const pool = ['food','ore','herbs'];
+                const itId = pool[Math.floor(rand01() * pool.length)];
+                const n = 1 + (rand01() < 0.35 ? 1 : 0);
+                player.inv[itId] = (player.inv[itId] || 0) + n;
+                const it = ITEMS.find(x => x.id === itId);
+                toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
+              } else {
+                // Light risk/cost: lose a day (and upkeep will apply elsewhere as normal)
+                advanceDays(1, 'cache');
+                toast('Trap! You waste a day dealing with it.', 2.6);
+              }
+
+              scheduleAutoSave();
+              closeEvent();
+            }
+          },
+          { label: 'Leave it', run: closeEvent },
+        ],
+      });
+
+      return;
+    }
 
     if (poiId === 7) {
       ui.eventOpen = true;
@@ -3757,6 +3918,37 @@ function drawEvent() {
         __QA.api.setPermit('sunspire', true);
         const rYes = contractRewardForAccept('sunspire', 100, 0);
         assert(rYes > rNo, 'permit should increase contract reward');
+      }
+
+      // --- Cache POI QA (single-use + persistence)
+      {
+        const pos = __QA.api.findTile(13);
+        assert(!!pos, 'should find a cache tile (id 13)');
+        __QA.api.clearSave();
+
+        // Open once -> should schedule autosave and write openedCaches.
+        __QA.api.teleportToTile(pos.x, pos.y);
+        const r1 = __QA.api.openCacheAt(pos.x, pos.y);
+        assert(r1.ok === true, 'openCacheAt should succeed first time');
+        assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after opening cache');
+        const save1 = __QA.api.readSave();
+        assert(!!save1, 'save should exist after cache open');
+        assert(Array.isArray(save1.openedCaches) && save1.openedCaches.length >= 1, 'save should include openedCaches');
+
+        // Open again -> should fail and NOT schedule autosave.
+        __QA.api.clearSave();
+        const r2 = __QA.api.openCacheAt(pos.x, pos.y);
+        assert(r2.ok === false, 'openCacheAt should fail when already opened');
+        assert(__QA.api.flushAutosave() === false, 'no autosave should be scheduled for already-opened cache');
+        assert(__QA.api.readSaveRaw() === null, 'no save should be written for already-opened cache');
+
+        // Persistence via load: write save with openedCaches, then load and ensure still blocked.
+        saveGame();
+        const raw = localStorage.getItem(SAVE_KEY);
+        assert(!!raw, 'saveGame should write save for persistence test');
+        assert(loadGame() === true, 'loadGame should succeed for persistence test');
+        const r3 = __QA.api.openCacheAt(pos.x, pos.y);
+        assert(r3.ok === false, 'opened cache should remain blocked after reload');
       }
 
       // --- Contracts deterministic auto-complete QA

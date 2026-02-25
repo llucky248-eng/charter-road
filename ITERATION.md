@@ -4,6 +4,11 @@
 - HUD: added brief “Saved (Day X)” toast when saves complete (autosave + manual save).
 - Fix: removed accidental `window.__BOOT_OK` stray injection inside HUD layout calc.
 
+## v0.0.93 — 2026-02-25
+- Map: added a branching detour road route (time vs profit).
+- POI: added hidden cache tiles (single-use) with rewards/costs; persists via Save/Load.
+- QA: deterministic cache tests (single-use + persistence).
+
 ## v0.0.91 — 2026-02-22
 - Contracts: rep tiers now gate which jobs appear (T0<3, T1 3–6, T2 7+), with [T0]/[T1]/[T2] tags.
 - Contracts: reward scales with tier + reputation, and city permit gives +10% payout bonus.
