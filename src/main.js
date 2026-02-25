@@ -380,6 +380,11 @@
   const vkeys = new Set(); // virtual keys (touch UI)
   const isDown = (code) => keys.has(code) || vkeys.has(code);
 
+  // Disable long-press context menu globally (mobile browsers).
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  }, { passive: false });
+
   window.addEventListener('keydown', (e) => {
     keys.add(e.code);
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) e.preventDefault();
