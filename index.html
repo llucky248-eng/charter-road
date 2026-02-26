@@ -109,6 +109,53 @@
     .cr-foot strong { font-weight: 900; }
     .cr-hint { color: rgba(74, 59, 42, 0.90); font-size: 12px; }
 
+    /* Completion banner (stacking, max 3) */
+    .cr-banner-stack{
+      position: fixed;
+      left: 10px;
+      right: 10px;
+      top: 10px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .cr-banner{
+      background: linear-gradient(180deg, rgba(18,20,26,0.96), rgba(10,12,16,0.94));
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      border-radius: 14px;
+      padding: 10px 12px;
+      transform: translateY(-6px);
+      opacity: 0;
+      animation: crBannerIn 160ms ease-out forwards;
+    }
+    .cr-banner.out{
+      animation: crBannerOut 260ms ease-in forwards;
+    }
+    .cr-banner-title{
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      font-size: 13px;
+      color: #f8fafc;
+    }
+    .cr-banner-text{
+      margin-top: 2px;
+      opacity: 0.92;
+      font-size: 12px;
+      line-height: 1.25;
+      color: #e2e8f0;
+    }
+    @keyframes crBannerIn{
+      from{ transform: translateY(-10px); opacity: 0; }
+      to{ transform: translateY(0); opacity: 1; }
+    }
+    @keyframes crBannerOut{
+      from{ transform: translateY(0); opacity: 1; }
+      to{ transform: translateY(-10px); opacity: 0; }
+    }
+
     /* Touch controls under the stage */
     #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:stretch; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
     #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
@@ -193,7 +240,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.82</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.95</div>
     </div>
   </div>
 
@@ -259,7 +306,7 @@
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.0.82')));
+      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.0.95')));
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);

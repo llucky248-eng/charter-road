@@ -221,10 +221,16 @@
             player.inv[want] = have - qty;
             if (player.inv[want] < 0) player.inv[want] = 0;
 
-            player.gold += contracts.active.reward;
+            const reward = contracts.active.reward;
+            player.gold += reward;
 
             const repGain = clamp(qty, 2, 4);
             player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
+
+            const it = ITEMS.find(x => x.id === want);
+            const title = `Contract completed`;
+            const text = `Delivered ${qty}× ${it ? it.name : want} → ${nowId} (${contractRewardLabel(reward, repGain)})`;
+            showBanner(title, text);
 
             contracts.active = null;
             scheduleAutoSave();
@@ -292,6 +298,7 @@
           const d = clamp(Number(dt) || 0, 0, 0.05);
           stateTime += d * 1000;
           if (ui.toastT > 0) ui.toastT -= d;
+          tickBanners(d);
           moveWithCollision(d);
           // Run DOM render so any UI state updates don't throw.
           domRender();
@@ -324,9 +331,16 @@
               const have = player.inv[want] || 0;
               if (have >= qty) {
                 player.inv[want] = Math.max(0, have - qty);
-                player.gold += contracts.active.reward;
+                const reward = contracts.active.reward;
+                player.gold += reward;
                 const repGain = clamp(qty, 2, 4);
                 player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
+
+                const it = ITEMS.find(x => x.id === want);
+                const title = `Contract completed`;
+                const text = `Delivered ${qty}× ${it ? it.name : want} → ${nowId} (${contractRewardLabel(reward, repGain)})`;
+                showBanner(title, text);
+
                 contracts.active = null;
                 scheduleAutoSave();
               }
@@ -1074,7 +1088,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.93',
+    version: 'v0.0.95',
     whatsNew: [
       'Map: added a branching road detour route between cities.',
       'POIs: added hidden cache tiles on detours (single-use, saved).',
@@ -1256,8 +1270,13 @@
     const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : null));
     if (!kind) { domCloseAll(); return; }
 
+    // Banner is rendered whenever a modal is open (keeps scope minimal).
     // NOTE: keep render keys small but sufficient; rebuild modal when state changes.
     let key = kind;
+    if (banner.q.length) {
+      key += `|b${banner.q.length}`;
+      for (const it of banner.q) key += `|${it.id}:${it.state}`;
+    }
     if (kind === 'market') {
       const c = currentCity();
       key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}`;
@@ -1273,6 +1292,17 @@
     dom.key = key;
     dom.kind = kind;
     domEnsureOpen();
+
+    const bannerHtml = banner.q.length ? `
+      <div class="cr-banner-stack" aria-label="Notifications">
+        ${banner.q.map(it => `
+          <div class="cr-banner ${it.state === 'out' ? 'out' : ''}" role="status" aria-live="polite">
+            <div class="cr-banner-title">${htmlEscape(it.title)}</div>
+            <div class="cr-banner-text">${htmlEscape(it.text)}</div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
 
     if (kind === 'market') {
       const c = currentCity();
@@ -1346,6 +1376,7 @@
 
       const w = invWeight();
       uiRoot.innerHTML = `
+        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
           <div class="cr-panel">
             <div class="cr-head">
@@ -1437,6 +1468,7 @@
         : 'Pick a job. Deliver to the other city for gold + rep.';
 
       uiRoot.innerHTML = `
+        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Contracts">
           <div class="cr-panel">
             <div class="cr-head">
@@ -1494,6 +1526,7 @@
       });
 
       uiRoot.innerHTML = `
+        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Event">
           <div class="cr-panel">
             <div class="cr-head">
@@ -1601,6 +1634,55 @@
     };
     return s;
   })();
+
+  // --- Completion banner (stacking, max 3)
+  const banner = {
+    q: [],
+    max: 3,
+    // Each item: { id, title, text, t, state }
+    // state: 'in' | 'out'
+  };
+
+  let bannerNextId = 1;
+  const BANNER_TTL = 2.6; // seconds visible
+  const BANNER_EXIT = 0.28; // seconds for exit animation
+
+  function showBanner(title, text) {
+    const item = {
+      id: bannerNextId++,
+      title: String(title || ''),
+      text: String(text || ''),
+      t: BANNER_TTL,
+      state: 'in',
+    };
+    banner.q.unshift(item);
+    if (banner.q.length > banner.max) banner.q.length = banner.max;
+    dom.key = ''; // force domRender to rebuild
+    return item.id;
+  }
+
+  function tickBanners(dt) {
+    if (!banner.q.length) return;
+    for (const it of banner.q) {
+      it.t -= dt;
+      if (it.state === 'in' && it.t <= 0) {
+        it.state = 'out';
+        it.t = BANNER_EXIT;
+      } else if (it.state === 'out' && it.t <= 0) {
+        it._remove = true;
+      }
+    }
+    const before = banner.q.length;
+    banner.q = banner.q.filter(it => !it._remove);
+    if (banner.q.length !== before) dom.key = '';
+  }
+
+  function contractRewardLabel(reward, repGain) {
+    const parts = [];
+    if (Number.isFinite(reward)) parts.push(`+${reward}g`);
+    if (Number.isFinite(repGain)) parts.push(`+${repGain} rep`);
+    return parts.join(', ');
+  }
 
   const player = {
     x: (world.cityA.x + world.cityA.w/2) * TILE,
@@ -3981,6 +4063,17 @@ function drawEvent() {
         assert(contracts.active === null, 'contract should be cleared after successful delivery');
         assert((player.inv[want] || 0) === (before.player.inv[want] || 0) - qty, 'delivered goods should be removed from inventory');
         assert(player.gold === before.player.gold + reward, 'reward should be granted on completion');
+
+        // Completion banner should appear.
+        assert(Array.isArray(banner.q) && banner.q.length >= 1, 'completion banner should be queued');
+        assert(String(banner.q[0].title || '').toLowerCase().includes('contract'), 'banner title should mention contract');
+        assert(String(banner.q[0].text || '').includes(`+${reward}g`), 'banner text should include reward gold');
+
+        // Banner should auto-dismiss with time.
+        const n0 = banner.q.length;
+        // Step enough dt to expire TTL + exit animation.
+        for (let i = 0; i < 260; i++) __QA.api.step(1/60);
+        assert(banner.q.length <= n0 - 1, 'banner should auto-dismiss after TTL');
 
         // Autosave must reflect completion when flushed.
         assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after contract completion');

@@ -4,6 +4,11 @@
 - HUD: added brief “Saved (Day X)” toast when saves complete (autosave + manual save).
 - Fix: removed accidental `window.__BOOT_OK` stray injection inside HUD layout calc.
 
+## v0.0.95 — 2026-02-26
+- Contracts UI: added a completion banner (stacks, max 3) with reward details.
+- Contracts: completion now triggers an animated top banner; auto-dismisses after a short time.
+- QA: extended deterministic contract completion QA to assert banner appears and auto-dismisses.
+
 ## v0.0.93 — 2026-02-25
 - Map: added a branching detour road route (time vs profit).
 - POI: added hidden cache tiles (single-use) with rewards/costs; persists via Save/Load.
