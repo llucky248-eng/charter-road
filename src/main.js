@@ -84,6 +84,11 @@
         ui: { mode: ui.mode },
       }),
 
+      getRumors: (cityId) => {
+        const id = String(cityId || '');
+        return getMarketRumors(id);
+      },
+
       setRep: (cityId, val) => {
         const id = String(cityId || '');
         if (!id) return false;
@@ -1088,7 +1093,7 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.95',
+    version: 'v0.0.96',
     whatsNew: [
       'Map: added a branching road detour route between cities.',
       'POIs: added hidden cache tiles on detours (single-use, saved).',
@@ -1375,6 +1380,14 @@
       }
 
       const w = invWeight();
+      const rumors = getMarketRumors(c.id);
+      const rumorsHtml = rumors.length ? `
+        <div class="cr-rumors" aria-label="Rumors">
+          <div class="cr-rumors-title">Rumors</div>
+          ${rumors.map(t => `<div class="cr-rumor">• ${htmlEscape(t)}</div>`).join('')}
+        </div>
+      ` : '';
+
       uiRoot.innerHTML = `
         ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
@@ -1383,6 +1396,7 @@
               <div>
                 <div class="cr-title">${htmlEscape(c.name)} Market</div>
                 <div class="cr-sub">${htmlEscape(rules.vibe)}</div>
+                ${rumorsHtml}
               </div>
               <button class="cr-close" data-action="close">CLOSE</button>
             </div>
@@ -2015,6 +2029,51 @@
     if (id === world.cityA.id) return world.cityA;
     if (id === world.cityB.id) return world.cityB;
     return null;
+  }
+
+  function cityName(id) {
+    const c = getCityById(id);
+    return c ? c.name : String(id || '');
+  }
+
+  function getMarketRumors(cityId) {
+    const id = String(cityId || '');
+    const c = getCityById(id);
+    if (!c) return [];
+
+    // Always-true rumors derived from actual computed prices.
+    const other = (id === 'sunspire') ? 'gloomwharf' : 'sunspire';
+    const otherC = getCityById(other);
+
+    const list = [];
+    for (const it of ITEMS) {
+      const pHere = priceFor(id, it);
+      const pThere = otherC ? priceFor(other, it) : pHere;
+      const ratio = pThere > 0 ? (pHere / pThere) : 1;
+      list.push({ it, pHere, pThere, ratio });
+    }
+
+    // Two strongest opportunities: one "cheap here" (lowest ratio), one "expensive here" (highest ratio).
+    list.sort((a, b) => a.ratio - b.ratio);
+    const cheap = list[0];
+    list.sort((a, b) => b.ratio - a.ratio);
+    const pricey = list[0];
+
+    const lines = [];
+    if (cheap && cheap.it) {
+      lines.push(`${cheap.it.name} is cheaper in ${cityName(id)} today.`);
+    }
+    if (pricey && pricey.it) {
+      // Avoid duplicate item line; pick next best if needed.
+      if (cheap && pricey.it.id === cheap.it.id) {
+        const alt = list.find(x => x.it.id !== cheap.it.id);
+        if (alt) lines.push(`${alt.it.name} is pricier in ${cityName(id)} today.`);
+      } else {
+        lines.push(`${pricey.it.name} is pricier in ${cityName(id)} today.`);
+      }
+    }
+
+    return lines.slice(0, 2);
   }
   function currentCity() {
     const px = player.x / TILE;
@@ -4036,6 +4095,19 @@ function drawEvent() {
         assert(loadGame() === true, 'loadGame should succeed for persistence test');
         const r3 = __QA.api.openCacheAt(pos.x, pos.y);
         assert(r3.ok === false, 'opened cache should remain blocked after reload');
+      }
+
+      // --- Market Rumors QA (deterministic, always true)
+      {
+        __QA.api.setTime({ day: 20, frac: 0, seed: 7 });
+        const r1 = __QA.api.getRumors('sunspire');
+        const r2 = __QA.api.getRumors('sunspire');
+        assert(Array.isArray(r1) && r1.length === 2, 'sunspire should return exactly 2 rumors');
+        assert(JSON.stringify(r1) === JSON.stringify(r2), 'rumors should be stable across repeated calls');
+
+        __QA.api.travelDays(1);
+        const r3 = __QA.api.getRumors('sunspire');
+        assert(JSON.stringify(r3) !== JSON.stringify(r1), 'rumors should change after day advances (most days)');
       }
 
       // --- Contracts deterministic auto-complete QA
