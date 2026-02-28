@@ -4,8 +4,9 @@
 - HUD: added brief “Saved (Day X)” toast when saves complete (autosave + manual save).
 - Fix: removed accidental `window.__BOOT_OK` stray injection inside HUD layout calc.
 
-## v0.0.96 — 2026-02-27
+## v0.0.97 — 2026-02-27
 - Market: added “Rumors” (price intel) to the Market header (2 lines per city, always true).
+- UI: tweaked Rumors spacing/typography for small screens (better legibility).
 - QA: added deterministic rumor checks (stable same day/seed; changes when day advances).
 
 ## v0.0.95 — 2026-02-26
