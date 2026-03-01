@@ -89,6 +89,17 @@
         return getMarketRumors(id);
       },
 
+      getNpcLines: (cityId, npcId) => {
+        const id = String(cityId || '');
+        const npcKey = String(npcId || '');
+        return getNpcLines(id, npcKey);
+      },
+      getNpcPanel: (cityId) => {
+        const id = String(cityId || '');
+        return getNpcPanelState(id);
+      },
+      getNpcCacheDay: () => npcLoadCache().day,
+
       setRep: (cityId, val) => {
         const id = String(cityId || '');
         if (!id) return false;
@@ -908,6 +919,114 @@
     }
   };
 
+  const CITY_NPCS = {
+    sunspire: [
+      { id: "sunspire_scribe", name: "Archivist Rowen", role: "scribe" },
+      { id: "sunspire_baker", name: "Mara the Baker", role: "baker" },
+      { id: "sunspire_guard", name: "Captain Venn", role: "guard" },
+    ],
+    gloomwharf: [
+      { id: "gloomwharf_fisher", name: "Old Maren", role: "fisher" },
+      { id: "gloomwharf_smuggler", name: "Lira of the Docks", role: "smuggler" },
+      { id: "gloomwharf_broker", name: "Brusk the Broker", role: "broker" },
+    ],
+  };
+
+  const NPC_DIALOGUE_FIXTURE = {
+  date: "fixture",
+  cities: {
+    sunspire: {
+      npcs: {
+        sunspire_scribe: [
+          "Rowen: The archives are three days behind.",
+          "Rowen: Taxes rose again after the last caravan.",
+          "Rowen: A permit stamp can save you trouble.",
+          "Rowen: Sunspire keeps ledgers tighter than chains.",
+          "Rowen: I can hear the market bell from here.",
+          "Rowen: Merchants whisper about relics at dusk.",
+          "Rowen: Every city has its price; ours is just honest.",
+          "Rowen: The inspector counts twice, just in case.",
+          "Rowen: A clean manifest keeps your wagon moving.",
+          "Rowen: The road is quiet when ink runs dry.",
+  ],
+        sunspire_baker: [
+          "Mara: Fresh loaves for the road\u2014if you pay upfront.",
+          "Mara: Flour is scarce, but rations still sell.",
+          "Mara: Travelers love warm bread more than gold.",
+          "Mara: Sunspire ovens never sleep.",
+          "Mara: Bring herbs and I\u2019ll trade you a crust.",
+          "Mara: The guards eat first; everyone else waits.",
+          "Mara: Markets buzz louder than my ovens.",
+          "Mara: A pinch of salt keeps spirits steady.",
+          "Mara: I saw a courier racing to Gloomwharf.",
+          "Mara: Keep your pack light, keep your steps fast.",
+  ],
+        sunspire_guard: [
+          "Venn: Papers ready? We don\u2019t bend for excuses.",
+          "Venn: Contraband earns a night in the cells.",
+          "Venn: Sunspire\u2019s gates close at the third bell.",
+          "Venn: I\u2019ve seen more deals than duels.",
+          "Venn: The road south is clear\u2014for now.",
+          "Venn: Permits make inspections shorter.",
+          "Venn: Don\u2019t flash relics in daylight.",
+          "Venn: Keep your wagon straight and your story straighter.",
+          "Venn: The market\u2019s honest when the sun\u2019s high.",
+          "Venn: Trouble usually arrives with a smile.",
+  ],
+      }
+    },
+    gloomwharf: {
+      npcs: {
+        gloomwharf_fisher: [
+          "Maren: The tide brings profit and rot alike.",
+          "Maren: Fish sells, if you can stomach the stink.",
+          "Maren: Gloomwharf taxes are light, but knives are not.",
+          "Maren: The docks remember every debt.",
+          "Maren: I trade rumors for a clean hook.",
+          "Maren: Storms hide smugglers better than fog.",
+          "Maren: The market here answers to coin, not law.",
+          "Maren: Keep your boots dry or lose a toe.",
+          "Maren: Sunspire men count coins; we count favors.",
+          "Maren: The sea doesn\u2019t care who you are.",
+  ],
+        gloomwharf_smuggler: [
+          "Lira: If it fits under a cloak, it fits the law.",
+          "Lira: Gloomwharf\u2019s best deals happen after dark.",
+          "Lira: Don\u2019t ask where I found it.",
+          "Lira: Contraband? That\u2019s just \u201crare stock\u201d here.",
+          "Lira: The docks have eyes; pay them.",
+          "Lira: I know a shortcut if you know a price.",
+          "Lira: Sunspire\u2019s rules make good black-market business.",
+          "Lira: Keep moving\u2014guards hate still shadows.",
+          "Lira: I trade whispers for weightless goods.",
+          "Lira: The fog hides more than ships.",
+  ],
+        gloomwharf_broker: [
+          "Brusk: Prices swing like a pendulum\u2014watch it.",
+          "Brusk: I can move ore faster than you can blink.",
+          "Brusk: Contracts favor the bold, not the honest.",
+          "Brusk: Gloomwharf pays in silence.",
+          "Brusk: Bring relics; I\u2019ll find a buyer.",
+          "Brusk: Every deal leaves a footprint.",
+          "Brusk: The road north bleeds profit if you rush.",
+          "Brusk: Keep your numbers tight, your hands tighter.",
+          "Brusk: I don\u2019t haggle\u2014time is the fee.",
+          "Brusk: Markets here are sharp; come prepared.",
+  ],
+      }
+    },
+  }
+};
+
+  const NPC_DIALOGUE_URL = 'assets/npc_dialogue.json';
+  const NPC_CACHE_KEY = 'charterRoadNpcCache_v1';
+  let npcDialogueData = __QA.enabled ? NPC_DIALOGUE_FIXTURE : null;
+  let npcDialogueReady = !!npcDialogueData;
+  let npcDialogueError = null;
+  let npcCache = null;
+  let npcDialogueLoadPromise = null;
+
+
 
 
   const ITEMS = [
@@ -1068,6 +1187,149 @@
     gloomwharf: Object.fromEntries(ITEMS.map(it => [it.id, 1])),
   };
 
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function npcDayKey() {
+  return Math.max(1, Math.floor(Number(time.day) || 1));
+}
+
+function npcValidateData(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (!data.cities || typeof data.cities !== 'object') return false;
+  for (const cityId of Object.keys(data.cities)) {
+    const city = data.cities[cityId];
+    if (!city || typeof city !== 'object') return false;
+    const npcs = city.npcs;
+    if (!npcs || typeof npcs !== 'object') return false;
+    for (const npcId of Object.keys(npcs)) {
+      const lines = npcs[npcId];
+      if (!Array.isArray(lines) || !lines.length) return false;
+      if (lines.some(line => typeof line !== 'string' || !line.trim())) return false;
+    }
+  }
+  return true;
+}
+
+function npcLoadCache() {
+  const day = npcDayKey();
+  if (npcCache && npcCache.day === day) return npcCache;
+  let cache = null;
+  try {
+    cache = JSON.parse(localStorage.getItem(NPC_CACHE_KEY) || '');
+  } catch {}
+  if (!cache || typeof cache !== 'object' || cache.day !== day || typeof cache.cities !== 'object') {
+    cache = { day, cities: {} };
+  }
+  npcCache = cache;
+  return cache;
+}
+
+function npcSaveCache(cache) {
+  npcCache = cache;
+  try { localStorage.setItem(NPC_CACHE_KEY, JSON.stringify(cache)); } catch {}
+}
+
+function npcClearCache() {
+  npcCache = null;
+  try { localStorage.removeItem(NPC_CACHE_KEY); } catch {}
+}
+
+function npcFallbackLines(cityId, npc, count = 10) {
+  const city = cityName(cityId);
+  const name = npc?.name || 'Traveler';
+  const pool = [
+    `${name}: ${city} feels different each dawn.`,
+    `${name}: The road remembers every deal.`,
+    `${name}: Keep a light pack and a lighter story.`,
+    `${name}: Markets favor the patient, not the rushed.`,
+    `${name}: Coin speaks louder than steel here.`,
+    `${name}: A clean manifest keeps guards calm.`,
+    `${name}: Rumors travel faster than wagons.`,
+    `${name}: Watch the tide of prices, not the tide of waves.`,
+  ];
+  const lines = [];
+  const seed = hashStr(`${cityId}|${npc?.id || name}|${npcDayKey()}`);
+  for (let i = 0; i < count; i++) {
+    const idx = (seed + i) % pool.length;
+    lines.push(pool[idx]);
+  }
+  return lines;
+}
+
+function npcNormalizeLines(lines, cityId, npc) {
+  let out = Array.isArray(lines) ? lines.map(s => String(s).trim()).filter(Boolean) : [];
+  if (out.length > 10) out = out.slice(0, 10);
+  if (out.length < 10) out = out.concat(npcFallbackLines(cityId, npc, 10 - out.length));
+  return out.slice(0, 10);
+}
+
+function getNpcById(cityId, npcId) {
+  const list = CITY_NPCS[cityId] || [];
+  return list.find(n => n.id === npcId) || null;
+}
+
+function getNpcLines(cityId, npcOrId) {
+  const npc = typeof npcOrId === 'string' ? getNpcById(cityId, npcOrId) : npcOrId;
+  if (!npc) return npcNormalizeLines([], cityId, { id: npcOrId || 'unknown', name: 'Traveler' });
+  const cache = npcLoadCache();
+  if (!cache.cities[cityId]) cache.cities[cityId] = {};
+  if (!cache.cities[cityId][npc.id]) {
+    const src = npcDialogueData?.cities?.[cityId]?.npcs?.[npc.id];
+    cache.cities[cityId][npc.id] = npcNormalizeLines(src, cityId, npc);
+    npcSaveCache(cache);
+  }
+  return cache.cities[cityId][npc.id];
+}
+
+function npcLineIndex(npcId, lines) {
+  if (!lines || !lines.length) return 0;
+  const seed = hashStr(`${npcId}|${npcDayKey()}`) % lines.length;
+  const tick = Math.floor(stateTime / 4000);
+  return (seed + tick) % lines.length;
+}
+
+function getNpcPanelState(cityId) {
+  const list = CITY_NPCS[cityId] || [];
+  return list.map(npc => {
+    const lines = getNpcLines(cityId, npc);
+    const idx = npcLineIndex(npc.id, lines);
+    return { id: npc.id, name: npc.name, line: lines[idx], idx, total: lines.length };
+  });
+}
+
+function loadNpcDialogue() {
+  if (__QA.enabled) return Promise.resolve(npcDialogueData);
+  if (npcDialogueLoadPromise) return npcDialogueLoadPromise;
+  npcDialogueLoadPromise = fetch(NPC_DIALOGUE_URL, { cache: 'no-store' })
+    .then(r => {
+      if (!r.ok) throw new Error(`npc dialogue fetch failed (${r.status})`);
+      return r.json();
+    })
+    .then(data => {
+      if (!npcValidateData(data)) throw new Error('npc dialogue invalid schema');
+      npcDialogueData = data;
+      npcDialogueReady = true;
+      npcDialogueError = null;
+      npcClearCache();
+      return data;
+    })
+    .catch(err => {
+      npcDialogueError = String(err && (err.message || err));
+      return null;
+    });
+  return npcDialogueLoadPromise;
+}
+
+if (!__QA.enabled) loadNpcDialogue();
+
+
   function advanceDays(days, reason = '') {
     if (!Number.isFinite(days) || days <= 0) return;
     time.frac += days;
@@ -1093,16 +1355,16 @@
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.96',
+    version: 'v0.0.98',
     whatsNew: [
-      'Map: added a branching road detour route between cities.',
-      'POIs: added hidden cache tiles on detours (single-use, saved).',
-      'QA: deterministic cache single-use + persistence checks.',
+      'City Hub: added NPC chatter (3 locals per city, rotates over the day).',
+      'Dialogue: loads from static assets/npc_dialogue.json (no runtime API calls).',
+      'QA: extended ?qa=1 self-test to cover NPC dialogue cache invariants.',
     ],
     whatsNext: [
-      'More cache variety (bigger scores, rare items, clearer risk).',
-      'More detours + alternate routes (time vs profit choices).',
-      'UI: cache marker/legend improvements on minimap.',
+      'Ops: add an offline generator script (GPT-5.2-mini) to refresh npc_dialogue.json daily.',
+      'Dialogue: more NPC variety and city-specific roles/tones.',
+      'UI: polish NPC panel layout + mobile-friendly version.',
     ],
   };
 
@@ -3192,6 +3454,48 @@
     }
     }
 
+
+
+// city hub NPC chatter (desktop; hidden during modals)
+if (!IS_MOBILE && c && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !(document.body && document.body.classList.contains('ui-open'))) {
+  const rows = getNpcPanelState(c.id);
+  if (rows && rows.length) {
+    const fontSz = Math.round(12 * UI_SCALE);
+    const rowH = Math.round(16 * UI_SCALE);
+    const x = titleX;
+    const y0 = line2 + Math.round(18 * UI_SCALE);
+    const padX = Math.round(10 * UI_SCALE);
+    const padY = Math.round(8 * UI_SCALE);
+    const boxW = Math.min(maxTextW, VIEW_W - x - Math.round(12 * UI_SCALE));
+    const boxH = Math.round(14 * UI_SCALE) + rows.length * rowH + padY;
+    const boxX = x;
+    const boxY = y0 - Math.round(14 * UI_SCALE);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.strokeStyle = 'rgba(30, 42, 54, 0.80)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 12);
+    else ctx.rect(boxX, boxY, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(160,184,203,0.95)';
+    ctx.font = `900 ${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText('PEOPLE', boxX + padX, boxY + Math.round(14 * UI_SCALE));
+
+    ctx.fillStyle = '#cfe6ff';
+    ctx.font = `700 ${fontSz}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    let y = boxY + Math.round(30 * UI_SCALE);
+    for (const r of rows) {
+      ctx.fillText(ellipsizeText(r.line, boxW - padX * 2), boxX + padX, y);
+      y += rowH;
+    }
+
+    ctx.restore();
+  }
+}
     // toast (inside HUD; never overlaps gameplay)
     if (ui.toastT > 0) {
       const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
@@ -4110,6 +4414,29 @@ function drawEvent() {
         assert(JSON.stringify(r3) !== JSON.stringify(r1), 'rumors should change after day advances (most days)');
       }
 
+      // --- NPC dialogue (fixture; cached 10 per NPC per day)
+      {
+        try { localStorage.removeItem(NPC_CACHE_KEY); } catch {}
+        __QA.api.setTime({ day: 12, frac: 0, seed: 7 });
+
+        const lines = __QA.api.getNpcLines('sunspire', 'sunspire_scribe');
+        assert(Array.isArray(lines) && lines.length === 10, 'npc lines should be 10');
+        assert(lines.every(s => typeof s === 'string' && s.trim().length > 0), 'npc lines should be non-empty strings');
+
+        const panel = __QA.api.getNpcPanel('sunspire');
+        assert(Array.isArray(panel) && panel.length === 3, 'npc panel should return 3 npcs for sunspire');
+        assert(panel.every(r => typeof r.line === 'string' && r.line.trim().length > 0), 'npc panel lines should be non-empty');
+
+        const day0 = __QA.api.getNpcCacheDay();
+        assert(day0 === 12, 'npc cache day should match time.day');
+
+        // Advance day should reset cache day (even if fixture content is same)
+        __QA.api.setTime({ day: 13 });
+        const day1 = __QA.api.getNpcCacheDay();
+        assert(day1 === 13, 'npc cache day should advance when time.day advances');
+      }
+
+
       // --- Contracts deterministic auto-complete QA
       // We assert BOTH:
       // 1) Success path: enough goods -> contract completes on city entry and autosave reflects completion.
@@ -4178,7 +4505,7 @@ function drawEvent() {
         assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
       }
 
-      qaPass('save/load + autosave (buy/sell/travel) + contracts auto-complete (success + insufficient)');
+      qaPass('save/load + autosave + contracts + npc dialogue');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

@@ -1,0 +1,85 @@
+{
+  "date": "2026-03-01",
+  "cities": {
+    "sunspire": {
+      "npcs": {
+        "sunspire_scribe": [
+          "Rowen: The archives are three days behind.",
+          "Rowen: Taxes rose again after the last caravan.",
+          "Rowen: A permit stamp can save you trouble.",
+          "Rowen: Sunspire keeps ledgers tighter than chains.",
+          "Rowen: I can hear the market bell from here.",
+          "Rowen: Merchants whisper about relics at dusk.",
+          "Rowen: Every city has its price; ours is just honest.",
+          "Rowen: The inspector counts twice, just in case.",
+          "Rowen: A clean manifest keeps your wagon moving.",
+          "Rowen: The road is quiet when ink runs dry."
+        ],
+        "sunspire_baker": [
+          "Mara: Fresh loaves for the road\u2014if you pay upfront.",
+          "Mara: Flour is scarce, but rations still sell.",
+          "Mara: Travelers love warm bread more than gold.",
+          "Mara: Sunspire ovens never sleep.",
+          "Mara: Bring herbs and I\u2019ll trade you a crust.",
+          "Mara: The guards eat first; everyone else waits.",
+          "Mara: Markets buzz louder than my ovens.",
+          "Mara: A pinch of salt keeps spirits steady.",
+          "Mara: I saw a courier racing to Gloomwharf.",
+          "Mara: Keep your pack light, keep your steps fast."
+        ],
+        "sunspire_guard": [
+          "Venn: Papers ready? We don\u2019t bend for excuses.",
+          "Venn: Contraband earns a night in the cells.",
+          "Venn: Sunspire\u2019s gates close at the third bell.",
+          "Venn: I\u2019ve seen more deals than duels.",
+          "Venn: The road south is clear\u2014for now.",
+          "Venn: Permits make inspections shorter.",
+          "Venn: Don\u2019t flash relics in daylight.",
+          "Venn: Keep your wagon straight and your story straighter.",
+          "Venn: The market\u2019s honest when the sun\u2019s high.",
+          "Venn: Trouble usually arrives with a smile."
+        ]
+      }
+    },
+    "gloomwharf": {
+      "npcs": {
+        "gloomwharf_fisher": [
+          "Maren: The tide brings profit and rot alike.",
+          "Maren: Fish sells, if you can stomach the stink.",
+          "Maren: Gloomwharf taxes are light, but knives are not.",
+          "Maren: The docks remember every debt.",
+          "Maren: I trade rumors for a clean hook.",
+          "Maren: Storms hide smugglers better than fog.",
+          "Maren: The market here answers to coin, not law.",
+          "Maren: Keep your boots dry or lose a toe.",
+          "Maren: Sunspire men count coins; we count favors.",
+          "Maren: The sea doesn\u2019t care who you are."
+        ],
+        "gloomwharf_smuggler": [
+          "Lira: If it fits under a cloak, it fits the law.",
+          "Lira: Gloomwharf\u2019s best deals happen after dark.",
+          "Lira: Don\u2019t ask where I found it.",
+          "Lira: Contraband? That\u2019s just \u201crare stock\u201d here.",
+          "Lira: The docks have eyes; pay them.",
+          "Lira: I know a shortcut if you know a price.",
+          "Lira: Sunspire\u2019s rules make good black-market business.",
+          "Lira: Keep moving\u2014guards hate still shadows.",
+          "Lira: I trade whispers for weightless goods.",
+          "Lira: The fog hides more than ships."
+        ],
+        "gloomwharf_broker": [
+          "Brusk: Prices swing like a pendulum\u2014watch it.",
+          "Brusk: I can move ore faster than you can blink.",
+          "Brusk: Contracts favor the bold, not the honest.",
+          "Brusk: Gloomwharf pays in silence.",
+          "Brusk: Bring relics; I\u2019ll find a buyer.",
+          "Brusk: Every deal leaves a footprint.",
+          "Brusk: The road north bleeds profit if you rush.",
+          "Brusk: Keep your numbers tight, your hands tighter.",
+          "Brusk: I don\u2019t haggle\u2014time is the fee.",
+          "Brusk: Markets here are sharp; come prepared."
+        ]
+      }
+    }
+  }
+}

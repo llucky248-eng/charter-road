@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.98 — 2026-03-01
+- City Hub: added NPC chatter panel (3 locals per city, rotates lines).
+- Dialogue: loads from static assets/npc_dialogue.json (no runtime API calls).
+- QA: extended deterministic ?qa=1 self-test for NPC dialogue cache invariants.
+
 ## v0.0.90 — 2026-02-21
 - HUD: added brief “Saved (Day X)” toast when saves complete (autosave + manual save).
 - Fix: removed accidental `window.__BOOT_OK` stray injection inside HUD layout calc.
