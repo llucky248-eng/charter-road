@@ -99,6 +99,27 @@
         return getNpcPanelState(id);
       },
       getNpcCacheDay: () => npcLoadCache().day,
+      getNpcEntities: () => entities.filter(e => e.kind === 'npc').map(e => ({
+        id: e.id,
+        role: e.role,
+        cityId: e.cityId,
+        x: e.x,
+        y: e.y,
+        radius: e.radius,
+        bounds: e.bounds ? { ...e.bounds } : null,
+        dialogueIdx: e.dialogueIdx,
+      })),
+      spawnCityNPCs: (cityId) => {
+        spawnCityNPCs(String(cityId || ''));
+        return true;
+      },
+      interactNpc: (npcId) => {
+        const id = String(npcId || '');
+        const npc = entities.find(e => e.kind === 'npc' && e.id === id);
+        return !!triggerNpcTalk(npc);
+      },
+      getNpcBubble: () => (ui.npcBubble ? { ...ui.npcBubble } : null),
+      clearNpcBubble: () => { ui.npcBubble = null; return true; },
 
       setRep: (cityId, val) => {
         const id = String(cityId || '');
@@ -315,12 +336,17 @@
           stateTime += d * 1000;
           if (ui.toastT > 0) ui.toastT -= d;
           tickBanners(d);
+          updateEntities(d);
           moveWithCollision(d);
+          if (ui.npcBubble && stateTime > ui.npcBubble.untilMs) ui.npcBubble = null;
           // Run DOM render so any UI state updates don't throw.
           domRender();
           // Run the same city-entry + contract-delivery logic as tick().
           const cNow = currentCity();
           const nowId = cNow ? cNow.id : null;
+          if (nowId !== player.lastCityId) {
+            spawnCityNPCs(nowId);
+          }
           if (nowId && player.lastCityId !== nowId) {
             const rules = CITY_RULES[nowId];
             if (rules) {
@@ -932,6 +958,22 @@
     ],
   };
 
+const CITY_ENTITY_TEMPLATES = {
+  sunspire: [
+    { id: 'sunspire_scribe', role: 'scribe', style: 'scribe', speed: 26, radius: 6 },
+    { id: 'sunspire_baker', role: 'baker', style: 'baker', speed: 24, radius: 6 },
+    { id: 'sunspire_guard', role: 'guard', style: 'guard', speed: 28, radius: 7 },
+  ],
+  gloomwharf: [
+    { id: 'gloomwharf_fisher', role: 'fisher', style: 'fisher', speed: 24, radius: 6 },
+    { id: 'gloomwharf_smuggler', role: 'smuggler', style: 'smuggler', speed: 26, radius: 6 },
+    { id: 'gloomwharf_broker', role: 'broker', style: 'broker', speed: 25, radius: 6 },
+  ],
+};
+
+const NPC_INTERACT_RADIUS = 18;
+
+
   const NPC_DIALOGUE_FIXTURE = {
   date: "fixture",
   cities: {
@@ -1330,6 +1372,282 @@ function loadNpcDialogue() {
 if (!__QA.enabled) loadNpcDialogue();
 
 
+const entities = [];
+let activeNpcCityId = null;
+
+function npcCityBounds(city) {
+  const pad = Math.max(6, Math.round(TILE * 0.6));
+  return {
+    x1: (city.x + 0.5) * TILE + pad,
+    y1: (city.y + 0.5) * TILE + pad,
+    x2: (city.x + city.w - 0.5) * TILE - pad,
+    y2: (city.y + city.h - 0.5) * TILE - pad,
+  };
+}
+
+function npcSeed(id, salt = 0, salt2 = 0) {
+  return seeded01(hashStr(id) + salt, salt2, npcDayKey());
+}
+
+function npcPickTarget(e) {
+  const b = e.bounds;
+  const t = Math.floor(stateTime / 1000);
+  const rx = seeded01(hashStr(e.id), t, 11);
+  const ry = seeded01(hashStr(e.id), t, 37);
+  e.target = {
+    x: b.x1 + rx * (b.x2 - b.x1),
+    y: b.y1 + ry * (b.y2 - b.y1),
+  };
+  const jitter = seeded01(hashStr(e.id), t, 99);
+  e.nextWanderAt = stateTime + 1600 + jitter * 1200;
+}
+
+function npcBlockedAt(px, py, r) {
+  return (
+    isSolidAt(px - r, py - r) ||
+    isSolidAt(px + r, py - r) ||
+    isSolidAt(px - r, py + r) ||
+    isSolidAt(px + r, py + r)
+  );
+}
+
+function spawnCityNPCs(cityId) {
+  entities.length = 0;
+  activeNpcCityId = cityId || null;
+  if (!cityId) return;
+  const city = getCityById(cityId);
+  if (!city) return;
+  const templates = CITY_ENTITY_TEMPLATES[cityId] || [];
+  const b = npcCityBounds(city);
+  for (const tpl of templates) {
+    let placed = false;
+    let x = (city.x + city.w / 2) * TILE;
+    let y = (city.y + city.h / 2) * TILE;
+    for (let i = 0; i < 16; i++) {
+      const rx = seeded01(hashStr(tpl.id), i, 7);
+      const ry = seeded01(hashStr(tpl.id), i, 13);
+      const nx = b.x1 + rx * (b.x2 - b.x1);
+      const ny = b.y1 + ry * (b.y2 - b.y1);
+      if (!npcBlockedAt(nx, ny, tpl.radius)) {
+        x = nx; y = ny; placed = true; break;
+      }
+    }
+    const e = {
+      id: tpl.id,
+      kind: 'npc',
+      role: tpl.role,
+      style: tpl.style,
+      cityId,
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      speed: tpl.speed,
+      radius: tpl.radius,
+      bounds: b,
+      target: null,
+      nextWanderAt: 0,
+      dialogueIdx: Math.floor(npcSeed(tpl.id, 3, 5) * 10) % 10,
+      talkCooldown: 0,
+    };
+    entities.push(e);
+  }
+}
+
+function updateEntities(dt) {
+  if (!entities.length) return;
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    if (!e.bounds) continue;
+    if (!e.target || stateTime >= e.nextWanderAt) npcPickTarget(e);
+
+    const dx = e.target.x - e.x;
+    const dy = e.target.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    let vx = 0, vy = 0;
+    if (dist > 1) {
+      vx = (dx / dist) * e.speed;
+      vy = (dy / dist) * e.speed;
+    }
+
+    // soft repulsion from player
+    const pdx = e.x - player.x;
+    const pdy = e.y - player.y;
+    const pd = Math.hypot(pdx, pdy);
+    const pr = e.radius + player.r + 6;
+    if (pd > 0 && pd < pr) {
+      const push = (pr - pd) * 2.2;
+      vx += (pdx / pd) * push;
+      vy += (pdy / pd) * push;
+    }
+
+    // soft repulsion from other NPCs
+    for (const o of entities) {
+      if (o === e || o.kind !== 'npc') continue;
+      const odx = e.x - o.x;
+      const ody = e.y - o.y;
+      const od = Math.hypot(odx, ody);
+      const or = e.radius + o.radius + 4;
+      if (od > 0 && od < or) {
+        const push = (or - od) * 1.6;
+        vx += (odx / od) * push;
+        vy += (ody / od) * push;
+      }
+    }
+
+    const nx = e.x + vx * dt;
+    const ny = e.y + vy * dt;
+    if (!npcBlockedAt(nx, e.y, e.radius)) e.x = nx; else e.target = null;
+    if (!npcBlockedAt(e.x, ny, e.radius)) e.y = ny; else e.target = null;
+
+    e.x = clamp(e.x, e.bounds.x1, e.bounds.x2);
+    e.y = clamp(e.y, e.bounds.y1, e.bounds.y2);
+  }
+}
+
+function findNearestNpc(px, py, radius = NPC_INTERACT_RADIUS) {
+  let best = null;
+  let bestD2 = radius * radius;
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    const dx = e.x - px;
+    const dy = e.y - py;
+    const d2 = dx*dx + dy*dy;
+    if (d2 <= bestD2) { bestD2 = d2; best = e; }
+  }
+  return best;
+}
+
+function triggerNpcTalk(npc) {
+  if (!npc) return false;
+  if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
+  const lines = getNpcLines(npc.cityId, npc.id);
+  npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
+  const text = lines[npc.dialogueIdx];
+  ui.npcBubble = { npcId: npc.id, text, untilMs: stateTime + 2400 };
+  npc.talkCooldown = stateTime + 1200;
+  return true;
+}
+
+function isNpcBlocking(px, py) {
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    const dx = px - e.x;
+    const dy = py - e.y;
+    const r = player.r + e.radius;
+    if (dx*dx + dy*dy < r*r) return true;
+  }
+  return false;
+}
+
+function drawNpcEntity(e) {
+  const sx = e.x - camera.x;
+  const sy = e.y - camera.y;
+  const r = e.radius;
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // base body
+  ctx.fillStyle = 'rgba(220, 210, 190, 0.95)';
+  ctx.beginPath();
+  ctx.arc(0, -r, r * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (e.style === 'scribe') {
+    ctx.fillStyle = '#c7a97a'; // robe
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#f1e7c8'; // scroll
+    ctx.fillRect(r * 0.4, r * 0.2, r * 0.9, r * 0.5);
+  } else if (e.style === 'baker') {
+    ctx.fillStyle = '#d9b38c';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#f4f1e8'; // cap
+    ctx.fillRect(-r * 0.8, -r * 1.6, r * 1.6, r * 0.6);
+    ctx.fillStyle = '#e0c4a8'; // apron
+    ctx.fillRect(-r * 0.4, r * 0.4, r * 0.8, r * 1.2);
+  } else if (e.style === 'guard') {
+    ctx.fillStyle = '#9aa3b2';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#6b7280'; // helm
+    ctx.fillRect(-r * 0.9, -r * 1.8, r * 1.8, r * 0.8);
+    ctx.strokeStyle = '#cbd5e1'; // spear
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.2, r * 0.1);
+    ctx.lineTo(r * 1.6, r * 1.8);
+    ctx.stroke();
+  } else if (e.style === 'fisher') {
+    ctx.fillStyle = '#9ec5a1';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#6b8f9c'; // hat
+    ctx.fillRect(-r, -r * 1.6, r * 2, r * 0.6);
+    ctx.strokeStyle = '#d1d5db'; // hook
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.3, r * 0.2);
+    ctx.lineTo(-r * 1.8, r * 1.4);
+    ctx.stroke();
+  } else if (e.style === 'smuggler') {
+    ctx.fillStyle = '#5b5561';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#3f3a45'; // hood
+    ctx.fillRect(-r, -r * 1.7, r * 2, r * 0.8);
+  } else if (e.style === 'broker') {
+    ctx.fillStyle = '#b0a38a';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+    ctx.fillStyle = '#8b7b63'; // ledger
+    ctx.fillRect(-r * 1.4, r * 0.4, r * 0.8, r * 0.7);
+  } else {
+    ctx.fillStyle = '#c7b9a5';
+    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
+  }
+
+  ctx.restore();
+}
+
+function drawNpcBubble() {
+  const b = ui.npcBubble;
+  if (!b) return;
+  if (stateTime > b.untilMs) { ui.npcBubble = null; return; }
+  const npc = entities.find(e => e.id === b.npcId);
+  if (!npc) return;
+
+  const sx = npc.x - camera.x;
+  const sy = npc.y - camera.y - npc.radius - 10;
+  const text = b.text || '';
+  ctx.save();
+  ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  const tw = Math.min(260, ctx.measureText(text).width + 12);
+  const th = Math.round(18 * UI_SCALE);
+  const x = sx - tw / 2;
+  const y = sy - th;
+
+  ctx.fillStyle = 'rgba(15, 18, 24, 0.92)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, tw, th, 10);
+  else ctx.rect(x, y, tw, th);
+  ctx.fill();
+  ctx.stroke();
+
+  // tail
+  ctx.fillStyle = 'rgba(15, 18, 24, 0.92)';
+  ctx.beginPath();
+  ctx.moveTo(sx - 4, y + th);
+  ctx.lineTo(sx + 4, y + th);
+  ctx.lineTo(sx, y + th + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#e8edf2';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, sx, y + th / 2 + 1);
+  ctx.restore();
+}
+
+
   function advanceDays(days, reason = '') {
     if (!Number.isFinite(days) || days <= 0) return;
     time.frac += days;
@@ -1355,16 +1673,16 @@ if (!__QA.enabled) loadNpcDialogue();
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.98',
+    version: 'v0.0.99',
     whatsNew: [
-      'City Hub: added NPC chatter (3 locals per city, rotates over the day).',
-      'Dialogue: loads from static assets/npc_dialogue.json (no runtime API calls).',
-      'QA: extended ?qa=1 self-test to cover NPC dialogue cache invariants.',
+      'City Hub: 3 walking NPCs per city (wander + collision + distinct silhouettes).',
+      'Interaction: press E near a local to show a speech bubble.',
+      'QA: added deterministic tests for NPC walkers + bubble lifecycle.',
     ],
     whatsNext: [
-      'Ops: add an offline generator script (GPT-5.2-mini) to refresh npc_dialogue.json daily.',
-      'Dialogue: more NPC variety and city-specific roles/tones.',
-      'UI: polish NPC panel layout + mobile-friendly version.',
+      'NPCs: more roles, better pathing, and mobile-friendly bubbles.',
+      'Dialogue: richer lines + rare city-specific quips.',
+      'UX: hint prompt when near NPCs (optional).',
     ],
   };
 
@@ -1380,6 +1698,8 @@ if (!__QA.enabled) loadNpcDialogue();
     _drag: null,
     mode: 'buy', // buy|sell
     navT: 0,
+
+    npcBubble: null,
 
     eventOpen: false,
 
@@ -2267,7 +2587,8 @@ if (!__QA.enabled) loadNpcDialogue();
     if (!isSolidAt(nxPos - player.r, player.y - player.r) &&
         !isSolidAt(nxPos + player.r, player.y - player.r) &&
         !isSolidAt(nxPos - player.r, player.y + player.r) &&
-        !isSolidAt(nxPos + player.r, player.y + player.r)) {
+        !isSolidAt(nxPos + player.r, player.y + player.r) &&
+        !isNpcBlocking(nxPos, player.y)) {
       player.x = nxPos;
     }
 
@@ -2276,7 +2597,8 @@ if (!__QA.enabled) loadNpcDialogue();
     if (!isSolidAt(player.x - player.r, nyPos - player.r) &&
         !isSolidAt(player.x + player.r, nyPos - player.r) &&
         !isSolidAt(player.x - player.r, nyPos + player.r) &&
-        !isSolidAt(player.x + player.r, nyPos + player.r)) {
+        !isSolidAt(player.x + player.r, nyPos + player.r) &&
+        !isNpcBlocking(player.x, nyPos)) {
       player.y = nyPos;
     }
 
@@ -2726,6 +3048,7 @@ if (!__QA.enabled) loadNpcDialogue();
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyE') {
+      if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
       const c = currentCity();
       if (c && nearMarketTile()) {
         ui.contractsOpen = false;
@@ -2739,6 +3062,10 @@ if (!__QA.enabled) loadNpcDialogue();
         ui.contractsSel = 0;
         ui.contractsCityId = c.id;
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
+      } else if (c) {
+        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
+        if (npc && triggerNpcTalk(npc)) return;
+        toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
       } else {
         toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
       }
@@ -3043,6 +3370,14 @@ if (!__QA.enabled) loadNpcDialogue();
       ctx.fillRect(x, y, c.w*TILE, c.h*TILE);
     }
   }
+
+
+function drawEntities() {
+  if (!entities.length) return;
+  for (const e of entities) {
+    if (e.kind === 'npc') drawNpcEntity(e);
+  }
+}
 
   function drawPlayer() {
     const x = player.x - camera.x;
@@ -4042,6 +4377,9 @@ function drawEvent() {
     {
       const cNow = currentCity();
       const nowId = cNow ? cNow.id : null;
+      if (nowId !== player.lastCityId) {
+        spawnCityNPCs(nowId);
+      }
       if (nowId && player.lastCityId !== nowId) {
         const rules = CITY_RULES[nowId];
         if (rules) {
@@ -4108,6 +4446,10 @@ function drawEvent() {
         ui.contractsSel = 0;
         ui.contractsCityId = c.id;
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
+      } else if (c) {
+        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
+        if (npc && triggerNpcTalk(npc)) return;
+        toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
       } else {
         const poi = nearPOITile();
         if (poi) triggerPOIEvent(poi);
@@ -4207,6 +4549,7 @@ function drawEvent() {
         else if (isDown('ArrowDown') || isDown('KeyS')) { ui.contractsSel = (ui.contractsSel + 1) % n; ui.contractsNavT = 0.14; }
       }
     }
+    updateEntities(dt);
     moveWithCollision(dt);
 
     // camera follow
@@ -4223,7 +4566,9 @@ function drawEvent() {
     // draw
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
+    drawEntities();
     drawPlayer();
+    drawNpcBubble();
     drawMobileOverlay();
     drawHUD();
     drawMarket();
@@ -4437,6 +4782,35 @@ function drawEvent() {
       }
 
 
+// --- NPC walkers (entity system)
+{
+  __QA.api.clearNpcBubble();
+  __QA.api.setTime({ day: 15, frac: 0, seed: 3 });
+  __QA.api.teleportToCity('sunspire');
+  __QA.api.spawnCityNPCs('sunspire');
+
+  const walkers = __QA.api.getNpcEntities();
+  assert(Array.isArray(walkers) && walkers.length === 3, 'sunspire should spawn 3 NPC walkers');
+  assert(walkers.every(w => w.bounds && Number.isFinite(w.x) && Number.isFinite(w.y)), 'NPC walkers should have bounds and positions');
+  assert(walkers.every(w => w.x >= w.bounds.x1 && w.x <= w.bounds.x2 && w.y >= w.bounds.y1 && w.y <= w.bounds.y2), 'NPC walkers spawn within bounds');
+
+  for (let i = 0; i < 300; i++) __QA.api.step(1/60);
+  const walkers2 = __QA.api.getNpcEntities();
+  assert(walkers2.every(w => w.x >= w.bounds.x1 && w.x <= w.bounds.x2 && w.y >= w.bounds.y1 && w.y <= w.bounds.y2), 'NPC walkers stay within bounds');
+
+  const target = walkers2[0];
+  __QA.api.setPlayer({ x: target.x, y: target.y });
+  assert(__QA.api.interactNpc(target.id) === true, 'interacting with nearby NPC should succeed');
+  const bubble = __QA.api.getNpcBubble();
+  assert(!!bubble && typeof bubble.text === 'string' && bubble.text.length > 0, 'NPC bubble should appear with text');
+  const lines = __QA.api.getNpcLines('sunspire', target.id);
+  assert(lines.includes(bubble.text), 'bubble text should come from npc lines');
+
+  for (let i = 0; i < 200; i++) __QA.api.step(1/60);
+  assert(__QA.api.getNpcBubble() === null, 'NPC bubble should expire');
+}
+
+
       // --- Contracts deterministic auto-complete QA
       // We assert BOTH:
       // 1) Success path: enough goods -> contract completes on city entry and autosave reflects completion.
@@ -4505,7 +4879,7 @@ function drawEvent() {
         assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue');
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.99 — 2026-03-01
+- City Hub: added 3 walking NPCs per city (wander + collision + distinct silhouettes).
+- Interaction: press E near a local to show a speech bubble.
+- QA: deterministic tests for NPC walkers + bubble lifecycle.
+
 ## v0.0.98 — 2026-03-01
 - City Hub: added NPC chatter panel (3 locals per city, rotates lines).
 - Dialogue: loads from static assets/npc_dialogue.json (no runtime API calls).
