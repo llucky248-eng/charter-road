@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.114 — 2026-03-02
+- Diag: movement delta now measured after moveWithCollision.
+- Diag: added post-move evaluation phase.
+
 ## v0.0.113 — 2026-03-02
 - Mobile: extended ghost window after NPC talk.
 - Mobile: movement watchdog nudges if stuck.

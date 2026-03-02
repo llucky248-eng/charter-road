@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.0.108';
+  const NPC_DIAG_BUILD = 'v0.0.114';
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1659,18 +1659,24 @@ function npcDiagTick(dt) {
     vkeys.add('ArrowRight');
     d.lastInput = 'ArrowRight';
     player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 800);
-
-    const dx = player.x - (d.pos0?.x ?? player.x);
-    const dy = player.y - (d.pos0?.y ?? player.y);
-    d.delta = Math.hypot(dx, dy);
-
-    if (stateTime - d.t0 > 1.2) {
-      vkeys.delete('ArrowRight');
-      if (d.delta > 6 && d.tick > 10) d.result = 'pass';
-      else { d.result = 'fail'; d.note = 'no movement'; }
-      d.state = 'done';
-    }
     return;
+  }
+}
+
+function npcDiagPostMove() {
+  const d = ui.npcDiag;
+  if (!d || !d.enabled) return;
+  if (d.state !== 'move') return;
+
+  const dx = player.x - (d.pos0?.x ?? player.x);
+  const dy = player.y - (d.pos0?.y ?? player.y);
+  d.delta = Math.hypot(dx, dy);
+
+  if (stateTime - d.t0 > 1.2) {
+    vkeys.delete('ArrowRight');
+    if (d.delta > 6 && d.tick > 10) d.result = 'pass';
+    else { d.result = 'fail'; d.note = 'no movement'; }
+    d.state = 'done';
   }
 }
 
@@ -1943,11 +1949,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.113',
+    version: 'v0.0.114',
     whatsNew: [
-      'Mobile: extended ghost window after NPC talk.',
-      'Mobile: movement watchdog nudges if stuck.',
-      'QA: unchanged (runtime safety net).',
+      'Diag: movement delta now measured after moveWithCollision.',
+      'Diag: added post-move evaluation phase.',
+      'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -4861,6 +4867,7 @@ function drawEvent() {
     updateEntities(dt);
     npcDiagTick(dt);
     moveWithCollision(dt);
+    npcDiagPostMove();
 
 if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp') || isDown('ArrowDown'))) {
   if (player.moveStallT <= 0) {
