@@ -1548,15 +1548,21 @@ function canPlacePlayer(px, py) {
 }
 
 
-function npcOverlapAt(px, py) {
+
+function getOverlappingNpcs(px, py) {
+  const list = [];
   for (const e of entities) {
     if (e.kind !== 'npc') continue;
     const dx = px - e.x;
     const dy = py - e.y;
     const r = player.r + e.radius;
-    if (dx*dx + dy*dy < r*r) return true;
+    if (dx*dx + dy*dy < r*r) list.push(e);
   }
-  return false;
+  return list;
+}
+
+function npcOverlapAt(px, py) {
+  return getOverlappingNpcs(px, py).length > 0;
 }
 
 function nudgePlayerFromNpc(npc) {
@@ -1605,9 +1611,18 @@ function resolvePlayerNpcOverlap() {
 
 function isNpcBlocking(px, py) {
   if (stateTime < (player.npcGhostUntil || 0)) return false;
-  // If already overlapping, allow movement to escape.
-  if (npcOverlapAt(player.x, player.y)) return false;
-  return npcOverlapAt(px, py);
+  const overlaps = getOverlappingNpcs(player.x, player.y);
+  if (!overlaps.length) return npcOverlapAt(px, py);
+  const ignore = new Set(overlaps.map(e => e.id));
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    if (ignore.has(e.id)) continue;
+    const dx = px - e.x;
+    const dy = py - e.y;
+    const r = player.r + e.radius;
+    if (dx*dx + dy*dy < r*r) return true;
+  }
+  return false;
 }
 
 function drawNpcEntity(e) {
@@ -1779,11 +1794,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.103',
+    version: 'v0.0.104',
     whatsNew: [
-      'Fix: allow movement to escape NPC overlap (no lockups).',
-      'Collision: auto-extends ghost window if still overlapping.',
-      'QA: unchanged; overlaps now resolved more robustly.',
+      'Fix: NPC collision only ignores the NPCs you are overlapping.',
+      'Movement: no longer tunnels through other NPCs when overlapped.',
+      'QA: unchanged (overlap logic hardened).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',

@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.104 — 2026-03-01
+- Fix: NPC collision only ignores the NPCs you are overlapping.
+- Movement: no longer tunnels through other NPCs when overlapped.
+
 ## v0.0.103 — 2026-03-01
 - Fix: allow movement to escape NPC overlap (no lockups).
 - Collision: auto-extends ghost window if still overlapping.
