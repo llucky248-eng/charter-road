@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.103 — 2026-03-01
+- Fix: allow movement to escape NPC overlap (no lockups).
+- Collision: auto-extends ghost window if still overlapping.
+
 ## v0.0.102 — 2026-03-01
 - Fix: NPC talk sets a short ghost window so movement never locks.
 - Safety: bubble render guarded to avoid crash on mobile.

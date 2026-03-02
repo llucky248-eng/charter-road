@@ -1547,6 +1547,18 @@ function canPlacePlayer(px, py) {
     !isSolidAt(px + player.r, py + player.r);
 }
 
+
+function npcOverlapAt(px, py) {
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    const dx = px - e.x;
+    const dy = py - e.y;
+    const r = player.r + e.radius;
+    if (dx*dx + dy*dy < r*r) return true;
+  }
+  return false;
+}
+
 function nudgePlayerFromNpc(npc) {
   if (!npc) return false;
   const minD = player.r + npc.radius + 1;
@@ -1580,7 +1592,12 @@ function resolvePlayerNpcOverlap() {
     const dy = player.y - e.y;
     const r = player.r + e.radius;
     if (dx*dx + dy*dy < r*r) {
-      return nudgePlayerFromNpc(e);
+      const ok = nudgePlayerFromNpc(e);
+      if (!ok) {
+        // keep ghost window alive until we separate
+        player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 800);
+      }
+      return ok;
     }
   }
   return false;
@@ -1588,14 +1605,9 @@ function resolvePlayerNpcOverlap() {
 
 function isNpcBlocking(px, py) {
   if (stateTime < (player.npcGhostUntil || 0)) return false;
-  for (const e of entities) {
-    if (e.kind !== 'npc') continue;
-    const dx = px - e.x;
-    const dy = py - e.y;
-    const r = player.r + e.radius;
-    if (dx*dx + dy*dy < r*r) return true;
-  }
-  return false;
+  // If already overlapping, allow movement to escape.
+  if (npcOverlapAt(player.x, player.y)) return false;
+  return npcOverlapAt(px, py);
 }
 
 function drawNpcEntity(e) {
@@ -1767,11 +1779,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.102',
+    version: 'v0.0.103',
     whatsNew: [
-      'Fix: NPC talk sets a short ghost window so movement never locks.',
-      'Safety: bubble render guarded to avoid crash on mobile.',
-      'QA: added ghost-cooldown assertion after NPC talk.',
+      'Fix: allow movement to escape NPC overlap (no lockups).',
+      'Collision: auto-extends ghost window if still overlapping.',
+      'QA: unchanged; overlaps now resolved more robustly.',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
