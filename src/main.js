@@ -1530,6 +1530,7 @@ function triggerNpcTalk(npc) {
   if (!npc) return false;
   if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
   resolvePlayerNpcOverlap();
+  player.npcGhostUntil = stateTime + 800;
   const lines = getNpcLines(npc.cityId, npc.id);
   npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
   const text = lines[npc.dialogueIdx];
@@ -1586,6 +1587,7 @@ function resolvePlayerNpcOverlap() {
 }
 
 function isNpcBlocking(px, py) {
+  if (stateTime < (player.npcGhostUntil || 0)) return false;
   for (const e of entities) {
     if (e.kind !== 'npc') continue;
     const dx = px - e.x;
@@ -1696,7 +1698,14 @@ function computeNpcBubbleLayout() {
 }
 
 function drawNpcBubble() {
-  const layout = computeNpcBubbleLayout();
+  let layout = null;
+  try {
+    layout = computeNpcBubbleLayout();
+  } catch {
+    ui.npcBubble = null;
+    ui._npcBubbleRect = null;
+    return;
+  }
   if (!layout) { ui._npcBubbleRect = null; return; }
 
   const { line, rect, sx, sy } = layout;
@@ -1758,11 +1767,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.101',
+    version: 'v0.0.102',
     whatsNew: [
-      'Fix: interacting with NPCs no longer traps the player (auto nudge away).',
-      'Collision: resolves player/NPC overlap after movement.',
-      'QA: added overlap assertion after NPC talk.',
+      'Fix: NPC talk sets a short ghost window so movement never locks.',
+      'Safety: bubble render guarded to avoid crash on mobile.',
+      'QA: added ghost-cooldown assertion after NPC talk.',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -2383,6 +2392,7 @@ function drawNpcBubble() {
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
 
     lastCityId: null,
+    npcGhostUntil: 0,
 
     rep: { sunspire: 0, gloomwharf: 0 },
     permits: { sunspire: false, gloomwharf: false },
@@ -4899,6 +4909,8 @@ function drawEvent() {
   const dyp = player.y - target.y;
   const d = Math.hypot(dxp, dyp);
   assert(d >= (player.r + target.radius - 0.5), 'player should not remain overlapping NPC after talk');
+
+  assert(player.npcGhostUntil > stateTime, 'npc ghost cooldown should be set after talk');
 
   for (let i = 0; i < 200; i++) __QA.api.step(1/60);
   assert(__QA.api.getNpcBubble() === null, 'NPC bubble should expire');

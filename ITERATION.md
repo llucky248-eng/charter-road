@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.102 — 2026-03-01
+- Fix: NPC talk sets a short ghost window so movement never locks.
+- Safety: bubble render guarded to avoid crash on mobile.
+- QA: added ghost-cooldown assertion after NPC talk.
+
 ## v0.0.101 — 2026-03-01
 - Fix: interacting with NPCs no longer traps the player (auto nudge away).
 - Collision: resolves player/NPC overlap after movement.
