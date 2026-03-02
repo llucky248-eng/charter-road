@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.111 — 2026-03-02
+- Diag: waits for bubble before movement (real input path).
+- Diag: shows market/contracts flags in overlay.
+
 ## v0.0.110 — 2026-03-02
 - Fix: animation loop now schedules next frame at tick start (prevents stall).
 - Diag: lastTick updates even if errors occur mid-frame.

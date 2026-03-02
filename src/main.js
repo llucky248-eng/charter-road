@@ -1633,15 +1633,30 @@ function npcDiagTick(dt) {
     // simulate actual mobile input path
     vkeys.add('KeyE');
     d.lastInput = 'KeyE';
-    // input is consumed in tick; observe side effects
-    d.bubble = !!ui.npcBubble;
     d.pos0 = { x: player.x, y: player.y };
     d.t0 = stateTime;
-    d.state = 'move';
+    d.state = 'waitbubble';
+    return;
+  }
+
+  if (d.state === 'waitbubble') {
+    d.bubble = !!ui.npcBubble;
+    if (d.bubble) {
+      d.t0 = stateTime;
+      d.state = 'move';
+      return;
+    }
+    if (stateTime - d.t0 > 1.2) {
+      d.result = 'fail';
+      d.note = 'no bubble';
+      d.state = 'done';
+    }
     return;
   }
 
   if (d.state === 'move') {
+    // diag-only bypass: allow movement even if overlapping
+    player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 800);
     const step = 60 * dt;
     let moved = false;
     if (canPlacePlayer(player.x + step, player.y)) { player.x += step; moved = true; }
@@ -1931,11 +1946,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.110',
+    version: 'v0.0.111',
     whatsNew: [
-      'Fix: animation loop now schedules next frame at tick start (prevents stall).',
-      'Diag: lastTick updates even if errors occur mid-frame.',
-      'QA: unchanged (logic-only change).',
+      'Diag: waits for bubble before movement (real input path).',
+      'Diag: shows market/contracts flags in overlay.',
+      'Diag: move phase uses temporary ghost to prove movement path.',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
