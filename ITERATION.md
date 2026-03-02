@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.112 — 2026-03-02
+- Diag: movement now simulates ArrowRight input (real path).
+- Diag: npcdiag runs before moveWithCollision.
+
 ## v0.0.111 — 2026-03-02
 - Diag: waits for bubble before movement (real input path).
 - Diag: shows market/contracts flags in overlay.

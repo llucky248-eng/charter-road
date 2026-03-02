@@ -1655,21 +1655,17 @@ function npcDiagTick(dt) {
   }
 
   if (d.state === 'move') {
-    // diag-only bypass: allow movement even if overlapping
+    // diag-only: simulate real movement input (ArrowRight)
+    vkeys.add('ArrowRight');
+    d.lastInput = 'ArrowRight';
     player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 800);
-    const step = 60 * dt;
-    let moved = false;
-    if (canPlacePlayer(player.x + step, player.y)) { player.x += step; moved = true; }
-    else if (canPlacePlayer(player.x, player.y + step)) { player.y += step; moved = true; }
-    else if (canPlacePlayer(player.x - step, player.y)) { player.x -= step; moved = true; }
-    else if (canPlacePlayer(player.x, player.y - step)) { player.y -= step; moved = true; }
-    if (moved) resolvePlayerNpcOverlap();
 
     const dx = player.x - (d.pos0?.x ?? player.x);
     const dy = player.y - (d.pos0?.y ?? player.y);
     d.delta = Math.hypot(dx, dy);
 
     if (stateTime - d.t0 > 1.2) {
+      vkeys.delete('ArrowRight');
       if (d.delta > 6 && d.tick > 10) d.result = 'pass';
       else { d.result = 'fail'; d.note = 'no movement'; }
       d.state = 'done';
@@ -1946,11 +1942,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.111',
+    version: 'v0.0.112',
     whatsNew: [
-      'Diag: waits for bubble before movement (real input path).',
-      'Diag: shows market/contracts flags in overlay.',
-      'Diag: move phase uses temporary ghost to prove movement path.',
+      'Diag: movement now simulates ArrowRight input (real path).',
+      'Diag: npcdiag runs before moveWithCollision.',
+      'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -4859,8 +4855,8 @@ function drawEvent() {
       }
     }
     updateEntities(dt);
-    moveWithCollision(dt);
     npcDiagTick(dt);
+    moveWithCollision(dt);
 
     // camera follow
     const targetX = player.x - VIEW_W / 2;
