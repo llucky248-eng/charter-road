@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.108 — 2026-03-02
+- Diag: added DOM overlay so npcdiag shows even if canvas stalls.
+- Diag: overlay includes build stamp + last tick age.
+
 ## v0.0.107 — 2026-03-02
 - Diag: npcdiag now prioritizes NPC talk over market/contract.
 - Overlay: reports action (npc/market/contract).

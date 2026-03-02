@@ -33,6 +33,69 @@
 
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
+
+  const NPC_DIAG_BUILD = 'v0.0.108';
+  const __NPCDIAG_STATE = {
+    enabled: NPC_DIAG_ENABLED,
+    state: 'boot',
+    result: 'pending',
+    tick: 0,
+    delta: 0,
+    bubble: false,
+    note: '',
+    npcId: null,
+    t0: 0,
+    pos0: null,
+    lastAction: '',
+    lastInput: '',
+    forceNpc: true,
+    lastTickAt: 0,
+    build: NPC_DIAG_BUILD,
+  };
+  // expose for debugging
+  window.__npcdiag = __NPCDIAG_STATE;
+
+  function initNpcDiagOverlay() {
+    if (!NPC_DIAG_ENABLED) return null;
+    try {
+      const el = document.createElement('div');
+      el.id = 'npcdiag-overlay';
+      el.style.position = 'fixed';
+      el.style.left = '6px';
+      el.style.top = '6px';
+      el.style.zIndex = '9999';
+      el.style.padding = '6px 8px';
+      el.style.background = 'rgba(0,0,0,0.75)';
+      el.style.color = '#e5e7eb';
+      el.style.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      el.style.borderRadius = '6px';
+      el.style.pointerEvents = 'none';
+      el.textContent = `NPC DIAG LOADED (${NPC_DIAG_BUILD})`;
+      document.body.appendChild(el);
+      return el;
+    } catch {
+      return null;
+    }
+  }
+
+  const __NPCDIAG_OVERLAY = initNpcDiagOverlay();
+  if (NPC_DIAG_ENABLED && __NPCDIAG_OVERLAY) {
+    setInterval(() => {
+      try {
+        const d = window.__npcdiag || __NPCDIAG_STATE;
+        const age = d.lastTickAt ? ((performance.now() - d.lastTickAt) / 1000).toFixed(1) : 'n/a';
+        const status = d.result === 'pending' ? d.state : d.result;
+        const line1 = `NPC DIAG ${status} | build ${d.build}`;
+        const line2 = `delta=${d.delta.toFixed(1)} bubble=${d.bubble ? 'yes' : 'no'} tick=${d.tick} lastTick=${age}s`;
+        const line3 = `input=${d.lastInput || '-'} action=${d.lastAction || '-'} note=${d.note || '-'}`;
+        __NPCDIAG_OVERLAY.textContent = `${line1}
+${line2}
+${line3}`;
+        __NPCDIAG_OVERLAY.style.whiteSpace = 'pre';
+      } catch {}
+    }, 500);
+  }
+
   const __QA = {
     enabled: new URLSearchParams(location.search).get('qa') === '1',
     status: 'pending',
@@ -1533,6 +1596,7 @@ function npcDiagTick(dt) {
   if (!d || !d.enabled) return;
 
   d.tick += 1;
+  d.lastTickAt = performance.now();
   if (d.result !== 'pending') return;
 
   if (d.state === 'init') {
@@ -1866,10 +1930,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.107',
+    version: 'v0.0.108',
     whatsNew: [
-      'Diag: npcdiag now prioritizes NPC talk over market/contract.',
-      'Overlay: reports action (npc/market/contract).',
+      'Diag: added DOM overlay so npcdiag shows even if canvas stalls.',
+      'Diag: overlay includes build stamp + last tick age.',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
@@ -1895,7 +1959,7 @@ function drawNpcBubble() {
     npcBubble: null,
     _npcBubbleRect: null,
     _npcBubbleText: '',
-    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null, lastAction: '', lastInput: '', forceNpc: true },
+    npcDiag: __NPCDIAG_STATE,
 
     eventOpen: false,
 
