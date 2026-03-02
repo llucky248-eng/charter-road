@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.105 — 2026-03-01
+- Diagnostics: added ?npcdiag=1 automated NPC interaction test overlay.
+- Mobile: diag reports bubble + movement delta on device.
+
 ## v0.0.104 — 2026-03-01
 - Fix: NPC collision only ignores the NPCs you are overlapping.
 - Movement: no longer tunnels through other NPCs when overlapped.

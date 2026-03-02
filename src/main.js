@@ -32,6 +32,7 @@
   const VIEW_H = canvas.height;
 
   // --- QA harness (used by Playwright CI)
+  const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
   const __QA = {
     enabled: new URLSearchParams(location.search).get('qa') === '1',
     status: 'pending',
@@ -1526,6 +1527,74 @@ function findNearestNpc(px, py, radius = NPC_INTERACT_RADIUS) {
   return best;
 }
 
+
+function npcDiagTick(dt) {
+  const d = ui.npcDiag;
+  if (!d || !d.enabled) return;
+
+  d.tick += 1;
+  if (d.result !== 'pending') return;
+
+  if (d.state === 'init') {
+    ui.marketOpen = false; ui.contractsOpen = false; ui.eventOpen = false;
+    const c = getCityById('sunspire') || currentCity();
+    if (!c) { d.note = 'no city'; return; }
+    player.x = (c.x + Math.floor(c.w / 2)) * TILE;
+    player.y = (c.y + Math.floor(c.h / 2)) * TILE;
+    camera.x = player.x - VIEW_W/2;
+    camera.y = player.y - VIEW_H/2;
+    player.lastCityId = null;
+    spawnCityNPCs(c.id);
+    d.state = 'approach';
+    d.t0 = stateTime;
+    return;
+  }
+
+  if (d.state === 'approach') {
+    const npc = entities.find(e => e.kind === 'npc');
+    if (!npc) { d.result = 'fail'; d.note = 'no npc'; return; }
+    d.npcId = npc.id;
+    const minD = player.r + npc.radius + 2;
+    player.x = npc.x + minD;
+    player.y = npc.y;
+    d.pos0 = { x: player.x, y: player.y };
+    d.state = 'talk';
+    return;
+  }
+
+  if (d.state === 'talk') {
+    const npc = entities.find(e => e.kind === 'npc' && e.id === d.npcId);
+    if (!npc) { d.result = 'fail'; d.note = 'npc missing'; return; }
+    triggerNpcTalk(npc);
+    d.bubble = !!ui.npcBubble;
+    d.pos0 = { x: player.x, y: player.y };
+    d.t0 = stateTime;
+    d.state = 'move';
+    return;
+  }
+
+  if (d.state === 'move') {
+    const step = 60 * dt;
+    let moved = false;
+    if (canPlacePlayer(player.x + step, player.y)) { player.x += step; moved = true; }
+    else if (canPlacePlayer(player.x, player.y + step)) { player.y += step; moved = true; }
+    else if (canPlacePlayer(player.x - step, player.y)) { player.x -= step; moved = true; }
+    else if (canPlacePlayer(player.x, player.y - step)) { player.y -= step; moved = true; }
+    if (moved) resolvePlayerNpcOverlap();
+
+    const dx = player.x - (d.pos0?.x ?? player.x);
+    const dy = player.y - (d.pos0?.y ?? player.y);
+    d.delta = Math.hypot(dx, dy);
+
+    if (stateTime - d.t0 > 1.2) {
+      if (d.delta > 6 && d.tick > 10) d.result = 'pass';
+      else { d.result = 'fail'; d.note = 'no movement'; }
+      d.state = 'done';
+    }
+    return;
+  }
+}
+
 function triggerNpcTalk(npc) {
   if (!npc) return false;
   if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
@@ -1794,11 +1863,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.104',
+    version: 'v0.0.105',
     whatsNew: [
-      'Fix: NPC collision only ignores the NPCs you are overlapping.',
-      'Movement: no longer tunnels through other NPCs when overlapped.',
-      'QA: unchanged (overlap logic hardened).',
+      'Diagnostics: added ?npcdiag=1 automated NPC interaction test overlay.',
+      'Mobile: diag reports bubble + movement delta on device.',
+      'QA: unchanged (diag is runtime-only).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -1823,6 +1892,7 @@ function drawNpcBubble() {
     npcBubble: null,
     _npcBubbleRect: null,
     _npcBubbleText: '',
+    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null },
 
     eventOpen: false,
 
@@ -3957,6 +4027,24 @@ if (!IS_MOBILE && c && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !
     ctx.restore();
   }
 }
+
+// npc diag overlay
+if (ui.npcDiag && ui.npcDiag.enabled) {
+  const d = ui.npcDiag;
+  const status = d.result === 'pass' ? 'PASS' : (d.result === 'fail' ? 'FAIL' : d.state);
+  ctx.save();
+  ctx.fillStyle = d.result === 'fail' ? 'rgba(239,68,68,0.9)' : 'rgba(16,185,129,0.9)';
+  ctx.font = `800 ${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(`NPC DIAG: ${status}`, Math.round(10 * UI_SCALE), Math.round(18 * UI_SCALE));
+  ctx.fillStyle = '#e5e7eb';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  const lineA = `delta=${d.delta.toFixed(1)} bubble=${d.bubble ? 'yes' : 'no'} tick=${d.tick}`;
+  const lineB = d.note ? `note=${d.note}` : '';
+  ctx.fillText(lineA, Math.round(10 * UI_SCALE), Math.round(34 * UI_SCALE));
+  if (lineB) ctx.fillText(lineB, Math.round(10 * UI_SCALE), Math.round(48 * UI_SCALE));
+  ctx.restore();
+}
+
     // toast (inside HUD; never overlaps gameplay)
     if (ui.toastT > 0) {
       const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
@@ -4677,6 +4765,7 @@ function drawEvent() {
     }
     updateEntities(dt);
     moveWithCollision(dt);
+    npcDiagTick(dt);
 
     // camera follow
     const targetX = player.x - VIEW_W / 2;
