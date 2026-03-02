@@ -1679,6 +1679,7 @@ function triggerNpcTalk(npc) {
   if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
   resolvePlayerNpcOverlap();
   player.npcGhostUntil = stateTime + 800;
+  if (IS_MOBILE) player.npcGhostUntil = Math.max(player.npcGhostUntil, stateTime + 1500);
   const lines = getNpcLines(npc.cityId, npc.id);
   npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
   const text = lines[npc.dialogueIdx];
@@ -1942,11 +1943,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.112',
+    version: 'v0.0.113',
     whatsNew: [
-      'Diag: movement now simulates ArrowRight input (real path).',
-      'Diag: npcdiag runs before moveWithCollision.',
-      'QA: unchanged (diag runtime-only).',
+      'Mobile: extended ghost window after NPC talk.',
+      'Mobile: movement watchdog nudges if stuck.',
+      'QA: unchanged (runtime safety net).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -2569,6 +2570,9 @@ function drawNpcBubble() {
 
     lastCityId: null,
     npcGhostUntil: 0,
+    moveStallT: 0,
+    moveStallX: 0,
+    moveStallY: 0,
 
     rep: { sunspire: 0, gloomwharf: 0 },
     permits: { sunspire: false, gloomwharf: false },
@@ -4857,6 +4861,27 @@ function drawEvent() {
     updateEntities(dt);
     npcDiagTick(dt);
     moveWithCollision(dt);
+
+if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp') || isDown('ArrowDown'))) {
+  if (player.moveStallT <= 0) {
+    player.moveStallT = stateTime + 0.6;
+    player.moveStallX = player.x;
+    player.moveStallY = player.y;
+  } else if (stateTime > player.moveStallT) {
+    const dx = player.x - player.moveStallX;
+    const dy = player.y - player.moveStallY;
+    if (Math.hypot(dx, dy) < 2) {
+      // watchdog nudge
+      resolvePlayerNpcOverlap();
+      player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 800);
+    }
+    player.moveStallT = stateTime + 0.6;
+    player.moveStallX = player.x;
+    player.moveStallY = player.y;
+  }
+} else {
+  player.moveStallT = 0;
+}
 
     // camera follow
     const targetX = player.x - VIEW_W / 2;

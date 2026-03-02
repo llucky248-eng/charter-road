@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.113 — 2026-03-02
+- Mobile: extended ghost window after NPC talk.
+- Mobile: movement watchdog nudges if stuck.
+
 ## v0.0.112 — 2026-03-02
 - Diag: movement now simulates ArrowRight input (real path).
 - Diag: npcdiag runs before moveWithCollision.
