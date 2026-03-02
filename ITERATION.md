@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.107 — 2026-03-02
+- Diag: npcdiag now prioritizes NPC talk over market/contract.
+- Overlay: reports action (npc/market/contract).
+
 ## v0.0.106 — 2026-03-02
 - Diagnostics: npcdiag now simulates real KeyE input path.
 - Overlay: shows last input + action for mobile debugging.

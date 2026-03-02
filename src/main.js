@@ -1866,11 +1866,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.106',
+    version: 'v0.0.107',
     whatsNew: [
-      'Diagnostics: npcdiag now simulates real KeyE input path.',
-      'Overlay: shows last input + action for mobile debugging.',
-      'QA: unchanged (diag is runtime-only).',
+      'Diag: npcdiag now prioritizes NPC talk over market/contract.',
+      'Overlay: reports action (npc/market/contract).',
+      'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -1895,7 +1895,7 @@ function drawNpcBubble() {
     npcBubble: null,
     _npcBubbleRect: null,
     _npcBubbleText: '',
-    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null, lastAction: '', lastInput: '' },
+    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null, lastAction: '', lastInput: '', forceNpc: true },
 
     eventOpen: false,
 
@@ -3249,11 +3249,16 @@ function drawNpcBubble() {
     if (e.code === 'KeyE') {
       if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
       const c = currentCity();
+      if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
+        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
+        if (npc && triggerNpcTalk(npc)) { ui.npcDiag.lastAction = 'npc'; return; }
+      }
       if (c && nearMarketTile()) {
         ui.contractsOpen = false;
         ui.marketOpen = !ui.marketOpen;
         ui.selection = 0;
         ui.mode = 'buy';
+        if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'market';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
       } else if (c && nearContractsTile()) {
         ui.marketOpen = false;
@@ -4651,11 +4656,16 @@ function drawEvent() {
     // Virtual (touch) button actions
     if (consumeVKey('KeyE')) {
       const c = currentCity();
+      if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
+        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
+        if (npc && triggerNpcTalk(npc)) { ui.npcDiag.lastAction = 'npc'; return; }
+      }
       if (c && nearMarketTile()) {
         ui.contractsOpen = false;
         ui.marketOpen = !ui.marketOpen;
         ui.selection = 0;
         ui.mode = 'buy';
+        if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'market';
         toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
       } else if (c && nearContractsTile()) {
         ui.marketOpen = false;
