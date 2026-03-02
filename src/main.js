@@ -404,6 +404,7 @@ ${line3}`;
       step: (dt = 1/60) => {
         try {
           const now = performance.now();
+    if (ui.npcDiag && ui.npcDiag.enabled) ui.npcDiag.lastTickAt = now;
           const d = clamp(Number(dt) || 0, 0, 0.05);
           stateTime += d * 1000;
           if (ui.toastT > 0) ui.toastT -= d;
@@ -1930,11 +1931,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.109',
+    version: 'v0.0.110',
     whatsNew: [
-      'Diag: npcdiag now starts in init state (auto-teleport works).',
-      'Mobile: diag should move into city immediately.',
-      'QA: unchanged (diag runtime-only).',
+      'Fix: animation loop now schedules next frame at tick start (prevents stall).',
+      'Diag: lastTick updates even if errors occur mid-frame.',
+      'QA: unchanged (logic-only change).',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -4626,7 +4627,9 @@ function drawEvent() {
   // --- Game loop
   let last = performance.now();
   function tick() {
+    requestAnimationFrame(tick);
     const now = performance.now();
+    if (ui.npcDiag && ui.npcDiag.enabled) ui.npcDiag.lastTickAt = now;
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     stateTime += dt * 1000;
@@ -4904,7 +4907,6 @@ function drawEvent() {
       ctx.restore();
     }
 
-    requestAnimationFrame(tick);
   }
 
   // If QA enabled, run a deterministic self-test (no input required).

@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.110 — 2026-03-02
+- Fix: animation loop now schedules next frame at tick start (prevents stall).
+- Diag: lastTick updates even if errors occur mid-frame.
+
 ## v0.0.109 — 2026-03-02
 - Diag: npcdiag now starts in init state (auto-teleport works).
 
