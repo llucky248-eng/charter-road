@@ -37,7 +37,7 @@
   const NPC_DIAG_BUILD = 'v0.0.108';
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
-    state: 'boot',
+    state: 'init',
     result: 'pending',
     tick: 0,
     delta: 0,
@@ -1930,10 +1930,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.108',
+    version: 'v0.0.109',
     whatsNew: [
-      'Diag: added DOM overlay so npcdiag shows even if canvas stalls.',
-      'Diag: overlay includes build stamp + last tick age.',
+      'Diag: npcdiag now starts in init state (auto-teleport works).',
+      'Mobile: diag should move into city immediately.',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [

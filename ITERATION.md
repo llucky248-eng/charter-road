@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.0.109 — 2026-03-02
+- Diag: npcdiag now starts in init state (auto-teleport works).
+
 ## v0.0.108 — 2026-03-02
 - Diag: added DOM overlay so npcdiag shows even if canvas stalls.
 - Diag: overlay includes build stamp + last tick age.
