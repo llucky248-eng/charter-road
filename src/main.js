@@ -119,6 +119,14 @@
         return !!triggerNpcTalk(npc);
       },
       getNpcBubble: () => (ui.npcBubble ? { ...ui.npcBubble } : null),
+      getNpcBubbleRect: () => {
+        const layout = computeNpcBubbleLayout();
+        return layout ? { ...layout.rect } : null;
+      },
+      getNpcBubbleText: () => {
+        const layout = computeNpcBubbleLayout();
+        return layout ? layout.line : null;
+      },
       clearNpcBubble: () => { ui.npcBubble = null; return true; },
 
       setRep: (cityId, val) => {
@@ -1605,23 +1613,51 @@ function drawNpcEntity(e) {
   ctx.restore();
 }
 
-function drawNpcBubble() {
+
+function computeNpcBubbleLayout() {
   const b = ui.npcBubble;
-  if (!b) return;
-  if (stateTime > b.untilMs) { ui.npcBubble = null; return; }
+  if (!b) return null;
+  if (stateTime > b.untilMs) { ui.npcBubble = null; return null; }
   const npc = entities.find(e => e.id === b.npcId);
-  if (!npc) return;
+  if (!npc) return null;
 
   const sx = npc.x - camera.x;
   const sy = npc.y - camera.y - npc.radius - 10;
   const text = b.text || '';
+
   ctx.save();
   ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  const tw = Math.min(260, ctx.measureText(text).width + 12);
-  const th = Math.round(18 * UI_SCALE);
-  const x = sx - tw / 2;
-  const y = sy - th;
 
+  const maxW = IS_MOBILE ? Math.min(200, VIEW_W - 20) : 260;
+  const pad = 12;
+  const maxTextW = Math.max(40, maxW - pad * 2);
+  const line = ellipsizeText(text, maxTextW);
+  const tw = Math.min(maxW, ctx.measureText(line).width + pad * 2);
+  const th = Math.round(18 * UI_SCALE);
+
+  let x = sx - tw / 2;
+  let y = sy - th;
+  if (IS_MOBILE && y < HUD_H + 6) {
+    y = sy + 8; // flip below npc if too close to HUD
+  }
+  x = clamp(x, 8, VIEW_W - tw - 8);
+  y = clamp(y, HUD_H + 6, VIEW_H - th - 8);
+
+  ctx.restore();
+  return { line, rect: { x, y, w: tw, h: th }, sx, sy };
+}
+
+function drawNpcBubble() {
+  const layout = computeNpcBubbleLayout();
+  if (!layout) { ui._npcBubbleRect = null; return; }
+
+  const { line, rect, sx, sy } = layout;
+  const { x, y, w: tw, h: th } = rect;
+
+  ui._npcBubbleRect = rect;
+  ui._npcBubbleText = line;
+
+  ctx.save();
   ctx.fillStyle = 'rgba(15, 18, 24, 0.92)';
   ctx.strokeStyle = 'rgba(255,255,255,0.15)';
   ctx.lineWidth = 1;
@@ -1643,7 +1679,8 @@ function drawNpcBubble() {
   ctx.fillStyle = '#e8edf2';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, sx, y + th / 2 + 1);
+  ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(line, x + tw / 2, y + th / 2 + 1);
   ctx.restore();
 }
 
@@ -1673,16 +1710,16 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.99',
+    version: 'v0.0.100',
     whatsNew: [
-      'City Hub: 3 walking NPCs per city (wander + collision + distinct silhouettes).',
-      'Interaction: press E near a local to show a speech bubble.',
-      'QA: added deterministic tests for NPC walkers + bubble lifecycle.',
+      'Mobile: NPC speech bubbles now clamp to screen + HUD (readable on phones).',
+      'Bubble text: single-line ellipsize for small screens.',
+      'QA: added mobile bubble bounds checks.',
     ],
     whatsNext: [
-      'NPCs: more roles, better pathing, and mobile-friendly bubbles.',
+      'NPCs: add a nearby "Press E" hint (optional).',
       'Dialogue: richer lines + rare city-specific quips.',
-      'UX: hint prompt when near NPCs (optional).',
+      'UI: polish NPC panel layout + mobile-friendly hinting.',
     ],
   };
 
@@ -1700,6 +1737,8 @@ function drawNpcBubble() {
     navT: 0,
 
     npcBubble: null,
+    _npcBubbleRect: null,
+    _npcBubbleText: '',
 
     eventOpen: false,
 
@@ -4810,6 +4849,26 @@ function drawEvent() {
   assert(__QA.api.getNpcBubble() === null, 'NPC bubble should expire');
 }
 
+// --- NPC bubble bounds (mobile-safe)
+{
+  __QA.api.setTime({ day: 16, frac: 0, seed: 2 });
+  __QA.api.teleportToCity('sunspire');
+  __QA.api.spawnCityNPCs('sunspire');
+  const walkers = __QA.api.getNpcEntities();
+  const target = walkers[0];
+  __QA.api.setPlayer({ x: target.x, y: target.y });
+  assert(__QA.api.interactNpc(target.id) === true, 'npc interaction should succeed for bubble bounds test');
+  const rect = __QA.api.getNpcBubbleRect();
+  assert(!!rect && rect.w > 0 && rect.h > 0, 'npc bubble rect should exist');
+  assert(rect.x >= 0 && rect.y >= 0, 'npc bubble rect should be on-screen');
+  assert(rect.x + rect.w <= VIEW_W + 1, 'npc bubble rect should fit within view width');
+  assert(rect.y + rect.h + 6 <= VIEW_H + 1, 'npc bubble rect should fit within view height (tail included)');
+  if (IS_MOBILE) {
+    assert(rect.y >= HUD_H, 'mobile bubble should not overlap HUD');
+  }
+}
+
+
 
       // --- Contracts deterministic auto-complete QA
       // We assert BOTH:
@@ -4879,7 +4938,7 @@ function drawEvent() {
         assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers');
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

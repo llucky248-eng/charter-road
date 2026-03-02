@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.100 — 2026-03-01
+- Mobile: NPC speech bubbles now clamp to screen + HUD (readable on phones).
+- Bubble text: single-line ellipsize for small screens.
+- QA: added mobile bubble bounds checks.
+
 ## v0.0.99 — 2026-03-01
 - City Hub: added 3 walking NPCs per city (wander + collision + distinct silhouettes).
 - Interaction: press E near a local to show a speech bubble.
