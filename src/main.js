@@ -1565,7 +1565,10 @@ function npcDiagTick(dt) {
   if (d.state === 'talk') {
     const npc = entities.find(e => e.kind === 'npc' && e.id === d.npcId);
     if (!npc) { d.result = 'fail'; d.note = 'npc missing'; return; }
-    triggerNpcTalk(npc);
+    // simulate actual mobile input path
+    vkeys.add('KeyE');
+    d.lastInput = 'KeyE';
+    // input is consumed in tick; observe side effects
     d.bubble = !!ui.npcBubble;
     d.pos0 = { x: player.x, y: player.y };
     d.t0 = stateTime;
@@ -1863,10 +1866,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.105',
+    version: 'v0.0.106',
     whatsNew: [
-      'Diagnostics: added ?npcdiag=1 automated NPC interaction test overlay.',
-      'Mobile: diag reports bubble + movement delta on device.',
+      'Diagnostics: npcdiag now simulates real KeyE input path.',
+      'Overlay: shows last input + action for mobile debugging.',
       'QA: unchanged (diag is runtime-only).',
     ],
     whatsNext: [
@@ -1892,7 +1895,7 @@ function drawNpcBubble() {
     npcBubble: null,
     _npcBubbleRect: null,
     _npcBubbleText: '',
-    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null },
+    npcDiag: { enabled: NPC_DIAG_ENABLED, state: 'init', result: 'pending', tick: 0, delta: 0, bubble: false, note: '', npcId: null, t0: 0, pos0: null, lastAction: '', lastInput: '' },
 
     eventOpen: false,
 
@@ -3260,7 +3263,7 @@ function drawNpcBubble() {
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
       } else if (c) {
         const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) return;
+        if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
         toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
       } else {
         toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
@@ -4662,7 +4665,7 @@ function drawEvent() {
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
       } else if (c) {
         const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) return;
+        if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
         toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
       } else {
         const poi = nearPOITile();

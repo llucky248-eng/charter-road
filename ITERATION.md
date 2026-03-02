@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.106 — 2026-03-02
+- Diagnostics: npcdiag now simulates real KeyE input path.
+- Overlay: shows last input + action for mobile debugging.
+
 ## v0.0.105 — 2026-03-01
 - Diagnostics: added ?npcdiag=1 automated NPC interaction test overlay.
 - Mobile: diag reports bubble + movement delta on device.
