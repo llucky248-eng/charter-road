@@ -1529,12 +1529,60 @@ function findNearestNpc(px, py, radius = NPC_INTERACT_RADIUS) {
 function triggerNpcTalk(npc) {
   if (!npc) return false;
   if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
+  resolvePlayerNpcOverlap();
   const lines = getNpcLines(npc.cityId, npc.id);
   npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
   const text = lines[npc.dialogueIdx];
   ui.npcBubble = { npcId: npc.id, text, untilMs: stateTime + 2400 };
   npc.talkCooldown = stateTime + 1200;
   return true;
+}
+
+
+function canPlacePlayer(px, py) {
+  return !isSolidAt(px - player.r, py - player.r) &&
+    !isSolidAt(px + player.r, py - player.r) &&
+    !isSolidAt(px - player.r, py + player.r) &&
+    !isSolidAt(px + player.r, py + player.r);
+}
+
+function nudgePlayerFromNpc(npc) {
+  if (!npc) return false;
+  const minD = player.r + npc.radius + 1;
+  let dx = player.x - npc.x;
+  let dy = player.y - npc.y;
+  let dist = Math.hypot(dx, dy);
+  if (!Number.isFinite(dist) || dist >= minD) return false;
+  if (dist < 1e-3) { dx = 1; dy = 0; dist = 1; }
+  const tryPlace = (ux, uy) => {
+    const px = npc.x + ux * minD;
+    const py = npc.y + uy * minD;
+    if (canPlacePlayer(px, py)) {
+      player.x = px;
+      player.y = py;
+      return true;
+    }
+    return false;
+  };
+  if (tryPlace(dx / dist, dy / dist)) return true;
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI * 2 * i) / 8;
+    if (tryPlace(Math.cos(a), Math.sin(a))) return true;
+  }
+  return false;
+}
+
+function resolvePlayerNpcOverlap() {
+  for (const e of entities) {
+    if (e.kind !== 'npc') continue;
+    const dx = player.x - e.x;
+    const dy = player.y - e.y;
+    const r = player.r + e.radius;
+    if (dx*dx + dy*dy < r*r) {
+      return nudgePlayerFromNpc(e);
+    }
+  }
+  return false;
 }
 
 function isNpcBlocking(px, py) {
@@ -1710,11 +1758,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.100',
+    version: 'v0.0.101',
     whatsNew: [
-      'Mobile: NPC speech bubbles now clamp to screen + HUD (readable on phones).',
-      'Bubble text: single-line ellipsize for small screens.',
-      'QA: added mobile bubble bounds checks.',
+      'Fix: interacting with NPCs no longer traps the player (auto nudge away).',
+      'Collision: resolves player/NPC overlap after movement.',
+      'QA: added overlap assertion after NPC talk.',
     ],
     whatsNext: [
       'NPCs: add a nearby "Press E" hint (optional).',
@@ -2644,6 +2692,8 @@ function drawNpcBubble() {
     // clamp to map
     player.x = clamp(player.x, TILE, MAP_W*TILE - TILE);
     player.y = clamp(player.y, TILE, MAP_H*TILE - TILE);
+
+    resolvePlayerNpcOverlap();
   }
 
 
@@ -4844,6 +4894,11 @@ function drawEvent() {
   assert(!!bubble && typeof bubble.text === 'string' && bubble.text.length > 0, 'NPC bubble should appear with text');
   const lines = __QA.api.getNpcLines('sunspire', target.id);
   assert(lines.includes(bubble.text), 'bubble text should come from npc lines');
+
+  const dxp = player.x - target.x;
+  const dyp = player.y - target.y;
+  const d = Math.hypot(dxp, dyp);
+  assert(d >= (player.r + target.radius - 0.5), 'player should not remain overlapping NPC after talk');
 
   for (let i = 0; i < 200; i++) __QA.api.step(1/60);
   assert(__QA.api.getNpcBubble() === null, 'NPC bubble should expire');

@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.101 — 2026-03-01
+- Fix: interacting with NPCs no longer traps the player (auto nudge away).
+- Collision: resolves player/NPC overlap after movement.
+- QA: added overlap assertion after NPC talk.
+
 ## v0.0.100 — 2026-03-01
 - Mobile: NPC speech bubbles now clamp to screen + HUD (readable on phones).
 - Bubble text: single-line ellipsize for small screens.
