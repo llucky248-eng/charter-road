@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.0.118 — 2026-03-02
+- Diag: overlay shows passCheck + raw delta + state.
+
 ## v0.0.117 — 2026-03-02
 - Diag: passCheck computed explicitly after movement.
 - Diag: overlay shows passCheck flag.

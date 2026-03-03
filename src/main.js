@@ -90,9 +90,12 @@
         const line2b = `deltaRaw=${d.delta}`;
 
         const line3 = `input=${d.lastInput || '-'} action=${d.lastAction || '-'} note=${d.note || '-'}`;
+        const line4 = `passCheck=${d.passCheck ? 'yes' : 'no'} state=${d.state}`;
         __NPCDIAG_OVERLAY.textContent = `${line1}
 ${line2}
-${line3}`;
+${line2b}
+${line3}
+${line4}`;
         __NPCDIAG_OVERLAY.style.whiteSpace = 'pre';
       } catch {}
     }, 500);
@@ -1952,14 +1955,14 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.117',
+    version: 'v0.0.118',
     whatsNew: [
-      'Diag: passCheck computed explicitly after movement.',
-      'Diag: overlay shows passCheck flag.',
+      'Diag: overlay shows passCheck + raw delta.',
+      'Diag: overlay shows internal state.',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
-      'NPCs: add a nearby \"Press E\" hint (optional).',
+      'NPCs: add a nearby "Press E" hint (optional).',
       'Dialogue: richer lines + rare city-specific quips.',
       'UI: polish NPC panel layout + mobile-friendly hinting.',
     ],
