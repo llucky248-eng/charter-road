@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.0.115 — 2026-03-02
+- Diag: PASS threshold set to delta ≥ 6.
+
 ## v0.0.114 — 2026-03-02
 - Diag: movement delta now measured after moveWithCollision.
 - Diag: added post-move evaluation phase.
