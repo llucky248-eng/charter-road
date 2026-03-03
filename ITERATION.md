@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.116 — 2026-03-02
+- Diag: PASS threshold set to delta ≥ 5.5.
+- Diag: overlay shows raw delta value.
+
 ## v0.0.115 — 2026-03-02
 - Diag: PASS threshold set to delta ≥ 6.
 
