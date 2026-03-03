@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.0.116';
+  const NPC_DIAG_BUILD = 'v0.0.117';
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1676,7 +1676,8 @@ function npcDiagPostMove() {
 
   if (stateTime - d.t0 > 1.2) {
     vkeys.delete('ArrowRight');
-    if (d.delta >= 5.5 && d.tick > 10) d.result = 'pass';
+    d.passCheck = (d.delta >= 5.5 && d.tick > 10);
+    if (d.passCheck) { d.result = 'pass'; d.note = ''; }
     else { d.result = 'fail'; d.note = 'no movement'; }
     d.state = 'done';
   }
@@ -1951,14 +1952,14 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.116',
+    version: 'v0.0.117',
     whatsNew: [
-      'Diag: PASS threshold set to delta ≥ 5.5.',
-      'Diag: overlay shows raw delta value.',
+      'Diag: passCheck computed explicitly after movement.',
+      'Diag: overlay shows passCheck flag.',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
-      'NPCs: add a nearby "Press E" hint (optional).',
+      'NPCs: add a nearby \"Press E\" hint (optional).',
       'Dialogue: richer lines + rare city-specific quips.',
       'UI: polish NPC panel layout + mobile-friendly hinting.',
     ],
