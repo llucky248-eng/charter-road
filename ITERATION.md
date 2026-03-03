@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.119 — 2026-03-03
+- Diag: auto-moves to nearest open tile before testing movement.
+- Diag: isolates NPC blocking vs wall blocking.
+
 ## v0.0.118 — 2026-03-02
 - Diag: overlay shows passCheck + raw delta + state.
 

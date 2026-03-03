@@ -1597,6 +1597,27 @@ function findNearestNpc(px, py, radius = NPC_INTERACT_RADIUS) {
 }
 
 
+
+function findNearestOpenTile(px, py, maxR = 5) {
+  const cx = Math.floor(px / TILE);
+  const cy = Math.floor(py / TILE);
+  for (let r = 0; r <= maxR; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const tx = cx + dx;
+        const ty = cy + dy;
+        if (tx < 1 || ty < 1 || tx >= MAP_W-1 || ty >= MAP_H-1) continue;
+        const x = (tx + 0.5) * TILE;
+        const y = (ty + 0.5) * TILE;
+        if (!npcOverlapAt(x, y) && canPlacePlayer(x, y) && !isSolidAt(x, y)) {
+          return { x, y };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function npcDiagTick(dt) {
   const d = ui.npcDiag;
   if (!d || !d.enabled) return;
@@ -1615,6 +1636,8 @@ function npcDiagTick(dt) {
     camera.y = player.y - VIEW_H/2;
     player.lastCityId = null;
     spawnCityNPCs(c.id);
+    const open = findNearestOpenTile(player.x, player.y, 6);
+    if (open) { player.x = open.x; player.y = open.y; camera.x = player.x - VIEW_W/2; camera.y = player.y - VIEW_H/2; }
     d.state = 'approach';
     d.t0 = stateTime;
     return;
@@ -1955,10 +1978,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.118',
+    version: 'v0.0.119',
     whatsNew: [
-      'Diag: overlay shows passCheck + raw delta.',
-      'Diag: overlay shows internal state.',
+      'Diag: auto-moves to nearest open tile before testing movement.',
+      'Diag: isolates NPC blocking vs wall blocking.',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
