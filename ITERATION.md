@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.125 — 2026-03-04
+- Fix: mobile HUD debug overlay moved into HUD render (prevents runtime error).
+- Mobile: set top bar height for tap logic.
+
 ## v0.0.124 — 2026-03-04
 - Debug: mobile HUD tap overlay (temporary).
 - Mobile: logs tap coords + hit state.
