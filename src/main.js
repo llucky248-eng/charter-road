@@ -653,13 +653,32 @@ ${line4}`;
       else ui.eventScroll = clamp(ui.eventScroll - n, 0, L.scrollMax);
       ui._drag.acc -= n * step;
     }
+
+
+}
+
+function handleMobileHudTap(sx, sy) {
+  if (!IS_MOBILE) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return false;
+  const T = ui._hudCityTap;
+  if (T && sx >= T.x && sx <= T.x + T.w && sy >= T.y && sy <= T.y + T.h) {
+    ui.mobileHudExpanded = !ui.mobileHudExpanded;
+    return true;
   }
+  return false;
+}
 
   // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
     const r = canvas.getBoundingClientRect();
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
+
+    // Mobile HUD tap (city name toggle)
+    if (handleMobileHudTap(sx, sy)) {
+      e.preventDefault();
+      return;
+    }
 
     // HUD Save/Load buttons (desktop)
     if (!IS_MOBILE && sy <= HUD_H) {
@@ -746,7 +765,16 @@ ${line4}`;
 
   canvas.addEventListener('touchstart', (e) => {
     if (!IS_MOBILE) return;
-    if (!ui.marketOpen && !ui.eventOpen) return;
+    if (!ui.marketOpen && !ui.eventOpen && !ui.contractsOpen) {
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      const { sx, sy } = getTouchPos(t);
+      if (handleMobileHudTap(sx, sy)) {
+        e.preventDefault();
+        return;
+      }
+      return;
+    }
 
     const t = e.touches && e.touches[0];
     if (!t) return;
@@ -1984,16 +2012,16 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.120',
+    version: 'v0.0.121',
     whatsNew: [
-      'Diag: PASS now triggers whenever delta ≥ 5.5.',
-      'Diag: build stamp v0.0.120 (cache-bust).',
-      'QA: unchanged (diag runtime-only).',
+      'Mobile: compact HUD (Gold + Cargo + City).',
+      'Mobile: tap City name to expand Day/Time + rules.',
+      'QA: added mobile HUD tap/expand tests.',
     ],
     whatsNext: [
+      'Mobile: optional bottom action bar for market/contract.',
       'NPCs: add a nearby "Press E" hint (optional).',
       'Dialogue: richer lines + rare city-specific quips.',
-      'UI: polish NPC panel layout + mobile-friendly hinting.',
     ],
   };
 
@@ -2014,6 +2042,10 @@ function drawNpcBubble() {
     _npcBubbleRect: null,
     _npcBubbleText: '',
     npcDiag: __NPCDIAG_STATE,
+    mobileHudExpanded: false,
+    _hudCityTap: null,
+    _hudExpandedText: '',
+    _hudExpandedVisible: false,
 
     eventOpen: false,
 
@@ -3895,6 +3927,59 @@ function drawEntities() {
     ctx.textAlign = 'left';
   }
   function drawHUD() {
+    const c = currentCity();
+    const rules = c ? CITY_RULES[c.id] : null;
+    const w = invWeight();
+
+    const pad = Math.round(14 * UI_SCALE);
+
+
+// MOBILE HUD (compact by default)
+if (IS_MOBILE) {
+  const expanded = ui.mobileHudExpanded && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen;
+  const topH = Math.round((expanded ? 58 : 38) * UI_SCALE);
+  const padX = Math.round(10 * UI_SCALE);
+  const y1 = Math.round(22 * UI_SCALE);
+
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
+  ctx.fillRect(0, 0, VIEW_W, topH);
+  ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
+  ctx.beginPath();
+  ctx.moveTo(0, topH + 0.5);
+  ctx.lineTo(VIEW_W, topH + 0.5);
+  ctx.stroke();
+
+  const title = c ? c.name : 'On the road';
+  ctx.fillStyle = '#e8edf2';
+  ctx.font = `800 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  const titleText = ellipsizeText(title, Math.round(VIEW_W * 0.55));
+  ctx.fillText(titleText, padX, y1);
+  const titleW = ctx.measureText(titleText).width;
+  ui._hudCityTap = { x: Math.max(0, padX - 6), y: 0, w: Math.min(titleW + 12, VIEW_W * 0.6), h: topH };
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#cfe6ff';
+  ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(`${player.gold}g · ${w}/${player.capacity}`, VIEW_W - padX, y1);
+  ctx.textAlign = 'left';
+
+  ui._hudExpandedVisible = false;
+  ui._hudExpandedText = '';
+  if (expanded) {
+    const day = Math.floor(time.day || 1);
+    const hour = Math.round((time.frac || 0) * 24);
+    const detail = rules ? `${rules.vibe}` : 'Travel the road.';
+    const line = `Day ${day} · ${hour}h · ${detail}`;
+    ctx.fillStyle = 'rgba(160,184,203,0.92)';
+    ctx.font = `${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText(ellipsizeText(line, VIEW_W - padX * 2), padX, Math.round(40 * UI_SCALE));
+    ui._hudExpandedVisible = true;
+    ui._hudExpandedText = line;
+  }
+
+  return;
+}
+
     ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
     ctx.fillRect(0, 0, VIEW_W, HUD_H);
     ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
@@ -3902,39 +3987,6 @@ function drawEntities() {
     ctx.moveTo(0, HUD_H + 0.5);
     ctx.lineTo(VIEW_W, HUD_H + 0.5);
     ctx.stroke();
-
-    const c = currentCity();
-    const rules = c ? CITY_RULES[c.id] : null;
-    const w = invWeight();
-
-    const pad = Math.round(14 * UI_SCALE);
-
-    // MOBILE HUD (minimal; minimap + stats are overlayed on gameplay)
-    if (IS_MOBILE) {
-      const topH = Math.round((contracts.active ? 62 : 44) * UI_SCALE);
-      ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
-      ctx.fillRect(0, 0, VIEW_W, topH);
-      ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
-      ctx.beginPath();
-      ctx.moveTo(0, topH + 0.5);
-      ctx.lineTo(VIEW_W, topH + 0.5);
-      ctx.stroke();
-
-      ctx.fillStyle = '#e8edf2';
-      ctx.font = `800 ${Math.round(15 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      const title = c ? c.name : 'On the road';
-      ctx.fillText(ellipsizeText(title, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(22 * UI_SCALE));
-
-      // small detail line
-      ctx.fillStyle = 'rgba(160,184,203,0.92)';
-      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      const detail = rules ? `${rules.vibe}` : 'Travel the road. E interacts.';
-      ctx.fillText(ellipsizeText(detail, VIEW_W - Math.round(12 * UI_SCALE)), Math.round(10 * UI_SCALE), Math.round(40 * UI_SCALE));
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-      return;
-    }
 
     const line1 = Math.round(22 * UI_SCALE);
     const line2 = Math.round(44 * UI_SCALE);
@@ -5208,6 +5260,25 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   }
 }
 
+
+
+// --- Mobile HUD compact/expand QA
+{
+  if (IS_MOBILE) {
+    ui.mobileHudExpanded = false;
+    drawHUD();
+    const T = ui._hudCityTap;
+    assert(!!T, 'mobile HUD tap rect should exist');
+    assert(handleMobileHudTap(T.x + 1, T.y + 1) === true, 'tap should toggle mobile HUD');
+    drawHUD();
+    assert(ui.mobileHudExpanded === true, 'mobile HUD should expand after tap');
+    assert(ui._hudExpandedVisible === true, 'expanded line should be visible');
+    ui.marketOpen = true;
+    drawHUD();
+    assert(ui._hudExpandedVisible === false, 'expanded line hidden during modal');
+    ui.marketOpen = false;
+  }
+}
 
 
       // --- Contracts deterministic auto-complete QA

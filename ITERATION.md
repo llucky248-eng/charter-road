@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.121 — 2026-03-04
+- Mobile: compact HUD (Gold + Cargo + City).
+- Mobile: tap City name to expand Day/Time + rules.
+- QA: added mobile HUD tap/expand tests.
+
 ## v0.0.120 — 2026-03-03
 - Diag: PASS triggers whenever delta ≥ 5.5 (fixes false fails).
 
