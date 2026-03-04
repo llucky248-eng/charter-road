@@ -690,6 +690,9 @@ function handleMobileHudTap(sx, sy) {
 function handleGlobalHudTap(clientX, clientY, e) {
   if (!IS_MOBILE) return false;
   if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return false;
+  const now = performance.now();
+  if (now - (ui._hudTapLastTs || 0) < 280) return false;
+  ui._hudTapLastTs = now;
   const r = canvas.getBoundingClientRect();
   const sx = (clientX - r.left) * (VIEW_W / r.width);
   const sy = (clientY - r.top) * (VIEW_H / r.height);
@@ -2051,10 +2054,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.125',
+    version: 'v0.0.126',
     whatsNew: [
-      'Fix: mobile HUD debug overlay moved into HUD render.',
-      'Mobile: set top bar height for tap logic.',
+      'Mobile: debounce HUD tap (avoid double toggle).',
+      'Mobile: ignore pointerdown for touch to prevent duplicates.',
       'QA: unchanged.',
     ],
     whatsNext: [
@@ -2087,6 +2090,7 @@ function drawNpcBubble() {
     _hudExpandedVisible: false,
     _hudTopH: 0,
     _hudTapDebug: '',
+    _hudTapLastTs: 0,
 
     eventOpen: false,
 

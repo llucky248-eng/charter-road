@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.126 — 2026-03-04
+- Mobile: debounce HUD tap (avoid double toggle).
+- Mobile: ignore pointerdown for touch to prevent duplicates.
+
 ## v0.0.125 — 2026-03-04
 - Fix: mobile HUD debug overlay moved into HUD render (prevents runtime error).
 - Mobile: set top bar height for tap logic.
