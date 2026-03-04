@@ -665,6 +665,11 @@ function handleMobileHudTap(sx, sy) {
     ui.mobileHudExpanded = !ui.mobileHudExpanded;
     return true;
   }
+  const topH = ui._hudTopH || 0;
+  if (topH && sy <= topH && sx <= VIEW_W * 0.7) {
+    ui.mobileHudExpanded = !ui.mobileHudExpanded;
+    return true;
+  }
   return false;
 }
 
@@ -2012,11 +2017,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.121',
+    version: 'v0.0.122',
     whatsNew: [
-      'Mobile: compact HUD (Gold + Cargo + City).',
-      'Mobile: tap City name to expand Day/Time + rules.',
-      'QA: added mobile HUD tap/expand tests.',
+      'Mobile: tap anywhere on top bar (left side) to expand HUD.',
+      'Mobile: city-name tap remains supported.',
+      'QA: unchanged (tap toggle still verified).',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -2046,6 +2051,7 @@ function drawNpcBubble() {
     _hudCityTap: null,
     _hudExpandedText: '',
     _hudExpandedVisible: false,
+    _hudTopH: 0,
 
     eventOpen: false,
 

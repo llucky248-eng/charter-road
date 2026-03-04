@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.122 — 2026-03-04
+- Mobile: tap anywhere on top bar (left side) to expand HUD.
+- Mobile: city-name tap still works.
+
 ## v0.0.121 — 2026-03-04
 - Mobile: compact HUD (Gold + Cargo + City).
 - Mobile: tap City name to expand Day/Time + rules.
