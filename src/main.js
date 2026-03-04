@@ -597,6 +597,20 @@ ${line4}`;
     return false;
   }
 // Touch UI -> virtual keys
+
+// Mobile HUD tap: global capture (Safari reliability)
+if (IS_MOBILE && !window.__npcGlobalTapListener) {
+  window.__npcGlobalTapListener = true;
+  window.addEventListener('touchstart', (e) => {
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    handleGlobalHudTap(t.clientX, t.clientY, e);
+  }, { passive: false, capture: true });
+  window.addEventListener('pointerdown', (e) => {
+    handleGlobalHudTap(e.clientX, e.clientY, e);
+  }, { passive: false, capture: true });
+}
+
   const touchUi = document.getElementById('touch-ui');
   if (touchUi) {
     // Prevent iOS/Android long-press selection/callout + context menu
@@ -672,6 +686,20 @@ function handleMobileHudTap(sx, sy) {
   }
   return false;
 }
+
+function handleGlobalHudTap(clientX, clientY, e) {
+  if (!IS_MOBILE) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return false;
+  const r = canvas.getBoundingClientRect();
+  const sx = (clientX - r.left) * (VIEW_W / r.width);
+  const sy = (clientY - r.top) * (VIEW_H / r.height);
+  if (handleMobileHudTap(sx, sy)) {
+    e?.preventDefault?.();
+    return true;
+  }
+  return false;
+}
+
 
   // Canvas touch drag for scrolling lists (mobile popups)
   canvas.addEventListener('pointerdown', (e) => {
@@ -2017,11 +2045,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.122',
+    version: 'v0.0.123',
     whatsNew: [
-      'Mobile: tap anywhere on top bar (left side) to expand HUD.',
-      'Mobile: city-name tap remains supported.',
-      'QA: unchanged (tap toggle still verified).',
+      'Mobile: global capture for HUD tap (Safari reliability).',
+      'Mobile: top bar tap toggles HUD even if canvas misses events.',
+      'QA: unchanged (tap tests still pass).',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',

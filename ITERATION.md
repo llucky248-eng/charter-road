@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.123 — 2026-03-04
+- Mobile: global capture for HUD tap (Safari reliability).
+- Mobile: top bar tap toggles HUD even if canvas misses events.
+
 ## v0.0.122 — 2026-03-04
 - Mobile: tap anywhere on top bar (left side) to expand HUD.
 - Mobile: city-name tap still works.
