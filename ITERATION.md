@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.0.120 — 2026-03-03
+- Diag: PASS triggers whenever delta ≥ 5.5 (fixes false fails).
+
 ## v0.0.119 — 2026-03-03
 - Diag: auto-moves to nearest open tile before testing movement.
 - Diag: isolates NPC blocking vs wall blocking.

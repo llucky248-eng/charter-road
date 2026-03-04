@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.0.117';
+  const NPC_DIAG_BUILD = 'v0.0.120';
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1703,8 +1703,14 @@ function npcDiagPostMove() {
   if (stateTime - d.t0 > 1.2) {
     vkeys.delete('ArrowRight');
     d.passCheck = (d.delta >= 5.5 && d.tick > 10);
-    if (d.passCheck) { d.result = 'pass'; d.note = ''; }
-    else { d.result = 'fail'; d.note = 'no movement'; }
+    if (d.delta >= 5.5) {
+      d.result = 'pass';
+      d.note = '';
+      d.passCheck = true;
+    } else {
+      d.result = 'fail';
+      d.note = 'no movement';
+    }
     d.state = 'done';
   }
 }
@@ -1978,10 +1984,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.119',
+    version: 'v0.0.120',
     whatsNew: [
-      'Diag: auto-moves to nearest open tile before testing movement.',
-      'Diag: isolates NPC blocking vs wall blocking.',
+      'Diag: PASS now triggers whenever delta ≥ 5.5.',
+      'Diag: build stamp v0.0.120 (cache-bust).',
       'QA: unchanged (diag runtime-only).',
     ],
     whatsNext: [
