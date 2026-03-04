@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.127 — 2026-03-04
+- Cleanup: removed mobile HUD tap debug overlay.
+- Mobile: tap-to-expand remains enabled.
+
 ## v0.0.126 — 2026-03-04
 - Mobile: debounce HUD tap (avoid double toggle).
 - Mobile: ignore pointerdown for touch to prevent duplicates.

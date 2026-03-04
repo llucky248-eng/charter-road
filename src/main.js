@@ -697,7 +697,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
   const sx = (clientX - r.left) * (VIEW_W / r.width);
   const sy = (clientY - r.top) * (VIEW_H / r.height);
   const hit = handleMobileHudTap(sx, sy);
-  ui._hudTapDebug = `tap ${Math.round(sx)},${Math.round(sy)} hit=${hit ? 'yes' : 'no'} rect=${ui._hudCityTap ? `${Math.round(ui._hudCityTap.x)},${Math.round(ui._hudCityTap.y)},${Math.round(ui._hudCityTap.w)},${Math.round(ui._hudCityTap.h)}` : 'none'}`;
   if (hit) {
     e?.preventDefault?.();
     return true;
@@ -2054,16 +2053,16 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.126',
+    version: 'v0.0.127',
     whatsNew: [
-      'Mobile: debounce HUD tap (avoid double toggle).',
-      'Mobile: ignore pointerdown for touch to prevent duplicates.',
+      'Cleanup: removed mobile HUD tap debug overlay.',
+      'Mobile: tap-to-expand remains enabled.',
       'QA: unchanged.',
     ],
     whatsNext: [
-      'Remove tap debug after confirming on-device.',
       'Mobile: optional bottom action bar for market/contract.',
       'NPCs: add a nearby "Press E" hint (optional).',
+      'Dialogue: richer lines + rare city-specific quips.',
     ],
   };
 
@@ -2089,7 +2088,6 @@ function drawNpcBubble() {
     _hudExpandedText: '',
     _hudExpandedVisible: false,
     _hudTopH: 0,
-    _hudTapDebug: '',
     _hudTapLastTs: 0,
 
     eventOpen: false,
