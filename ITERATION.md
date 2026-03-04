@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.0.124 — 2026-03-04
+- Debug: mobile HUD tap overlay (temporary).
+- Mobile: logs tap coords + hit state.
+
 ## v0.0.123 — 2026-03-04
 - Mobile: global capture for HUD tap (Safari reliability).
 - Mobile: top bar tap toggles HUD even if canvas misses events.

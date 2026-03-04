@@ -693,7 +693,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
   const r = canvas.getBoundingClientRect();
   const sx = (clientX - r.left) * (VIEW_W / r.width);
   const sy = (clientY - r.top) * (VIEW_H / r.height);
-  if (handleMobileHudTap(sx, sy)) {
+  const hit = handleMobileHudTap(sx, sy);
+  ui._hudTapDebug = `tap ${Math.round(sx)},${Math.round(sy)} hit=${hit ? 'yes' : 'no'} rect=${ui._hudCityTap ? `${Math.round(ui._hudCityTap.x)},${Math.round(ui._hudCityTap.y)},${Math.round(ui._hudCityTap.w)},${Math.round(ui._hudCityTap.h)}` : 'none'}`;
+  if (hit) {
     e?.preventDefault?.();
     return true;
   }
@@ -710,6 +712,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Mobile HUD tap (city name toggle)
     if (handleMobileHudTap(sx, sy)) {
       e.preventDefault();
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -743,6 +751,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
       ui._drag = { kind, lastY: sy, acc: 0 };
       canvas.setPointerCapture?.(e.pointerId);
       e.preventDefault();
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -806,6 +820,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
         e.preventDefault();
         return;
       }
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -1733,6 +1753,12 @@ function npcDiagTick(dt) {
     if (d.bubble) {
       d.t0 = stateTime;
       d.state = 'move';
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
     if (stateTime - d.t0 > 1.2) {
@@ -2045,16 +2071,16 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.123',
+    version: 'v0.0.124',
     whatsNew: [
-      'Mobile: global capture for HUD tap (Safari reliability).',
-      'Mobile: top bar tap toggles HUD even if canvas misses events.',
-      'QA: unchanged (tap tests still pass).',
+      'Debug: mobile HUD tap overlay (temporary).',
+      'Mobile: logs tap coords + hit state.',
+      'QA: unchanged.',
     ],
     whatsNext: [
+      'Remove tap debug after confirming on-device.',
       'Mobile: optional bottom action bar for market/contract.',
       'NPCs: add a nearby "Press E" hint (optional).',
-      'Dialogue: richer lines + rare city-specific quips.',
     ],
   };
 
@@ -2080,6 +2106,7 @@ function drawNpcBubble() {
     _hudExpandedText: '',
     _hudExpandedVisible: false,
     _hudTopH: 0,
+    _hudTapDebug: '',
 
     eventOpen: false,
 
@@ -2152,6 +2179,12 @@ function drawNpcBubble() {
       if (player.gold < 0) { player.gold = 0; toast('Trade blocked (gold would go negative).', 2); return; }
       player.permits[c.id] = true;
       toast('Purchased city permit.', 2.2);
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -2180,6 +2213,12 @@ function drawNpcBubble() {
       player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
       scheduleAutoSave();
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -2404,6 +2443,12 @@ function drawNpcBubble() {
         if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx, qty); }
       }));
 
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -2483,6 +2528,12 @@ function drawNpcBubble() {
         const idx = Number(el.getAttribute('data-cidx'));
         if (Number.isFinite(idx)) { ui.contractsSel = idx; contractsAccept(idx); }
       }));
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -2548,6 +2599,12 @@ function drawNpcBubble() {
           if (ch && typeof ch.run === 'function') ch.run();
         }
       }));
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
   }
@@ -3250,6 +3307,12 @@ function drawNpcBubble() {
         ],
       });
 
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3273,6 +3336,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3296,6 +3365,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3318,6 +3393,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
   }
@@ -3364,6 +3445,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3379,6 +3466,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3411,6 +3504,12 @@ function drawNpcBubble() {
       player.gold += g;
       toast(`Good omen on the road! Found ${g}g.`, 2.4);
       closeEvent();
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3428,6 +3527,12 @@ function drawNpcBubble() {
           { label: 'Decline', run: () => { toast('The merchant finds others.', 2); closeEvent(); } },
         ],
       });
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
   }
@@ -3531,6 +3636,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3548,6 +3659,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3567,6 +3684,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3578,6 +3701,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3598,6 +3727,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3613,6 +3748,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3628,6 +3769,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3641,6 +3788,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3659,6 +3812,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3672,6 +3831,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3692,6 +3857,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3715,6 +3886,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3729,6 +3906,12 @@ function drawNpcBubble() {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3823,6 +4006,12 @@ function drawEntities() {
         playerSprite.ready = false;
       }
       ctx.imageSmoothingEnabled = prevSmooth;
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -3866,6 +4055,12 @@ function drawEntities() {
       // Defensive: clear invalid contract if city doesn't exist (prevents crash on mobile)
       console.warn('drawCompass: contract target city not found, clearing active contract');
       contracts.active = null;
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
@@ -4477,6 +4672,12 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
 
       // active contract (pinned)
       // moved to drawHUD(); keeping tile rendering pure
+
+if (ui._hudTapDebug) {
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
+}
       return;
     }
 
