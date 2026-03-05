@@ -571,12 +571,12 @@ ${line4}`;
     // tabs
     const T = ui._marketTabs;
     if (T) {
-      if (sx >= T.buy.x && sx <= T.buy.x + T.buy.w && sy >= T.buy.y && sy <= T.buy.y + T.buy.h) {
+      if (T.buy && sx >= T.buy.x && sx <= T.buy.x + T.buy.w && sy >= T.buy.y && sy <= T.buy.y + T.buy.h) {
         ui.mode = 'buy';
         toast('BUY', 0.7);
         return true;
       }
-      if (sx >= T.sell.x && sx <= T.sell.x + T.sell.w && sy >= T.sell.y && sy <= T.sell.y + T.sell.h) {
+      if (T.sell && sx >= T.sell.x && sx <= T.sell.x + T.sell.w && sy >= T.sell.y && sy <= T.sell.y + T.sell.h) {
         ui.mode = 'sell';
         toast('SELL', 0.7);
         return true;
@@ -590,6 +590,19 @@ ${line4}`;
     if (L && sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
       const vi = Math.floor((sy - L.y) / L.rowH);
       const i = clamp(ui.marketScroll + vi, 0, ITEMS.length); // includes permit row
+      // mobile: tap button area to trade
+      if (IS_MOBILE && L.cardPad != null) {
+        const rowY = L.y + vi * L.rowH;
+        const cardY = rowY + L.cardPad;
+        const btnY = cardY + L.cardH - L.btnH - L.btnPad;
+        const btnX = L.x + L.btnInset;
+        const btnW = L.w - L.btnInset * 2;
+        if (sy >= btnY && sy <= btnY + L.btnH && sx >= btnX && sx <= btnX + btnW) {
+          ui.selection = i;
+          marketTryTrade(i, 1);
+          return true;
+        }
+      }
       ui.selection = i;
       toast('Selected', 0.6);
       return true;
@@ -2053,11 +2066,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.127',
+    version: 'v0.0.129',
     whatsNew: [
-      'Cleanup: removed mobile HUD tap debug overlay.',
-      'Mobile: tap-to-expand remains enabled.',
-      'QA: unchanged.',
+      'Mobile Market: DOM modal uses single-column cards + big action button.',
+      'Mobile Market: auto-switch/hide empty SELL tab.',
+      'QA: mobile market DOM assertions added.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -2286,6 +2299,12 @@ function drawNpcBubble() {
       const c = currentCity();
       if (!c) { domCloseAll(); return; }
       const rules = CITY_RULES[c.id];
+      const isMobile = IS_MOBILE;
+      const sellHasItems = ITEMS.some(it => (player.inv[it.id] || 0) > 0);
+      const buyHasItems = true;
+      if (buyHasItems && !sellHasItems) ui.mode = 'buy';
+      if (sellHasItems && !buyHasItems) ui.mode = 'sell';
+      const showTabs = buyHasItems && sellHasItems;
       const hasPermit = !!player.permits[c.id];
 
       const totalN = ITEMS.length + 1;
@@ -2315,7 +2334,7 @@ function drawNpcBubble() {
               </div>
               <div class="cr-right">
                 <div class="cr-price">${htmlEscape(right)}</div>
-                <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="trade" data-idx="${i}" data-qty="1" ${actionDisabled}>${htmlEscape(actionLabel)}</button>
+                <button class="${isMobile ? 'cr-action' : 'cr-tab'}" style="margin-top:10px; padding:10px 10px;" data-action="trade" data-idx="${i}" data-qty="1" ${actionDisabled}>${htmlEscape(actionLabel)}</button>
               </div>
             </div>
           `);
@@ -2327,28 +2346,47 @@ function drawNpcBubble() {
           const maxByGold = price > 0 ? Math.floor(player.gold / price) : 0;
           const maxBuy = ui.mode === 'buy' ? Math.max(0, Math.min(maxBySpace, maxByGold)) : have;
 
-          const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
-          const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
-
-          const q1 = mkBtn('±1', 1, false);
-          const q5 = mkBtn('±5', 5, maxBuy < 5);
-          const qMax = mkBtn(ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, maxBuy <= 0);
-
-          rows.push(`
-            <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
-              <div>
-                <div class="cr-card-title">${htmlEscape(title)}</div>
-                <div class="cr-card-sub">${htmlEscape(sub)}</div>
-                ${badge}
-              </div>
-              <div class="cr-right">
-                <div class="cr-price">${htmlEscape(right)}</div>
-                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
-                  ${q1}${q5}${qMax}
+          if (isMobile) {
+            const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
+            const disabled = ui.mode === 'buy' ? (maxBuy <= 0) : (have <= 0);
+            const btn = `<button class="cr-action" style="margin-top:10px; padding:12px 12px;" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
+            rows.push(`
+              <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
+                <div>
+                  <div class="cr-card-title">${htmlEscape(title)}</div>
+                  <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                  ${badge}
+                </div>
+                <div class="cr-right">
+                  <div class="cr-price">${htmlEscape(right)}</div>
+                  ${btn}
                 </div>
               </div>
-            </div>
-          `);
+            `);
+          } else {
+            const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
+            const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+
+            const q1 = mkBtn('±1', 1, false);
+            const q5 = mkBtn('±5', 5, maxBuy < 5);
+            const qMax = mkBtn(ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, maxBuy <= 0);
+
+            rows.push(`
+              <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
+                <div>
+                  <div class="cr-card-title">${htmlEscape(title)}</div>
+                  <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                  ${badge}
+                </div>
+                <div class="cr-right">
+                  <div class="cr-price">${htmlEscape(right)}</div>
+                  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
+                    ${q1}${q5}${qMax}
+                  </div>
+                </div>
+              </div>
+            `);
+          }
         }
       }
 
@@ -2372,12 +2410,12 @@ function drawNpcBubble() {
                 ${rumorsHtml}
               </div>
               <button class="cr-close" data-action="close">CLOSE</button>
-            </div>
+            </div>${showTabs ? `
             <div class="cr-tabs" role="tablist" aria-label="Buy or sell">
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
             </div>
-            <div class="cr-body">
+` : ''}            <div class="cr-body">
               <div class="cr-list" aria-label="Items">
                 ${rows.join('')}
               </div>
@@ -4350,7 +4388,10 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
 
       
       // header
-      const headerH = 94;
+      const showTabs = buyHasItems && sellHasItems;
+      if (buyHasItems && !sellHasItems) ui.mode = 'buy';
+      if (sellHasItems && !buyHasItems) ui.mode = 'sell';
+      const headerH = showTabs ? 94 : 64;
       const innerX = sheetX + 16;
       const innerW = sheetW - 32;
 
@@ -4380,42 +4421,46 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.fillText('CLOSE', closeX + Math.round(12*T_SCALE), closeY + Math.round(20*T_SCALE));
+// BUY/SELL tabs (auto-switch/hide empty)
+if (showTabs) {
+  const tabY = sheetTop + 58;
+  const tabH = 40;
+  const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
+  const tabGap = Math.round(12 * UI_SCALE);
+  const buyX = innerX;
+  const sellX = innerX + tabW + tabGap;
 
-      // BUY/SELL tabs (tap friendly)
-      const tabY = sheetTop + 58;
-      const tabH = 40;
-      const tabW = Math.round((innerW - Math.round(12 * UI_SCALE)) / 2);
-      const tabGap = Math.round(12 * UI_SCALE);
-      const buyX = innerX;
-      const sellX = innerX + tabW + tabGap;
+  ui._marketTabs = { buy: { x: buyX, y: tabY, w: tabW, h: tabH }, sell: { x: sellX, y: tabY, w: tabW, h: tabH } };
 
-      ui._marketTabs = { buy: { x: buyX, y: tabY, w: tabW, h: tabH }, sell: { x: sellX, y: tabY, w: tabW, h: tabH } };
+  const drawTab = (x, label, active) => {
+    ctx.fillStyle = active ? 'rgba(120, 92, 60, 0.22)' : 'rgba(0,0,0,0.06)';
+    ctx.strokeStyle = active ? 'rgba(120, 92, 60, 0.85)' : 'rgba(120, 92, 60, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, tabY, tabW, tabH, 12);
+    else ctx.rect(x, tabY, tabW, tabH);
+    ctx.fill();
+    ctx.stroke();
 
-      const drawTab = (x, label, active) => {
-        ctx.fillStyle = active ? 'rgba(120, 92, 60, 0.22)' : 'rgba(0,0,0,0.06)';
-        ctx.strokeStyle = active ? 'rgba(120, 92, 60, 0.85)' : 'rgba(120, 92, 60, 0.45)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(x, tabY, tabW, tabH, 12);
-        else ctx.rect(x, tabY, tabW, tabH);
-        ctx.fill();
-        ctx.stroke();
+    ctx.fillStyle = '#2a1f14';
+    ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillText(label, x + (tabW - tw) / 2, tabY + Math.round(29 * UI_SCALE));
+  };
 
-        ctx.fillStyle = '#2a1f14';
-        ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        const tw = ctx.measureText(label).width;
-        ctx.fillText(label, x + (tabW - tw) / 2, tabY + Math.round(29 * UI_SCALE));
-      };
+  drawTab(buyX, 'BUY', ui.mode === 'buy');
+  drawTab(sellX, 'SELL', ui.mode === 'sell');
+} else {
+  ui._marketTabs = null;
+}
 
-      drawTab(buyX, 'BUY', ui.mode === 'buy');
-      drawTab(sellX, 'SELL', ui.mode === 'sell');
+// list viewport
 
-      // list viewport
       const footerH = 84;
       const listTop = sheetTop + headerH;
       const listBottom = sheetTop + sheetH - 12 - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = 62; // card height
+      const rowH = 90; // card height
       const visibleN = Math.max(2, Math.floor(listH / rowH));
 
       const totalN = ITEMS.length + 1; // +1 permit row
@@ -4423,7 +4468,12 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ui.marketScroll = clamp(ui.marketScroll, 0, scrollMax);
 
       // expose list rect for touch scrolling
-      ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax };
+      const cardPad = 8;
+      const cardH = rowH - cardPad * 2;
+      const btnH = Math.round(26 * UI_SCALE);
+      const btnPad = 6;
+      const btnInset = Math.round(24 * UI_SCALE);
+      ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax, cols: 1, cardPad, cardH, btnH, btnPad, btnInset };
 
       // clip list viewport so cards never draw outside the modal
       ctx.save();
@@ -4471,6 +4521,23 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + 42);
+
+// action button
+const btnY = cardY + cardH - btnH - btnPad;
+const btnX = sheetX + btnInset;
+const btnW = sheetW - btnInset * 2;
+ctx.fillStyle = ui.mode === 'buy' ? 'rgba(34,197,94,0.18)' : 'rgba(59,130,246,0.18)';
+ctx.strokeStyle = ui.mode === 'buy' ? 'rgba(34,197,94,0.6)' : 'rgba(59,130,246,0.6)';
+ctx.beginPath();
+if (ctx.roundRect) ctx.roundRect(btnX, btnY, btnW, btnH, 10);
+else ctx.rect(btnX, btnY, btnW, btnH);
+ctx.fill();
+ctx.stroke();
+ctx.fillStyle = ui.mode === 'buy' ? '#166534' : '#1d4ed8';
+ctx.font = `900 ${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+const actLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
+const actW = ctx.measureText(actLabel).width;
+ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE));
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
@@ -5357,6 +5424,42 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawHUD();
     assert(ui._hudExpandedVisible === false, 'expanded line hidden during modal');
     ui.marketOpen = false;
+  }
+}
+
+
+// --- Mobile Market layout QA
+{
+  if (IS_MOBILE) {
+    ui.marketOpen = true;
+    ui.mode = 'buy';
+    ui.marketScroll = 0;
+    ui.selection = 0;
+    for (const it of ITEMS) player.inv[it.id] = 0;
+
+    if (USE_DOM_MODALS) {
+      domRender();
+      assert(!uiRoot.querySelector('.cr-tabs'), 'mobile market should hide tabs when sell empty');
+      assert(ui.mode === 'buy', 'mobile market should force buy mode when sell empty');
+      assert(uiRoot.querySelector('.cr-action'), 'mobile market should render single action button');
+
+      if (ITEMS[0]) player.inv[ITEMS[0].id] = 2;
+      domRender();
+      assert(uiRoot.querySelector('.cr-tabs'), 'mobile market should show tabs when both have items');
+      assert(uiRoot.querySelectorAll('.cr-card').length > 0, 'mobile market should render cards');
+    } else {
+      drawMarket();
+      assert(ui._marketTabs === null, 'mobile market should hide tabs when sell empty');
+      assert(ui.mode === 'buy', 'mobile market should force buy mode when sell empty');
+      assert(ui._marketList && ui._marketList.cols === 1, 'mobile market list should be single column');
+
+      if (ITEMS[0]) player.inv[ITEMS[0].id] = 2;
+      drawMarket();
+      assert(ui._marketTabs && ui._marketTabs.buy && ui._marketTabs.sell, 'mobile market should show tabs when both have items');
+    }
+
+    ui.marketOpen = false;
+    domCloseAll();
   }
 }
 

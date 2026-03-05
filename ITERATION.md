@@ -1,5 +1,10 @@
 # Iteration Log — The Charter Road
 
+## v0.0.129 — 2026-03-04
+- Mobile Market: DOM modal uses single-column cards + big action button.
+- Mobile Market: auto-switch/hide empty SELL tab.
+- QA: mobile market DOM assertions added.
+
 ## v0.0.127 — 2026-03-04
 - Cleanup: removed mobile HUD tap debug overlay.
 - Mobile: tap-to-expand remains enabled.
