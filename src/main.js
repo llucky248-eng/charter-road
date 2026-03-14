@@ -1827,6 +1827,32 @@ function triggerNpcTalk(npc) {
   resolvePlayerNpcOverlap();
   player.npcGhostUntil = stateTime + 800;
   if (IS_MOBILE) player.npcGhostUntil = Math.max(player.npcGhostUntil, stateTime + 1500);
+
+  // Every other interaction, offer the intel market (skip in QA mode)
+  if (!__QA.enabled) {
+    npc.intelToggle = !npc.intelToggle;
+    if (npc.intelToggle && npc.cityId) {
+      const c = currentCity();
+      if (c) {
+        // Show brief intel prompt in bubble, then open modal after delay
+        ui.npcBubble = { npcId: npc.id, text: `Psst... I know things. Want a tip? (${INTEL_BUY_COST}g) [E again]`, untilMs: stateTime + 3000 };
+        npc.talkCooldown = stateTime + 400; // short cooldown so second E opens modal
+        npc.pendingIntel = true;
+        return true;
+      }
+    }
+
+    if (npc.pendingIntel) {
+      npc.pendingIntel = false;
+      const c = currentCity();
+      if (c) {
+        openIntelUI(npc, c.id);
+        npc.talkCooldown = stateTime + 2000;
+        return true;
+      }
+    }
+  }
+
   const lines = getNpcLines(npc.cityId, npc.id);
   npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
   const text = lines[npc.dialogueIdx];
@@ -1835,6 +1861,220 @@ function triggerNpcTalk(npc) {
   return true;
 }
 
+// ─────────────────────────────────────────────
+// INTELLIGENCE MARKET
+// ─────────────────────────────────────────────
+
+const INTEL_BUY_COST = 5;   // gold to buy a tip
+const INTEL_SELL_PRICE = 3; // gold for selling stale intel to another city
+const INTEL_EXPIRY_DAYS = 4; // intel is valid for 4 days
+
+/** Generate an intel tip from npc at cityId */
+function generateIntel(npc, cityId) {
+  const otherCity = cityId === 'sunspire' ? 'gloomwharf' : 'sunspire';
+  // Pick a random item
+  const item = ITEMS[Math.floor(rand01() * ITEMS.length)];
+  const currentPrice = priceFor(otherCity, item);
+  // Predict: reliable NPCs give exact price, unreliable ones add noise
+  const reliable = rand01() > 0.35; // 65% chance of accurate intel
+  let predicted = currentPrice;
+  if (!reliable) {
+    // Misleading ±20-40%
+    const noiseDir = rand01() > 0.5 ? 1 : -1;
+    predicted = Math.max(1, Math.round(currentPrice * (1 + noiseDir * (0.2 + rand01() * 0.2))));
+  }
+  const direction = predicted > currentPrice ? 'high' : predicted < currentPrice ? 'low' : 'stable';
+  return {
+    id: `intel_${Date.now()}_${Math.floor(rand01() * 9999)}`,
+    item: item.id,
+    itemName: item.name,
+    cityId: otherCity,
+    cityName: otherCity === 'sunspire' ? 'Sunspire' : 'Gloomwharf',
+    predictedPrice: predicted,
+    truePrice: currentPrice,
+    direction,
+    boughtDay: Math.floor(time.day),
+    expiryDay: Math.floor(time.day) + INTEL_EXPIRY_DAYS,
+    reliable,
+    sold: false,
+    verified: false,
+    sourceNpcId: npc.id,
+    sourceCityId: cityId,
+  };
+}
+
+function buyIntel(npc, cityId) {
+  if (player.gold < INTEL_BUY_COST) {
+    toast(`Need ${INTEL_BUY_COST}g to buy intel.`, 2);
+    return false;
+  }
+  // Limit ledger to 6 active tips
+  const active = player.intelLedger.filter(c => !c.sold && c.expiryDay >= Math.floor(time.day));
+  if (active.length >= 6) {
+    toast('Intel ledger full! Sell or wait for tips to expire.', 2.5);
+    return false;
+  }
+  player.gold -= INTEL_BUY_COST;
+  const card = generateIntel(npc, cityId);
+  player.intelLedger.push(card);
+  saveGame();
+  toast(`Intel bought: "${card.itemName}" in ${card.cityName} — ${INTEL_BUY_COST}g paid.`, 3);
+  return card;
+}
+
+function sellIntel(cardId, buyerCityId) {
+  const card = player.intelLedger.find(c => c.id === cardId);
+  if (!card || card.sold) { toast('No such intel to sell.', 2); return false; }
+  if (card.sourceCityId === buyerCityId) {
+    toast('That merchant already knows this.', 2);
+    return false;
+  }
+  card.sold = true;
+  player.gold += INTEL_SELL_PRICE;
+  player.intelSells = (player.intelSells || 0) + 1;
+  saveGame();
+  toast(`Sold intel for ${INTEL_SELL_PRICE}g.`, 2);
+  return true;
+}
+
+/** Check intel on day advance — reward bonus if correct */
+function verifyExpiredIntel() {
+  const today = Math.floor(time.day);
+  for (const card of player.intelLedger) {
+    if (card.verified || card.sold) continue;
+    if (card.expiryDay < today) {
+      const actualPrice = priceFor(card.cityId, ITEMS.find(it => it.id === card.item) || ITEMS[0]);
+      const diff = Math.abs(actualPrice - card.predictedPrice);
+      const pct = diff / Math.max(1, card.truePrice);
+      if (pct < 0.12) { // within 12% — intel was good
+        card.verified = true;
+        player.gold += 4;
+        toast(`Intel verified: ${card.itemName} was ~correct! +4g bonus.`, 3);
+      }
+    }
+  }
+  // Prune old expired ledger (keep last 10)
+  player.intelLedger = player.intelLedger.slice(-10);
+}
+
+// NPC Intel UI state
+const intelUI = {
+  open: false,
+  npc: null,
+  cityId: null,
+  tab: 'buy', // 'buy' | 'ledger'
+};
+
+function openIntelUI(npc, cityId) {
+  intelUI.open = true;
+  intelUI.npc = npc;
+  intelUI.cityId = cityId;
+  intelUI.tab = 'buy';
+  renderIntelModal();
+}
+
+function closeIntelUI() {
+  intelUI.open = false;
+  intelUI.npc = null;
+  const el = document.getElementById('cr-intel-modal');
+  if (el) el.remove();
+}
+
+function renderIntelModal() {
+  let el = document.getElementById('cr-intel-modal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'cr-intel-modal';
+    el.style.cssText = `
+      position:fixed; inset:0; z-index:800; display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.55); font-family:system-ui,sans-serif;
+    `;
+    document.body.appendChild(el);
+  }
+
+  const today = Math.floor(time.day);
+  const activeCards = player.intelLedger.filter(c => !c.sold && c.expiryDay >= today);
+  const sellableCards = player.intelLedger.filter(c =>
+    !c.sold && c.sourceCityId !== (intelUI.cityId || '') && c.expiryDay >= today
+  );
+
+  const dirIcon = d => d === 'high' ? '📈' : d === 'low' ? '📉' : '➡️';
+  const dirLabel = d => d === 'high' ? 'Rising' : d === 'low' ? 'Falling' : 'Stable';
+
+  const ledgerRows = activeCards.length === 0
+    ? `<div style="color:#888;padding:12px 0;text-align:center">No intel in ledger. Buy some tips!</div>`
+    : activeCards.map(c => {
+      const daysLeft = c.expiryDay - today;
+      const canSell = c.sourceCityId !== (intelUI.cityId || '');
+      return `
+        <div style="background:#1e1b14;border:1px solid #3a3420;border-radius:6px;padding:8px 10px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:600;color:#f0d080">${dirIcon(c.direction)} ${c.itemName}</span>
+            <span style="color:#888;font-size:11px">${daysLeft}d left</span>
+          </div>
+          <div style="color:#b0a080;font-size:12px;margin-top:3px">
+            In <b>${c.cityName}</b>: ~${c.predictedPrice}g (${dirLabel(c.direction)})
+          </div>
+          ${canSell ? `<button data-sell="${c.id}" style="margin-top:5px;background:#2a3a1a;border:1px solid #4a6a2a;color:#a0d060;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">Sell for ${INTEL_SELL_PRICE}g</button>` : `<span style="font-size:10px;color:#555">Same city — can't sell here</span>`}
+        </div>
+      `;
+    }).join('');
+
+  el.innerHTML = `
+    <div style="background:#14110c;border:2px solid #5a4a20;border-radius:10px;padding:16px;width:min(340px,90vw);max-height:80vh;overflow-y:auto;color:#e0cfa0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:15px;font-weight:700">🕵️ Intelligence Market</span>
+        <button id="cr-intel-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>
+        <button data-tab="ledger" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='ledger'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='ledger'?'#f0d080':'#a09060'}">Ledger (${activeCards.length})</button>
+      </div>
+      ${intelUI.tab === 'buy' ? `
+        <div style="color:#b0a080;font-size:13px;margin-bottom:10px;line-height:1.5">
+          Pay <b style="color:#f0d080">${INTEL_BUY_COST}g</b> to learn about price movements in the other city.
+          Reliable tips come with a 12% accuracy bonus when verified.
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="color:#888;font-size:12px">Your gold: ${player.gold}g</span>
+          <span style="color:#888;font-size:12px">Ledger slots: ${activeCards.length}/6</span>
+        </div>
+        <button id="cr-intel-buy" style="width:100%;padding:8px;background:${player.gold>=INTEL_BUY_COST?'#3a5a1a':'#2a2a2a'};border:1px solid ${player.gold>=INTEL_BUY_COST?'#6a9a2a':'#444'};color:${player.gold>=INTEL_BUY_COST?'#c0e080':'#666'};border-radius:6px;cursor:${player.gold>=INTEL_BUY_COST?'pointer':'default'};font-size:14px">
+          🪙 Buy Intelligence (${INTEL_BUY_COST}g)
+        </button>
+      ` : `
+        <div style="color:#888;font-size:12px;margin-bottom:8px">
+          Sell tips to merchants in other cities for ${INTEL_SELL_PRICE}g each.
+        </div>
+        ${ledgerRows}
+      `}
+      <div style="text-align:center;margin-top:10px">
+        <button id="cr-intel-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:12px">Close [Esc]</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('#cr-intel-close').onclick = closeIntelUI;
+  el.querySelector('#cr-intel-close2').onclick = closeIntelUI;
+
+  const buyBtn = el.querySelector('#cr-intel-buy');
+  if (buyBtn) buyBtn.onclick = () => {
+    if (buyIntel(intelUI.npc, intelUI.cityId)) {
+      intelUI.tab = 'ledger';
+      renderIntelModal();
+    }
+  };
+
+  el.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.onclick = () => { intelUI.tab = btn.dataset.tab; renderIntelModal(); };
+  });
+
+  el.querySelectorAll('[data-sell]').forEach(btn => {
+    btn.onclick = () => {
+      if (sellIntel(btn.dataset.sell, intelUI.cityId)) renderIntelModal();
+    };
+  });
+}
 
 function canPlacePlayer(px, py) {
   return !isSolidAt(px - player.r, py - player.r) &&
@@ -2085,12 +2325,13 @@ function drawNpcBubble() {
 
     if (advanced > 0) {
       toast(reason ? `Day +${advanced} (${reason}).` : `Day +${advanced}.`, 1.8);
+      verifyExpiredIntel();
     }
   }
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.02',
+    version: 'v0.1.10',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -2771,6 +3012,9 @@ function drawNpcBubble() {
     rep: { sunspire: 0, gloomwharf: 0 },
     permits: { sunspire: false, gloomwharf: false },
 
+    // Intelligence Market: purchased intel cards
+    intelLedger: [], // [{id, item, cityId, predictedPrice, direction, boughtDay, expiryDay, reliable, sold, verified}]
+    intelSells: 0,   // total intel sold (for rep/scoring)
   };
 
   // --- Save/Load (localStorage)
@@ -2805,6 +3049,8 @@ function drawNpcBubble() {
         rep: { ...player.rep },
         permits: { ...player.permits },
         facing: { ...player.facing },
+        intelLedger: player.intelLedger ? [...player.intelLedger] : [],
+        intelSells: player.intelSells || 0,
       },
       time: { ...time },
       marketDrift: {
@@ -3528,7 +3774,11 @@ function drawNpcBubble() {
   }
 
   window.addEventListener('keydown', (e) => {
+    // Close intel modal on Escape
+    if (e.code === 'Escape' && intelUI.open) { closeIntelUI(); return; }
+
     if (e.code === 'KeyE') {
+      if (intelUI.open) { closeIntelUI(); return; }
       if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
       const c = currentCity();
       if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
@@ -4296,6 +4546,16 @@ if (ui._hudTapDebug) {
       ctx.fillStyle = '#cfe6ff';
       ctx.fillText(`${w}/${player.capacity}`, bagX + Math.round(18 * UI_SCALE), line1);
       ctx.textAlign = 'left';
+
+      // Intel badge (desktop only)
+      const activeIntel = (player.intelLedger || []).filter(card => !card.sold && card.expiryDay >= Math.floor(time.day));
+      if (activeIntel.length > 0) {
+        const ibX = bagX + Math.round(50 * UI_SCALE);
+        const ibY = line1 - Math.round(8 * UI_SCALE);
+        ctx.fillStyle = '#f0d060';
+        ctx.font = `700 ${Math.round(12 * UI_SCALE)}px system-ui, sans-serif`;
+        ctx.fillText(`🕵️ ${activeIntel.length}`, ibX, line1);
+      }
     }
 
     // second line: rules + hint

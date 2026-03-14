@@ -1,5 +1,14 @@
 # Iteration Log — The Charter Road
 
+## v0.1.10 — 2026-03-14
+- Intelligence Market: NPCs now offer to sell trade tips (5g each).
+- Intel cards added to player ledger: predicted item price in other city, expiry in 4 days.
+- Intel sell: sell stale tips to merchants in the other city for 3g.
+- Intel verification: if a tip was accurate (within 12%), +4g bonus on expiry.
+- HUD: shows 🕵️ badge with active intel count (desktop).
+- Every-other NPC interaction prompts for intel; second E opens the full Intel Market modal.
+- Intel persisted in save/load (intelLedger + intelSells).
+
 ## v0.0.129 — 2026-03-04
 - Mobile Market: DOM modal uses single-column cards + big action button.
 - Mobile Market: auto-switch/hide empty SELL tab.
