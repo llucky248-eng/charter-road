@@ -124,8 +124,19 @@
       justify-content:space-between;
     }
     .cr-card[aria-current="true"] { border-color: rgba(120, 92, 60, 0.72); background: rgba(120, 92, 60, 0.12); }
+    .cr-card-left { flex: 1; min-width: 0; }
     .cr-card-title { font-weight: 900; }
     .cr-card-sub { margin-top: 4px; font-size: 12px; color: rgba(74, 59, 42, 0.95); }
+
+    /* Price row: buy/sell side by side */
+    .cr-price-row { display: flex; gap: 8px; align-items: baseline; margin-top: 5px; flex-wrap: wrap; }
+    .cr-buy-price { font-weight: 900; font-size: 13px; color: #2a1f14; }
+    .cr-sell-price { font-size: 11px; color: rgba(74, 59, 42, 0.7); }
+
+    /* Delta badge */
+    .cr-delta-up   { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(220,60,40,0.12); color: #991b1b; border: 1px solid rgba(220,60,40,0.25); }
+    .cr-delta-down { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(22,163,74,0.12); color: #166534; border: 1px solid rgba(22,163,74,0.25); }
+    .cr-delta-flat { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(74,59,42,0.07); color: rgba(74,59,42,0.75); border: 1px solid rgba(74,59,42,0.18); }
     .cr-right { text-align:right; min-width: 86px; }
     .cr-price { font-weight: 900; }
     .cr-badge { display:inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 900; font-size: 11px; letter-spacing: 0.04em; border: 1px solid rgba(249,115,22,0.55); background: rgba(249,115,22,0.14); color: #9a3412; }
@@ -347,7 +358,7 @@
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.1.00')));
+      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.1.01')));
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);

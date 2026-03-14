@@ -112,6 +112,35 @@ async function run() {
 
   console.log(`✓ list=${(listPct * 100).toFixed(1)}% (≥40%)  head=${(headPct * 100).toFixed(1)}% (≤22%)  foot=${(footPct * 100).toFixed(1)}% (≤18%)  closeBtn=${closeBtnH.toFixed(1)}px (≥36px)`);
 
+  // Validate enriched card data
+  const cardValidation = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('.cr-card')];
+    // Skip permit row (last card) — it has no price row
+    const itemCards = cards.slice(0, -1);
+    const results = itemCards.map(card => ({
+      hasPriceRow: !!card.querySelector('.cr-price-row'),
+      hasBuyPrice: !!card.querySelector('.cr-buy-price'),
+      hasSellPrice: !!card.querySelector('.cr-sell-price'),
+      hasDelta: !!(card.querySelector('.cr-delta-up') || card.querySelector('.cr-delta-down') || card.querySelector('.cr-delta-flat')),
+      deltaText: (card.querySelector('.cr-delta-up, .cr-delta-down, .cr-delta-flat') || {}).textContent || '',
+      buyText: (card.querySelector('.cr-buy-price') || {}).textContent || '',
+      sellText: (card.querySelector('.cr-sell-price') || {}).textContent || '',
+    }));
+    return results;
+  });
+
+  for (let i = 0; i < cardValidation.length; i++) {
+    const c = cardValidation[i];
+    assert(c.hasPriceRow, `Card ${i}: missing .cr-price-row`);
+    assert(c.hasBuyPrice, `Card ${i}: missing .cr-buy-price`);
+    assert(c.hasSellPrice, `Card ${i}: missing .cr-sell-price`);
+    assert(c.hasDelta, `Card ${i}: missing delta badge`);
+    assert(/\d+g/.test(c.buyText), `Card ${i}: buy price text '${c.buyText}' has no price`);
+    assert(/\d+g/.test(c.sellText), `Card ${i}: sell price text '${c.sellText}' has no price`);
+    console.log(`  Card ${i}: ${c.buyText} / ${c.sellText} ${c.deltaText}`);
+  }
+  console.log(`✓ enriched cards validated (${cardValidation.length} item cards)`);
+
   await browser.close();
 
   if (errors.length) {

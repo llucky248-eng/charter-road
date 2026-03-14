@@ -2090,12 +2090,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.00',
+    version: 'v0.1.01',
     whatsNew: [
-      'Mobile dialog: full-viewport modal (fills screen, not just canvas).',
-      'Mobile dialog: compact header/tabs/footer — item list fills ~61% of panel.',
-      'Mobile dialog: item cards no longer overflow — consistent 12px side padding.',
-      'Mobile dialog: no horizontal scroll on item list.',
+      'Market cards: Buy/Sell prices shown side by side.',
+      'Market cards: Price delta badge (▲/▼/~) vs base — green = cheap, red = expensive.',
+      'Mobile dialog: full-viewport modal, compact chrome, item list fills 74% of panel.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -2343,9 +2342,18 @@ function drawNpcBubble() {
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
 
         const title = isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name;
-        const sub = isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`;
+        const sub = isPermitRow ? 'Reduces inspections in this city' : `Have: ${have} · Wt: ${it.weight}`;
         const right = isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`;
         const badge = contra ? '<span class="cr-badge">CONTRABAND</span>' : '';
+
+        // Enriched price info for regular items
+        const sellPrice = isPermitRow ? null : Math.max(1, Math.round(price * (1 - MARKET.spread)));
+        const deltaPct = isPermitRow ? 0 : Math.round(((price - it.base) / it.base) * 100);
+        const deltaClass = deltaPct > 5 ? 'cr-delta-up' : deltaPct < -5 ? 'cr-delta-down' : 'cr-delta-flat';
+        const deltaSign = deltaPct >= 0 ? `+${deltaPct}%` : `${deltaPct}%`;
+        const deltaLabel = deltaPct > 5 ? `▲ ${deltaSign}` : deltaPct < -5 ? `▼ ${deltaSign}` : `~ ${deltaSign}`;
+        const priceRowHtml = isPermitRow ? '' : `<div class="cr-price-row"><span class="cr-buy-price">Buy ${price}g</span><span class="cr-sell-price">Sell ${sellPrice}g</span></div>`;
+        const deltaHtml = isPermitRow ? '' : `<span class="${deltaClass}" aria-label="Price vs average">${deltaLabel}</span>`;
 
         if (isPermitRow) {
           const actionLabel = hasPermit ? 'Owned' : 'Buy';
@@ -2377,13 +2385,14 @@ function drawNpcBubble() {
             const btn = `<button class="cr-action" style="margin-top:10px; padding:12px 12px;" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
-                <div>
+                <div class="cr-card-left">
                   <div class="cr-card-title">${htmlEscape(title)}</div>
                   <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                  ${priceRowHtml}
                   ${badge}
                 </div>
                 <div class="cr-right">
-                  <div class="cr-price">${htmlEscape(right)}</div>
+                  ${deltaHtml}
                   ${btn}
                 </div>
               </div>
@@ -2398,13 +2407,14 @@ function drawNpcBubble() {
 
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
-                <div>
+                <div class="cr-card-left">
                   <div class="cr-card-title">${htmlEscape(title)}</div>
                   <div class="cr-card-sub">${htmlEscape(sub)}</div>
+                  ${priceRowHtml}
                   ${badge}
                 </div>
                 <div class="cr-right">
-                  <div class="cr-price">${htmlEscape(right)}</div>
+                  ${deltaHtml}
                   <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
                     ${q1}${q5}${qMax}
                   </div>
