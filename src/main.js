@@ -2090,11 +2090,12 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.129',
+    version: 'v0.1.00',
     whatsNew: [
-      'Mobile Market: DOM modal uses single-column cards + big action button.',
-      'Mobile Market: auto-switch/hide empty SELL tab.',
-      'QA: mobile market DOM assertions added.',
+      'Mobile dialog: full-viewport modal (fills screen, not just canvas).',
+      'Mobile dialog: compact header/tabs/footer — item list fills ~61% of panel.',
+      'Mobile dialog: item cards no longer overflow — consistent 12px side padding.',
+      'Mobile dialog: no horizontal scroll on item list.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
