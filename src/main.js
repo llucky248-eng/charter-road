@@ -473,6 +473,30 @@ ${line4}`;
           return false;
         }
       },
+
+      /** QA helper: open the market DOM modal for a city and run a domRender pass.
+       *  Returns true if .cr-panel is present in the DOM after the call. */
+      openMarketUI: (cityId = 'gloomwharf', mode = 'buy') => {
+        try {
+          __QA.api.forceCityEntry(cityId);
+          ui.marketOpen = true;
+          ui.mode = mode;
+          ui.marketScroll = 0;
+          ui.selection = 0;
+          domRender();
+          return !!document.querySelector('.cr-panel');
+        } catch (e) {
+          return false;
+        }
+      },
+
+      /** QA helper: close any open modal and re-render. */
+      closeUI: () => {
+        ui.marketOpen = false;
+        ui.contractsOpen = false;
+        ui.eventOpen = false;
+        domRender();
+      },
     };
   }
 
@@ -2407,7 +2431,6 @@ function drawNpcBubble() {
               <div>
                 <div class="cr-title">${htmlEscape(c.name)} Market</div>
                 <div class="cr-sub">${htmlEscape(rules.vibe)}</div>
-                ${rumorsHtml}
               </div>
               <button class="cr-close" data-action="close">CLOSE</button>
             </div>${showTabs ? `
@@ -2416,6 +2439,7 @@ function drawNpcBubble() {
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
             </div>
 ` : ''}            <div class="cr-body">
+              ${rumorsHtml}
               <div class="cr-list" aria-label="Items">
                 ${rows.join('')}
               </div>
