@@ -2439,8 +2439,8 @@ function drawNpcBubble() {
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
             </div>
 ` : ''}            <div class="cr-body">
-              ${rumorsHtml}
               <div class="cr-list" aria-label="Items">
+                ${rumorsHtml}
                 ${rows.join('')}
               </div>
             </div>
