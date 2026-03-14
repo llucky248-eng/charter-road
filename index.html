@@ -91,7 +91,21 @@
 
     .cr-body { padding: 0 16px 14px; }
     .cr-list { overflow:auto; max-height: 56vh; padding: 6px 0 0; }
-    @media (pointer: coarse) { .cr-list { max-height: calc(100vh - 240px); } }
+
+    /* Mobile: compact chrome, flexible body so list fills remaining height */
+    @media (pointer: coarse) {
+      .cr-panel { display: flex; flex-direction: column; }
+      .cr-head { padding: 10px 12px 8px; }
+      .cr-title { font-size: 16px; }
+      .cr-sub { font-size: 12px; margin-top: 2px; }
+      .cr-close { padding: 8px 10px; border-radius: 10px; }
+      .cr-tabs { padding: 6px 12px; gap: 8px; }
+      .cr-tab { padding: 10px 10px; font-size: 13px; }
+      .cr-action { padding: 10px 10px; font-size: 13px; }
+      .cr-body { flex: 1; min-height: 0; padding: 0 12px 10px; display: flex; flex-direction: column; }
+      .cr-list { flex: 1; min-height: 0; max-height: none; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .cr-foot { padding: 8px 12px; }
+    }
 
     .cr-card {
       width: 100%;
@@ -264,7 +278,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.96</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.0.97</div>
     </div>
   </div>
 
