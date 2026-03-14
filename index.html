@@ -101,12 +101,14 @@
       .cr-title { font-size: 16px; }
       .cr-sub { font-size: 12px; margin-top: 2px; }
       .cr-close { padding: 10px 12px; border-radius: 10px; min-height: 44px; }
-      .cr-tabs { padding: 6px 12px; gap: 8px; }
-      .cr-tab { padding: 10px 10px; font-size: 13px; }
+      .cr-tabs { padding: 4px 10px 6px; gap: 6px; }
+      .cr-tab { padding: 8px 10px; font-size: 13px; }
       .cr-action { padding: 10px 10px; font-size: 13px; }
       .cr-body { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-      .cr-list { flex: 1; min-height: 0; max-height: none; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 12px 10px; }
-      .cr-foot { padding: 8px 12px; flex-shrink: 0; }
+      .cr-list { flex: 1; min-height: 0; max-height: none; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 10px 8px; }
+      .cr-foot { padding: 6px 12px; flex-shrink: 0; font-size: 12px; }
+      .cr-rumors { margin-top: 4px; margin-bottom: 4px; padding: 6px 8px; }
+      .cr-rumor { font-size: 11px; margin-top: 2px; }
     }
 
     .cr-card {
@@ -115,28 +117,31 @@
       text-align: left;
       border: 1px solid rgba(120, 92, 60, 0.28);
       background: rgba(0,0,0,0.03);
-      border-radius: 16px;
-      padding: 12px 12px;
-      margin: 0 0 10px;
+      border-radius: 14px;
+      padding: 9px 10px;
+      margin: 0 0 7px;
       display:flex;
-      gap: 10px;
-      align-items:flex-start;
+      gap: 8px;
+      align-items:center;
       justify-content:space-between;
     }
     .cr-card[aria-current="true"] { border-color: rgba(120, 92, 60, 0.72); background: rgba(120, 92, 60, 0.12); }
     .cr-card-left { flex: 1; min-width: 0; }
-    .cr-card-title { font-weight: 900; }
-    .cr-card-sub { margin-top: 4px; font-size: 12px; color: rgba(74, 59, 42, 0.95); }
+    .cr-card-title { font-weight: 900; font-size: 13px; line-height: 1.2; }
+    .cr-card-sub { margin-top: 2px; font-size: 11px; color: rgba(74, 59, 42, 0.80); }
 
     /* Price row: buy/sell side by side */
-    .cr-price-row { display: flex; gap: 8px; align-items: baseline; margin-top: 5px; flex-wrap: wrap; }
+    .cr-price-row { display: flex; gap: 6px; align-items: baseline; margin-top: 3px; }
     .cr-buy-price { font-weight: 900; font-size: 13px; color: #2a1f14; }
-    .cr-sell-price { font-size: 11px; color: rgba(74, 59, 42, 0.7); }
+    .cr-sell-price { font-size: 11px; color: rgba(74, 59, 42, 0.65); }
+
+    /* Right col: delta + button stacked compactly */
+    .cr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
 
     /* Delta badge */
-    .cr-delta-up   { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(220,60,40,0.12); color: #991b1b; border: 1px solid rgba(220,60,40,0.25); }
-    .cr-delta-down { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(22,163,74,0.12); color: #166534; border: 1px solid rgba(22,163,74,0.25); }
-    .cr-delta-flat { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 999px; background: rgba(74,59,42,0.07); color: rgba(74,59,42,0.75); border: 1px solid rgba(74,59,42,0.18); }
+    .cr-delta-up   { display: inline-block; font-size: 10px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 5px; border-radius: 999px; background: rgba(220,60,40,0.12); color: #991b1b; border: 1px solid rgba(220,60,40,0.25); white-space: nowrap; }
+    .cr-delta-down { display: inline-block; font-size: 10px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 5px; border-radius: 999px; background: rgba(22,163,74,0.12); color: #166534; border: 1px solid rgba(22,163,74,0.25); white-space: nowrap; }
+    .cr-delta-flat { display: inline-block; font-size: 10px; font-weight: 900; letter-spacing: 0.03em; padding: 2px 5px; border-radius: 999px; background: rgba(74,59,42,0.07); color: rgba(74,59,42,0.65); border: 1px solid rgba(74,59,42,0.15); white-space: nowrap; }
     .cr-right { text-align:right; min-width: 86px; }
     .cr-price { font-weight: 900; }
     .cr-badge { display:inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 900; font-size: 11px; letter-spacing: 0.04em; border: 1px solid rgba(249,115,22,0.55); background: rgba(249,115,22,0.14); color: #9a3412; }
@@ -155,10 +160,10 @@
     }
 
     @media (pointer: coarse) {
-      .cr-card { flex-direction: column; align-items: stretch; }
-      .cr-right { text-align: left; min-width: 0; width: 100%; }
-      .cr-action { width: 100%; }
-      .cr-right .cr-tab { width: 100%; }
+      .cr-card { flex-direction: row; align-items: center; }
+      .cr-right { text-align: right; min-width: 72px; width: auto; }
+      .cr-action { width: 72px; min-height: 38px; padding: 6px 8px; font-size: 12px; border-radius: 10px; }
+      .cr-right .cr-tab { width: auto; }
     }
 
     /* Completion banner (stacking, max 3) */
@@ -292,7 +297,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.1.00</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.1.02</div>
     </div>
   </div>
 
@@ -358,7 +363,7 @@
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.1.01')));
+      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.1.02')));
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);

@@ -2090,11 +2090,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.01',
+    version: 'v0.1.02',
     whatsNew: [
-      'Market cards: Buy/Sell prices shown side by side.',
-      'Market cards: Price delta badge (▲/▼/~) vs base — green = cheap, red = expensive.',
-      'Mobile dialog: full-viewport modal, compact chrome, item list fills 74% of panel.',
+      'Market cards: compact horizontal layout — info left, delta + BUY right.',
+      'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
+      'Mobile dialog: 5 items visible without scrolling (list fills 78% of panel).',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -2382,7 +2382,7 @@ function drawNpcBubble() {
           if (isMobile) {
             const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
             const disabled = ui.mode === 'buy' ? (maxBuy <= 0) : (have <= 0);
-            const btn = `<button class="cr-action" style="margin-top:10px; padding:12px 12px;" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
+            const btn = `<button class="cr-action" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
                 <div class="cr-card-left">
