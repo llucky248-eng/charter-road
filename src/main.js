@@ -4844,6 +4844,37 @@ function drawNpcBubble() {
       const dy = curTy - player.y;
       const dist = Math.hypot(dx, dy);
 
+      // Stuck recovery: if player hasn't moved for 45+ frames at this waypoint,
+      // skip to the next one rather than stopping dead.
+      if (dist > TILE * 0.8) {
+        const stuckKey = `${clickMove.pathIdx}`;
+        if (clickMove._stuckKey !== stuckKey) {
+          clickMove._stuckKey = stuckKey;
+          clickMove._stuckFrames = 0;
+          clickMove._stuckX = player.x;
+          clickMove._stuckY = player.y;
+        } else {
+          const movedDist = Math.hypot(player.x - (clickMove._stuckX || player.x),
+                                       player.y - (clickMove._stuckY || player.y));
+          if (movedDist < 0.5) {
+            clickMove._stuckFrames = (clickMove._stuckFrames || 0) + 1;
+            if (clickMove._stuckFrames > 45) {
+              // Skip this waypoint
+              clickMove._stuckFrames = 0;
+              if (clickMove.path.length > 0 && clickMove.pathIdx < clickMove.path.length - 1) {
+                clickMove.pathIdx++;
+              } else {
+                clickMove.active = false; // truly unreachable
+              }
+            }
+          } else {
+            clickMove._stuckFrames = 0;
+            clickMove._stuckX = player.x;
+            clickMove._stuckY = player.y;
+          }
+        }
+      }
+
       const arrivedAtWp = dist < TILE * 0.8;
       const arrivedAtFinal = clickMove.path.length === 0
         ? dist < 10
@@ -4920,15 +4951,8 @@ function drawNpcBubble() {
         !isSolidAt(nxPos + player.r, player.y + player.r) &&
         !isNpcBlocking(nxPos, player.y)) {
       player.x = nxPos;
-    } else {
-      // Wall-slide: cancel click-move if blocked
-      if (clickMove.active) {
-        // Try to slide along wall by testing each axis separately
-        const canX = !isSolidAt(nxPos - player.r, player.y - player.r) &&
-                     !isSolidAt(nxPos + player.r, player.y + player.r);
-        if (!canX) { clickMove.active = false; }
-      }
     }
+    // X blocked: do NOT cancel click-move — let Y-axis slide continue the path
 
     // Y axis collision
     let nyPos = player.y + stepY;
