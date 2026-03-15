@@ -538,6 +538,17 @@ ${line4}`;
   const vkeys = new Set(); // virtual keys (touch UI)
   const isDown = (code) => keys.has(code) || vkeys.has(code);
 
+  // ── CLICK/TAP-TO-MOVE ──────────────────────────────────────────────────
+  // Player moves by clicking/tapping the canvas. A click marker is shown.
+  const clickMove = {
+    active: false,
+    tx: 0,   // target world x (pixels)
+    ty: 0,   // target world y (pixels)
+    markerX: 0, // screen coords for the ripple marker
+    markerY: 0,
+    markerT: 0, // stateTime when clicked (for fade animation)
+  };
+
   // Disable long-press context menu globally (mobile browsers).
   document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -748,57 +759,109 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const sx = (e.clientX - r.left) * (VIEW_W / r.width);
     const sy = (e.clientY - r.top) * (VIEW_H / r.height);
 
-    // Mobile HUD tap (city name toggle)
-    if (handleMobileHudTap(sx, sy)) {
-      e.preventDefault();
-
-      return;
-    }
+    // ── HUD taps ────────────────────────────────────────────────────────
+    if (handleMobileHudTap(sx, sy)) { e.preventDefault(); return; }
 
     // HUD Save/Load buttons (desktop)
     if (!IS_MOBILE && sy <= HUD_H) {
       const S = ui._btnSave;
-      const L = ui._btnLoad;
+      const Lb = ui._btnLoad;
       if (S && sx >= S.x && sx <= S.x + S.w && sy >= S.y && sy <= S.y + S.h) {
-        saveGame();
-        ui._lastSavedDay = time.day;
-        toast('Game saved.', 1.6);
-        e.preventDefault();
-        return;
+        saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.6);
+        e.preventDefault(); return;
       }
-      if (L && sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
+      if (Lb && sx >= Lb.x && sx <= Lb.x + Lb.w && sy >= Lb.y && sy <= Lb.y + Lb.h) {
         if (!loadGame()) toast('No save found.', 1.6);
-        e.preventDefault();
-        return;
+        e.preventDefault(); return;
       }
     }
 
-    // Mobile pointer handling: drag-scroll for canvas popups
-    if (!IS_MOBILE) return;
-    if (!ui.marketOpen && !ui.eventOpen) return;
-
-    if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
-    const kind = ui.marketOpen ? 'market' : 'event';
-    const L = kind === 'market' ? ui._marketList : ui._eventList;
-    if (!L) return;
-    if (sx >= L.x && sx <= L.x + L.w && sy >= L.y && sy <= L.y + L.h) {
-      ui._drag = { kind, lastY: sy, acc: 0 };
-      canvas.setPointerCapture?.(e.pointerId);
-      e.preventDefault();
-
-      return;
-    }
-
-    // event choices drag
-    if (ui.eventOpen) {
-      const E = ui._eventList;
-      if (E && sx >= E.x && sx <= E.x + E.w && sy >= E.y && sy <= E.y + E.h) {
-        ui._drag = { kind: 'event', lastY: sy, acc: 0 };
+    // ── Modal scroll (market/event/contracts) ──────────────────────────
+    if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) {
+      if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
+      const kind = ui.marketOpen ? 'market' : 'event';
+      const L2 = kind === 'market' ? ui._marketList : ui._eventList;
+      if (L2 && sx >= L2.x && sx <= L2.x + L2.w && sy >= L2.y && sy <= L2.y + L2.h) {
+        ui._drag = { kind, lastY: sy, acc: 0 };
         canvas.setPointerCapture?.(e.pointerId);
-        e.preventDefault();
-        return;
+        e.preventDefault(); return;
+      }
+      if (ui.eventOpen) {
+        const E = ui._eventList;
+        if (E && sx >= E.x && sx <= E.x + E.w && sy >= E.y && sy <= E.y + E.h) {
+          ui._drag = { kind: 'event', lastY: sy, acc: 0 };
+          canvas.setPointerCapture?.(e.pointerId);
+          e.preventDefault(); return;
+        }
+      }
+      e.preventDefault(); return; // don't click-move when modal open
+    }
+
+    // ── Click/tap-to-move + smart tap detection ────────────────────────
+    // Convert screen to world coords
+    const worldX = sx + camera.x;
+    const worldY = sy + camera.y;
+
+    // Check if tap is on an NPC (interact)
+    const nearbyNpc = findNearestNpc(worldX, worldY, NPC_INTERACT_RADIUS * 2);
+    if (nearbyNpc) {
+      const ndx = nearbyNpc.x - worldX, ndy = nearbyNpc.y - worldY;
+      if (Math.hypot(ndx, ndy) < NPC_INTERACT_RADIUS * 2) {
+        // Walk to NPC then interact
+        clickMove.tx = nearbyNpc.x;
+        clickMove.ty = nearbyNpc.y;
+        clickMove.active = true;
+        clickMove.markerX = sx;
+        clickMove.markerY = sy;
+        clickMove.markerT = stateTime;
+        clickMove._tapAction = 'npc';
+        clickMove._tapTarget = nearbyNpc.id;
+        e.preventDefault(); return;
       }
     }
+
+    // Check if tap is on an AI trader
+    const nearbyTrader = findNearestTrader(worldX, worldY);
+    if (nearbyTrader) {
+      openTraderUI(nearbyTrader);
+      e.preventDefault(); return;
+    }
+
+    // Check tile at tap location
+    const tapTileX = Math.floor(worldX / TILE);
+    const tapTileY = Math.floor(worldY / TILE);
+    const tapTile = tileAt(tapTileX, tapTileY);
+
+    if (tapTile === 6) {
+      // Market tile tap → walk there + open market
+      clickMove.tx = (tapTileX + 0.5) * TILE;
+      clickMove.ty = (tapTileY + 0.5) * TILE;
+      clickMove.active = true;
+      clickMove.markerX = sx; clickMove.markerY = sy; clickMove.markerT = stateTime;
+      clickMove._tapAction = 'market';
+      e.preventDefault(); return;
+    }
+    if (tapTile === 12) {
+      // Contracts tile tap → walk there + open contracts
+      clickMove.tx = (tapTileX + 0.5) * TILE;
+      clickMove.ty = (tapTileY + 0.5) * TILE;
+      clickMove.active = true;
+      clickMove.markerX = sx; clickMove.markerY = sy; clickMove.markerT = stateTime;
+      clickMove._tapAction = 'contracts';
+      e.preventDefault(); return;
+    }
+
+    // Default: walk to tapped position
+    if (tapTile !== 3 && tapTile !== 2) { // not walls/water
+      clickMove.tx = worldX;
+      clickMove.ty = worldY;
+      clickMove.active = true;
+      clickMove.markerX = sx;
+      clickMove.markerY = sy;
+      clickMove.markerT = stateTime;
+      clickMove._tapAction = null;
+    }
+    e.preventDefault();
 
   }, { passive: false });
 
@@ -3336,7 +3399,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.7',
+    version: 'v0.2.8',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4317,8 +4380,56 @@ function drawNpcBubble() {
 
   function moveWithCollision(dt) {
     if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return;
-    const ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
-    const ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
+
+    // ── Direction from keyboard (still supported as fallback) ─────────
+    let ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
+    let ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
+    let kbActive = ax !== 0 || ay !== 0;
+
+    // ── Click/tap-to-move ─────────────────────────────────────────────
+    if (clickMove.active && !kbActive) {
+      const dx = clickMove.tx - player.x;
+      const dy = clickMove.ty - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < player.speed * dt * 1.5 || dist < 10) {
+        // Arrived — trigger tap action if any
+        clickMove.active = false;
+        ax = 0; ay = 0;
+        if (clickMove._tapAction) {
+          const action = clickMove._tapAction;
+          clickMove._tapAction = null;
+          if (action === 'npc') {
+            const npc = entities.find(e2 => e2.kind === 'npc' && e2.id === clickMove._tapTarget);
+            if (npc) triggerNpcTalk(npc);
+          } else if (action === 'market') {
+            const c = currentCity();
+            if (c) {
+              ui.contractsOpen = false;
+              ui.marketOpen = true;
+              ui.selection = 0;
+              ui.mode = 'buy';
+              toast(`Market opened in ${c.name}`, 1.8);
+            }
+          } else if (action === 'contracts') {
+            const c = currentCity();
+            if (c) {
+              ui.marketOpen = false;
+              ui.contractsOpen = true;
+              ui.contractsSel = 0;
+              ui.contractsCityId = c.id;
+              toast('Contracts board opened', 1.8);
+            }
+          }
+        }
+      } else {
+        ax = dx / dist;
+        ay = dy / dist;
+      }
+    } else if (kbActive) {
+      // Keyboard overrides click-move
+      clickMove.active = false;
+    }
+
     const mag = Math.hypot(ax, ay);
     const nx = mag > 0 ? ax / mag : 0;
     const ny = mag > 0 ? ay / mag : 0;
@@ -4340,6 +4451,14 @@ function drawNpcBubble() {
         !isSolidAt(nxPos + player.r, player.y + player.r) &&
         !isNpcBlocking(nxPos, player.y)) {
       player.x = nxPos;
+    } else {
+      // Wall-slide: cancel click-move if blocked
+      if (clickMove.active) {
+        // Try to slide along wall by testing each axis separately
+        const canX = !isSolidAt(nxPos - player.r, player.y - player.r) &&
+                     !isSolidAt(nxPos + player.r, player.y + player.r);
+        if (!canX) { clickMove.active = false; }
+      }
     }
 
     // Y axis collision
@@ -5402,6 +5521,29 @@ function drawEntities() {
   }
 }
 
+  function drawClickMarker() {
+    if (!clickMove.active && stateTime - clickMove.markerT > 600) return;
+    const age = stateTime - clickMove.markerT;
+    if (age > 600) return;
+    const alpha = Math.max(0, 1 - age / 600);
+    const r = 6 + age * 0.03;
+    const sx = clickMove.markerX;
+    const sy = clickMove.markerY;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.7;
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r * 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
@@ -5594,6 +5736,94 @@ function drawEntities() {
     ctx.fillText(`${invWeight()}/${player.capacity}`, x + size, y - Math.round(12 * UI_SCALE));
     ctx.textAlign = 'left';
   }
+  // ── FAB BAR — update DOM action buttons based on context ─────────────
+  let _fabLastKey = '';
+  function updateFabBar() {
+    const fabBar = document.getElementById('fab-bar');
+    if (!fabBar) return;
+
+    // Modals open — hide FAB
+    if (ui.marketOpen || ui.contractsOpen || ui.eventOpen ||
+        document.getElementById('cr-intel-modal') ||
+        document.getElementById('cr-trader-modal')) {
+      if (fabBar.children.length) fabBar.innerHTML = '';
+      _fabLastKey = 'modal';
+      return;
+    }
+
+    const c = currentCity();
+    const atMarket = nearMarketTile();
+    const atContracts = nearContractsTile();
+    const nearNpc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS + 6);
+    const nearTrader = findNearestTrader(player.x, player.y);
+    const nearIntel = nearNpc && !intelUI.open;
+
+    // Build key to avoid unnecessary DOM thrashing
+    const key = [
+      c?.id || 'road',
+      atMarket ? 'm' : '',
+      atContracts ? 'c' : '',
+      nearNpc?.id || '',
+      nearTrader?.id || '',
+    ].join('|');
+
+    if (key === _fabLastKey) return;
+    _fabLastKey = key;
+
+    fabBar.innerHTML = '';
+
+    const addFab = (icon, label, onClick) => {
+      const btn = document.createElement('button');
+      btn.className = 'fab';
+      btn.innerHTML = icon;
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      // Label tooltip
+      const lbl = document.createElement('span');
+      lbl.className = 'fab-label';
+      lbl.textContent = label;
+      btn.style.position = 'relative';
+      btn.appendChild(lbl);
+      btn.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); onClick(); });
+      fabBar.appendChild(btn);
+    };
+
+    if (nearTrader) {
+      addFab('🛒', `Trade with ${nearTrader.name}`, () => openTraderUI(nearTrader));
+    }
+    if (nearNpc) {
+      addFab('💬', `Talk to ${nearNpc.id.replace(/_/g,' ')}`, () => {
+        triggerNpcTalk(nearNpc);
+      });
+      if (!intelUI.open) {
+        addFab('🕵️', 'Buy Intel (5g)', () => {
+          if (c) openIntelUI(nearNpc, c.id);
+          else toast('Must be in a city.', 2);
+        });
+      }
+    }
+    if (atMarket && c) {
+      addFab('🏪', 'Open Market', () => {
+        ui.contractsOpen = false;
+        ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy';
+        toast(`Market opened in ${c.name}`, 1.8);
+        _fabLastKey = '';
+      });
+    }
+    if (atContracts && c) {
+      addFab('📋', 'Contracts Board', () => {
+        ui.marketOpen = false;
+        ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
+        toast('Contracts board opened', 1.8);
+        _fabLastKey = '';
+      });
+    }
+    if (!c) {
+      // On road — show save button
+      addFab('💾', 'Save Game', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); });
+    }
+  }
+
   function drawHUD() {
     const c = currentCity();
     const rules = c ? CITY_RULES[c.id] : null;
@@ -6710,10 +6940,12 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawWorld();
     drawEntities();
     for (const t of AI_TRADERS) drawAiTrader(t);
+    drawClickMarker();
     drawPlayer();
     drawNpcBubble();
     drawMobileOverlay();
     drawHUD();
+    updateFabBar();
     drawMarket();
     drawContracts();
     drawEvent();

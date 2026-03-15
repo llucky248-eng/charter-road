@@ -28,6 +28,24 @@
 
     #stage { position: relative; width: min(920px, calc(100vw - 28px)); }
 
+    /* Floating action buttons */
+    #fab-bar .fab {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 2px solid rgba(251,191,36,0.6);
+      background: rgba(20,16,10,0.88);
+      color: #f0d080; font-size: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+      transition: border-color 0.15s, transform 0.1s;
+      touch-action: manipulation;
+    }
+    #fab-bar .fab:active { transform: scale(0.92); border-color: #fbbf24; }
+    #fab-bar .fab-label {
+      position:absolute; right:52px; top:50%; transform:translateY(-50%);
+      background:rgba(0,0,0,0.7); color:#e0d0a0; padding:2px 7px;
+      border-radius:4px; font-size:11px; white-space:nowrap; pointer-events:none;
+    }
+
     /* HTML UI overlay (modals above the canvas) */
     #ui-root { position:absolute; inset:0; pointer-events:none; display:none; }
     body.ui-open #ui-root { display:block; pointer-events:auto; }
@@ -213,33 +231,10 @@
       to{ transform: translateY(-10px); opacity: 0; }
     }
 
-    /* Touch controls under the stage */
-    #touch-ui { width: min(920px, calc(100vw - 28px)); display:none; align-items:stretch; justify-content:space-between; gap: 12px; margin-top: 10px; pointer-events:none; }
-    #touch-ui .pad, #touch-ui .actions { pointer-events:auto; }
-    /* Responsive button sizing for mobile */
-    #touch-ui { --btn: clamp(48px, 12vw, 64px); }
-
-    #touch-ui .btn {
-      width: var(--btn);
-      height: var(--btn);
-      border-radius: 14px;
-      border: 1px solid #2a3a4b;
-      background: rgba(15,22,32,0.78);
-      color: #e8edf2;
-      font: 800 16px system-ui;
-      user-select: none;
-      -webkit-user-select: none;
-      -webkit-touch-callout: none;
-      touch-action: manipulation;
-    }
-    #touch-ui .btn:active { transform: translateY(1px); border-color:#38bdf8; }
-
-    /* D-pad as a 3x2 grid: top row = Up, bottom row = Left/Down/Right */
+    /* Legacy touch-ui (hidden, kept for reference) */
+    #touch-ui { display: none !important; }
     #touch-ui .pad {
-      display:grid;
-      grid-template-columns: var(--btn) var(--btn) var(--btn);
-      grid-template-rows: var(--btn) var(--btn);
-      gap: 8px;
+      display:none;
       align-content:start;
     }
     #touch-ui .pad .btn { width: var(--btn); height: var(--btn); }
@@ -266,32 +261,14 @@
   </header>
   <div id="wrap">
     <div id="stage" aria-label="Game stage">
-      <canvas id="game" width="960" height="540" aria-label="The The Amber Road game canvas"></canvas>
+      <canvas id="game" width="960" height="540" aria-label="The Amber Road game canvas"></canvas>
       <div id="ui-root" aria-hidden="true"></div>
+      <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:200"></div>
     </div>
 
     <!-- Touch controls (shown on coarse pointers). Placed UNDER the stage so it never blocks HUD/notes. -->
-    <div id="touch-ui" aria-label="Touch controls">
-      <div class="pad" aria-label="D-pad">
-        <div></div>
-        <button data-vkey="ArrowUp" class="btn">▲</button>
-        <div></div>
-
-        <button data-vkey="ArrowLeft" class="btn">◀</button>
-        <button data-vkey="ArrowDown" class="btn">▼</button>
-        <button data-vkey="ArrowRight" class="btn">▶</button>
-      </div>
-      <div class="actions" aria-label="Actions">
-        <button data-vkey="KeyE" class="btn">E</button>
-        <button data-vkey="Tab" class="btn">Tab</button>
-        <button data-vkey="Enter" class="btn">Enter</button>
-        <button data-vkey="Escape" class="btn">Esc</button>
-      </div>
-    </div>
-
     <div class="hint">
-      Desktop: WASD/Arrows · E market · Tab buy/sell · Enter trade · Esc close<br/>
-      Mobile: use on-screen buttons
+      Tap/click to move · Tap NPCs to talk · Tap market tile to trade
     </div>
 
     <div id="devlog" class="devlog" aria-label="Iteration notes">
@@ -363,7 +340,7 @@
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.2.7&t=' + Date.now())));
+      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.2.8&t=' + Date.now())));
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);
