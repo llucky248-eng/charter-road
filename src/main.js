@@ -627,7 +627,16 @@ ${line4}`;
   // or null if no path found within budget.
 
   function astar(sx, sy, gx, gy, maxNodes = 4000) {
-    if (isSolidAt((gx + 0.5) * TILE, (gy + 0.5) * TILE)) return null; // goal is solid
+    const PR = player.r || 8;
+    function tileClear(tx, ty) {
+      const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
+      return !isSolidAt(cx - PR, cy - PR) &&
+             !isSolidAt(cx + PR, cy - PR) &&
+             !isSolidAt(cx - PR, cy + PR) &&
+             !isSolidAt(cx + PR, cy + PR);
+    }
+
+    if (!tileClear(gx, gy)) return null; // goal is blocked for player radius
 
     const key = (x, y) => y * MAP_W + x;
     const heuristic = (x, y) => Math.abs(x - gx) + Math.abs(y - gy); // Manhattan
@@ -685,10 +694,10 @@ ${line4}`;
 
         // For diagonals, check both cardinal neighbors to avoid cutting corners
         if (dx !== 0 && dy !== 0) {
-          if (isSolidAt((cx + dx + 0.5) * TILE, (cy + 0.5) * TILE)) continue;
-          if (isSolidAt((cx + 0.5) * TILE, (cy + dy + 0.5) * TILE)) continue;
+          if (!tileClear(cx + dx, cy)) continue;
+          if (!tileClear(cx, cy + dy)) continue;
         }
-        if (isSolidAt((nx + 0.5) * TILE, (ny + 0.5) * TILE)) continue;
+        if (!tileClear(nx, ny)) continue;
 
         const tentativeG = (gScore.get(currentKey) ?? Infinity) + COSTS[d];
         const nk = key(nx, ny);
@@ -720,19 +729,29 @@ ${line4}`;
     return smooth;
   }
 
-  // Bresenham LOS check between two tile positions
+  // LOS check between two tile positions for path smoothing.
+  // Samples N points along the line and checks a fattened corridor
+  // (player radius = half a tile) so we don't smooth through gaps
+  // the player physically can't fit through.
   function hasLineClearance(a, b) {
-    let x0 = a.x, y0 = a.y, x1 = b.x, y1 = b.y;
-    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy;
-    while (true) {
-      if (isSolidAt((x0 + 0.5) * TILE, (y0 + 0.5) * TILE)) return false;
-      if (x0 === x1 && y0 === y1) return true;
-      const e2 = 2 * err;
-      if (e2 > -dy) { err -= dy; x0 += sx; }
-      if (e2 < dx)  { err += dx; y0 += sy; }
+    const r = 0.45; // half-tile clearance radius (in tile units)
+    const wx0 = a.x + 0.5, wy0 = a.y + 0.5;
+    const wx1 = b.x + 0.5, wy1 = b.y + 0.5;
+    const dist = Math.hypot(wx1 - wx0, wy1 - wy0);
+    if (dist === 0) return true;
+    const steps = Math.ceil(dist * 2) + 1; // ~2 samples per tile
+    const nx = (wy1 - wy0) / dist; // perpendicular
+    const ny = (wx0 - wx1) / dist;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = wx0 + (wx1 - wx0) * t;
+      const cy = wy0 + (wy1 - wy0) * t;
+      // Check center + both sides of corridor
+      if (isSolidAt( cx        * TILE,  cy        * TILE)) return false;
+      if (isSolidAt((cx + nx*r)* TILE, (cy + ny*r)* TILE)) return false;
+      if (isSolidAt((cx - nx*r)* TILE, (cy - ny*r)* TILE)) return false;
     }
+    return true;
   }
 
   // ── CLICK/TAP-TO-MOVE ──────────────────────────────────────────────────
@@ -757,16 +776,27 @@ ${line4}`;
     const goalTileX  = Math.floor(worldX / TILE);
     const goalTileY  = Math.floor(worldY / TILE);
 
-    // Snap goal to nearest walkable tile if target is solid
+    // Snap goal to nearest walkable tile with enough clearance for the player.
+    // A tile is "reachable" only if the player's collision box fits — we check
+    // a half-tile radius around the tile center (not just the center itself).
+    const PR = player.r || 8;
+    function tileReachable(tx, ty) {
+      const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
+      return !isSolidAt(cx - PR, cy - PR) &&
+             !isSolidAt(cx + PR, cy - PR) &&
+             !isSolidAt(cx - PR, cy + PR) &&
+             !isSolidAt(cx + PR, cy + PR);
+    }
+
     let gx = goalTileX, gy = goalTileY;
-    if (isSolidAt((gx + 0.5) * TILE, (gy + 0.5) * TILE)) {
-      // Search in expanding ring for walkable tile
-      outer: for (let r = 1; r <= 4; r++) {
+    if (!tileReachable(gx, gy)) {
+      // Search in expanding ring for a reachable tile
+      outer: for (let r = 1; r <= 6; r++) {
         for (let dy = -r; dy <= r; dy++) {
           for (let dx = -r; dx <= r; dx++) {
             if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
             const nx = gx + dx, ny = gy + dy;
-            if (!isSolidAt((nx + 0.5) * TILE, (ny + 0.5) * TILE)) {
+            if (tileReachable(nx, ny)) {
               gx = nx; gy = ny; break outer;
             }
           }
@@ -775,7 +805,9 @@ ${line4}`;
     }
 
     const tilePath = astar(startTileX, startTileY, gx, gy, 3000);
-    const smoothed = smoothPath(tilePath);
+    // Skip smoothing — A* already gives a valid tile path; smoothing creates
+    // straight-line shortcuts that cut through walls the player can't fit through.
+    const smoothed = tilePath;
 
     if (!smoothed || smoothed.length === 0) {
       // Fall back to direct movement
@@ -4846,7 +4878,7 @@ function drawNpcBubble() {
 
       // Stuck recovery: if player hasn't moved for 45+ frames at this waypoint,
       // skip to the next one rather than stopping dead.
-      if (dist > TILE * 0.8) {
+      if (dist > TILE * 1.4) {
         const stuckKey = `${clickMove.pathIdx}`;
         if (clickMove._stuckKey !== stuckKey) {
           clickMove._stuckKey = stuckKey;
@@ -4875,12 +4907,27 @@ function drawNpcBubble() {
         }
       }
 
-      const arrivedAtWp = dist < TILE * 0.8;
+      const arrivedAtWp = dist < TILE * 1.4;
       const arrivedAtFinal = clickMove.path.length === 0
-        ? dist < 10
+        ? dist < TILE * 1.4
         : clickMove.pathIdx >= clickMove.path.length - 1 && arrivedAtWp;
 
       if (arrivedAtWp && clickMove.path.length > 0 && !arrivedAtFinal) {
+        // Snap player to waypoint center to prevent float drift from clipping
+        // into adjacent wall tiles (e.g. 535.97 instead of 536.0).
+        const wp = clickMove.path[clickMove.pathIdx];
+        if (wp) {
+          const snappedX = wp.x;
+          const snappedY = wp.y;
+          // Only snap if the snapped position is collision-free
+          if (!isSolidAt(snappedX - player.r, snappedY - player.r) &&
+              !isSolidAt(snappedX + player.r, snappedY - player.r) &&
+              !isSolidAt(snappedX - player.r, snappedY + player.r) &&
+              !isSolidAt(snappedX + player.r, snappedY + player.r)) {
+            player.x = snappedX;
+            player.y = snappedY;
+          }
+        }
         // Advance to next waypoint and immediately recalculate direction
         clickMove.pathIdx++;
         if (clickMove.pathIdx < clickMove.path.length) {
@@ -4891,7 +4938,7 @@ function drawNpcBubble() {
         }
       }
 
-      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < 10)) {
+      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 1.4)) {
         // Arrived at destination — trigger tap action if any
         clickMove.active = false;
         ax = 0; ay = 0;
@@ -4942,6 +4989,12 @@ function drawNpcBubble() {
 
     const stepX = player.vx * dt;
     const stepY = player.vy * dt;
+
+    // While following a click-move path, keep NPC ghost active so wandering
+    // NPCs don't permanently block the route mid-walk.
+    if (clickMove.active) {
+      player.npcGhostUntil = Math.max(player.npcGhostUntil || 0, stateTime + 500);
+    }
 
     // X axis collision
     let nxPos = player.x + stepX;
