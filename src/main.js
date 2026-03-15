@@ -504,13 +504,9 @@ ${line4}`;
       },
 
       // ── City walking helpers ──────────────────────────────────────────
-      /** Start a click-move to world pixel (wx, wy) */
+      /** Start a click-move to world pixel (wx, wy) — uses A* pathfinding */
       setClickMove: (wx, wy, tapAction = null) => {
-        clickMove.tx = wx; clickMove.ty = wy;
-        clickMove.active = true;
-        clickMove.markerT = stateTime;
-        clickMove._tapAction = tapAction;
-        clickMove._tapTarget = null;
+        planClickPath(wx, wy, tapAction);
       },
 
       /** Get current clickMove state */
@@ -625,18 +621,184 @@ ${line4}`;
   const vkeys = new Set(); // virtual keys (touch UI)
   const isDown = (code) => keys.has(code) || vkeys.has(code);
 
+  // ── A* PATHFINDING ─────────────────────────────────────────────────────
+  // Tile-based A* for click-to-move, runs on demand (not every frame).
+  // Returns array of {x,y} tile coords from start to goal (inclusive),
+  // or null if no path found within budget.
+
+  function astar(sx, sy, gx, gy, maxNodes = 4000) {
+    if (isSolidAt((gx + 0.5) * TILE, (gy + 0.5) * TILE)) return null; // goal is solid
+
+    const key = (x, y) => y * MAP_W + x;
+    const heuristic = (x, y) => Math.abs(x - gx) + Math.abs(y - gy); // Manhattan
+
+    // 8-directional neighbors
+    const DIRS = [
+      [1,0],[-1,0],[0,1],[0,-1],
+      [1,1],[1,-1],[-1,1],[-1,-1],
+    ];
+    const COSTS = [1, 1, 1, 1, 1.414, 1.414, 1.414, 1.414];
+
+    const gScore = new Map();
+    const fScore = new Map();
+    const cameFrom = new Map();
+    const open = new Set();
+
+    const startKey = key(sx, sy);
+    gScore.set(startKey, 0);
+    fScore.set(startKey, heuristic(sx, sy));
+    open.add(startKey);
+
+    // Simple priority queue (min-heap would be faster but this is sufficient for 4000 nodes)
+    let iterations = 0;
+    while (open.size > 0 && iterations++ < maxNodes) {
+      // Find min f in open
+      let currentKey = null, minF = Infinity;
+      for (const k of open) {
+        const f = fScore.get(k) ?? Infinity;
+        if (f < minF) { minF = f; currentKey = k; }
+      }
+      if (currentKey === null) break;
+
+      const cx = currentKey % MAP_W;
+      const cy = (currentKey / MAP_W) | 0;
+
+      if (cx === gx && cy === gy) {
+        // Reconstruct path
+        const path = [];
+        let k = currentKey;
+        while (k !== undefined) {
+          const x = k % MAP_W, y = (k / MAP_W) | 0;
+          path.push({ x, y });
+          k = cameFrom.get(k);
+        }
+        path.reverse();
+        return path;
+      }
+
+      open.delete(currentKey);
+
+      for (let d = 0; d < DIRS.length; d++) {
+        const [dx, dy] = DIRS[d];
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+
+        // For diagonals, check both cardinal neighbors to avoid cutting corners
+        if (dx !== 0 && dy !== 0) {
+          if (isSolidAt((cx + dx + 0.5) * TILE, (cy + 0.5) * TILE)) continue;
+          if (isSolidAt((cx + 0.5) * TILE, (cy + dy + 0.5) * TILE)) continue;
+        }
+        if (isSolidAt((nx + 0.5) * TILE, (ny + 0.5) * TILE)) continue;
+
+        const tentativeG = (gScore.get(currentKey) ?? Infinity) + COSTS[d];
+        const nk = key(nx, ny);
+        if (tentativeG < (gScore.get(nk) ?? Infinity)) {
+          cameFrom.set(nk, currentKey);
+          gScore.set(nk, tentativeG);
+          fScore.set(nk, tentativeG + heuristic(nx, ny));
+          open.add(nk);
+        }
+      }
+    }
+    return null; // no path found
+  }
+
+  // Path smoothing: remove redundant intermediate waypoints when LOS is clear
+  function smoothPath(tilePath) {
+    if (!tilePath || tilePath.length <= 2) return tilePath;
+    const smooth = [tilePath[0]];
+    let i = 0;
+    while (i < tilePath.length - 1) {
+      let j = tilePath.length - 1;
+      while (j > i + 1) {
+        if (hasLineClearance(tilePath[i], tilePath[j])) break;
+        j--;
+      }
+      smooth.push(tilePath[j]);
+      i = j;
+    }
+    return smooth;
+  }
+
+  // Bresenham LOS check between two tile positions
+  function hasLineClearance(a, b) {
+    let x0 = a.x, y0 = a.y, x1 = b.x, y1 = b.y;
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+      if (isSolidAt((x0 + 0.5) * TILE, (y0 + 0.5) * TILE)) return false;
+      if (x0 === x1 && y0 === y1) return true;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x0 += sx; }
+      if (e2 < dx)  { err += dx; y0 += sy; }
+    }
+  }
+
   // ── CLICK/TAP-TO-MOVE ──────────────────────────────────────────────────
   // Player moves by clicking/tapping the canvas. A click marker is shown.
   const clickMove = {
     active: false,
     tx: 0,   // target world x (pixels)
     ty: 0,   // target world y (pixels)
+    path: [], // A* waypoints [{x,y} tile coords → converted to pixel centers]
+    pathIdx: 0,
     markerX: 0, // screen coords for the ripple marker
     markerY: 0,
     markerT: 0, // stateTime when clicked (for fade animation)
     _tapAction: null,
     _tapTarget: null,
   };
+
+  // Plan A* path and store in clickMove
+  function planClickPath(worldX, worldY, tapAction = null, tapTarget = null) {
+    const startTileX = Math.floor(player.x / TILE);
+    const startTileY = Math.floor(player.y / TILE);
+    const goalTileX  = Math.floor(worldX / TILE);
+    const goalTileY  = Math.floor(worldY / TILE);
+
+    // Snap goal to nearest walkable tile if target is solid
+    let gx = goalTileX, gy = goalTileY;
+    if (isSolidAt((gx + 0.5) * TILE, (gy + 0.5) * TILE)) {
+      // Search in expanding ring for walkable tile
+      outer: for (let r = 1; r <= 4; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+            const nx = gx + dx, ny = gy + dy;
+            if (!isSolidAt((nx + 0.5) * TILE, (ny + 0.5) * TILE)) {
+              gx = nx; gy = ny; break outer;
+            }
+          }
+        }
+      }
+    }
+
+    const tilePath = astar(startTileX, startTileY, gx, gy, 3000);
+    const smoothed = smoothPath(tilePath);
+
+    if (!smoothed || smoothed.length === 0) {
+      // Fall back to direct movement
+      clickMove.active = true;
+      clickMove.tx = worldX;
+      clickMove.ty = worldY;
+      clickMove.path = [];
+      clickMove.pathIdx = 0;
+    } else {
+      // Convert tile path to pixel waypoints (center of each tile)
+      clickMove.path = smoothed.map(t => ({
+        x: (t.x + 0.5) * TILE,
+        y: (t.y + 0.5) * TILE,
+      }));
+      clickMove.pathIdx = 1; // skip tile 0 (player's current tile)
+      clickMove.tx = clickMove.path[clickMove.path.length - 1].x;
+      clickMove.ty = clickMove.path[clickMove.path.length - 1].y;
+      clickMove.active = true;
+    }
+    clickMove.markerT = stateTime;
+    clickMove._tapAction = tapAction;
+    clickMove._tapTarget = tapTarget;
+  }
 
   // ── AUTO-NAVIGATE (follow a multi-waypoint road path to a city) ────────
   const autoNav = {
@@ -1112,15 +1274,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
     if (nearbyNpc) {
       const ndx = nearbyNpc.x - worldX, ndy = nearbyNpc.y - worldY;
       if (Math.hypot(ndx, ndy) < NPC_INTERACT_RADIUS * 2) {
-        // Walk to NPC then interact
-        clickMove.tx = nearbyNpc.x;
-        clickMove.ty = nearbyNpc.y;
-        clickMove.active = true;
-        clickMove.markerX = sx;
-        clickMove.markerY = sy;
-        clickMove.markerT = stateTime;
-        clickMove._tapAction = 'npc';
-        clickMove._tapTarget = nearbyNpc.id;
+        clickMove.markerX = sx; clickMove.markerY = sy;
+        planClickPath(nearbyNpc.x, nearbyNpc.y, 'npc', nearbyNpc.id);
         e.preventDefault(); return;
       }
     }
@@ -1138,33 +1293,20 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const tapTile = tileAt(tapTileX, tapTileY);
 
     if (tapTile === 6) {
-      // Market tile tap → walk there + open market
-      clickMove.tx = (tapTileX + 0.5) * TILE;
-      clickMove.ty = (tapTileY + 0.5) * TILE;
-      clickMove.active = true;
-      clickMove.markerX = sx; clickMove.markerY = sy; clickMove.markerT = stateTime;
-      clickMove._tapAction = 'market';
+      clickMove.markerX = sx; clickMove.markerY = sy;
+      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, 'market');
       e.preventDefault(); return;
     }
     if (tapTile === 12) {
-      // Contracts tile tap → walk there + open contracts
-      clickMove.tx = (tapTileX + 0.5) * TILE;
-      clickMove.ty = (tapTileY + 0.5) * TILE;
-      clickMove.active = true;
-      clickMove.markerX = sx; clickMove.markerY = sy; clickMove.markerT = stateTime;
-      clickMove._tapAction = 'contracts';
+      clickMove.markerX = sx; clickMove.markerY = sy;
+      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, 'contracts');
       e.preventDefault(); return;
     }
 
-    // Default: walk to tapped position
-    if (tapTile !== 3 && tapTile !== 2) { // not walls/water
-      clickMove.tx = worldX;
-      clickMove.ty = worldY;
-      clickMove.active = true;
-      clickMove.markerX = sx;
-      clickMove.markerY = sy;
-      clickMove.markerT = stateTime;
-      clickMove._tapAction = null;
+    // Default: walk to tapped position (ignore solid tiles)
+    if (tapTile !== 3 && tapTile !== 2) {
+      clickMove.markerX = sx; clickMove.markerY = sy;
+      planClickPath(worldX, worldY);
     }
     e.preventDefault();
 
@@ -3701,7 +3843,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.3.1',
+    version: 'v0.3.2',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4689,13 +4831,37 @@ function drawNpcBubble() {
     let ay = (isDown('KeyS') || isDown('ArrowDown') ? 1 : 0) - (isDown('KeyW') || isDown('ArrowUp') ? 1 : 0);
     let kbActive = ax !== 0 || ay !== 0;
 
-    // ── Click/tap-to-move ─────────────────────────────────────────────
+    // ── Click/tap-to-move (path-following) ──────────────────────────
     if (clickMove.active && !kbActive) {
-      const dx = clickMove.tx - player.x;
-      const dy = clickMove.ty - player.y;
+      // Determine current target: next waypoint or final dest
+      let curTx = clickMove.tx, curTy = clickMove.ty;
+      if (clickMove.path.length > 0 && clickMove.pathIdx < clickMove.path.length) {
+        const wp = clickMove.path[clickMove.pathIdx];
+        curTx = wp.x; curTy = wp.y;
+      }
+
+      const dx = curTx - player.x;
+      const dy = curTy - player.y;
       const dist = Math.hypot(dx, dy);
-      if (dist < player.speed * dt * 1.5 || dist < 10) {
-        // Arrived — trigger tap action if any
+
+      const arrivedAtWp = dist < TILE * 0.8;
+      const arrivedAtFinal = clickMove.path.length === 0
+        ? dist < 10
+        : clickMove.pathIdx >= clickMove.path.length - 1 && arrivedAtWp;
+
+      if (arrivedAtWp && clickMove.path.length > 0 && !arrivedAtFinal) {
+        // Advance to next waypoint and immediately recalculate direction
+        clickMove.pathIdx++;
+        if (clickMove.pathIdx < clickMove.path.length) {
+          const nwp = clickMove.path[clickMove.pathIdx];
+          const ndx = nwp.x - player.x, ndy = nwp.y - player.y;
+          const nd = Math.hypot(ndx, ndy);
+          if (nd > 0) { ax = ndx/nd; ay = ndy/nd; }
+        }
+      }
+
+      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < 10)) {
+        // Arrived at destination — trigger tap action if any
         clickMove.active = false;
         ax = 0; ay = 0;
         if (clickMove._tapAction) {
@@ -5827,7 +5993,29 @@ function drawEntities() {
 }
 
   function drawClickMarker() {
-    if (!clickMove.active && stateTime - clickMove.markerT > 600) return;
+    // Draw planned A* path
+    if (clickMove.active && clickMove.path.length > 0) {
+      ctx.save();
+      ctx.setLineDash([3, 5]);
+      ctx.strokeStyle = 'rgba(251,191,36,0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(player.x - camera.x, player.y - camera.y);
+      for (let i = clickMove.pathIdx; i < clickMove.path.length; i++) {
+        ctx.lineTo(clickMove.path[i].x - camera.x, clickMove.path[i].y - camera.y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Destination dot
+      const last = clickMove.path[clickMove.path.length - 1];
+      ctx.fillStyle = 'rgba(251,191,36,0.7)';
+      ctx.beginPath();
+      ctx.arc(last.x - camera.x, last.y - camera.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Ripple marker at tap location
     const age = stateTime - clickMove.markerT;
     if (age > 600) return;
     const alpha = Math.max(0, 1 - age / 600);
