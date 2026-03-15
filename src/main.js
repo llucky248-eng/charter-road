@@ -1315,9 +1315,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   rebuildMiniMap();
 
-  // Spawn AI traders after world is ready (deferred so getCityById works)
-  setTimeout(() => spawnAiTraders(), 0);
-
   const PERMIT_PRICE = 45;
 
   const CITY_RULES = {
@@ -1952,38 +1949,39 @@ function buildTraderPath(fromId, toId) {
  * Returns { fromId, toId, itemId } — the trip they'll do.
  */
 function traderDecideRoute(trader) {
-  const cities = world.cities.map(c => c.id);
+  const fromId = trader.toId || trader.fromId || 'valdenmere';
   const candidates = [];
-  for (const from of cities) {
-    for (const to of cities) {
-      if (from === to) continue;
-      for (const it of ITEMS) {
-        const buy  = quoteFor(from, it).buy;
-        const sell = quoteFor(to, it).sell;
-        const profit = sell - buy;
-        if (profit <= 0) continue;
-        const units = Math.floor(trader.capacity / it.weight);
-        candidates.push({ from, to, itemId: it.id, profit: profit * units });
-      }
+  for (const to of world.cities) {
+    if (to.id === fromId) continue; // never stay in same city
+    for (const it of ITEMS) {
+      const buy  = quoteFor(fromId, it).buy;
+      const sell = quoteFor(to.id, it).sell;
+      const profit = sell - buy;
+      if (profit <= 0) continue;
+      const units = Math.floor(trader.capacity / it.weight);
+      candidates.push({ from: fromId, to: to.id, itemId: it.id, profit: profit * units });
     }
   }
-  if (!candidates.length) return { fromId: 'valdenmere', toId: 'ashport', itemId: 'ore' };
+
+  if (!candidates.length) {
+    // No profitable route — pick any other city
+    const others = world.cities.filter(c => c.id !== fromId);
+    const fallbackTo = others[Math.floor(Math.random() * others.length)]?.id || 'ashport';
+    return { fromId, toId: fallbackTo, itemId: 'ore' };
+  }
+
   candidates.sort((a, b) => b.profit - a.profit);
 
+  let pick;
   if (trader.personality === 'aggressive') {
-    // Pick top route
-    const best = candidates[0];
-    return { fromId: best.from, toId: best.to, itemId: best.itemId };
+    pick = candidates[0];
   } else if (trader.personality === 'cautious') {
-    // Pick a mid-tier route (safer, less risky)
-    const mid = candidates[Math.floor(candidates.length * 0.4)];
-    return { fromId: mid.from, toId: mid.to, itemId: mid.itemId };
+    pick = candidates[Math.floor(candidates.length * 0.4)] || candidates[0];
   } else {
-    // Opportunist: pick randomly from top 5
-    const top5 = candidates.slice(0, 5);
-    const pick = top5[Math.floor(Math.random() * top5.length)];
-    return { fromId: pick.from, toId: pick.to, itemId: pick.itemId };
+    // Opportunist: random from top 5
+    pick = candidates[Math.floor(Math.random() * Math.min(5, candidates.length))];
   }
+  return { fromId, toId: pick.to, itemId: pick.itemId };
 }
 
 function spawnAiTraders() {
@@ -1995,104 +1993,126 @@ function spawnAiTraders() {
     const startC = getCityById(startCity);
     const startX = startC ? (startC.x + startC.w/2) * TILE : 400;
     const startY = startC ? (startC.y + startC.h/2) * TILE : 400;
-    const route = traderDecideRoute({ ...def, capacity: 12 });
-    const path = buildTraderPath(startCity, route.toId);
 
-    AI_TRADERS.push({
+    const trader = {
       ...def,
       capacity: 12,
       gold: 80 + i * 20,
-      inv: { [route.itemId]: Math.floor(12 / (ITEMS.find(it => it.id === route.itemId)?.weight || 1)) },
+      inv: {},
       x: startX,
       y: startY,
-      path,
+      path: [],
       pathIdx: 0,
       fromId: startCity,
-      toId: route.toId,
-      itemId: route.itemId,
-      state: 'traveling', // 'traveling' | 'in_city' | 'idle'
-      cityTimer: 0,       // time to spend in city before departing
+      toId: startCity,   // will be updated by traderDepart
+      itemId: 'ore',
+      state: 'in_city',
+      cityTimer: i * 2,  // stagger departures so they don't all leave at once
       _lastX: startX,
       _lastY: startY,
       _stuckT: 0,
       radius: 7,
-      label: null,        // shown when near player
-    });
+    };
+    AI_TRADERS.push(trader);
   }
+}
+
+// Call after TRADER_DEFS and AI_TRADERS are initialized (world is available at this point)
+spawnAiTraders();
+
+function traderArrive(t) {
+  // Snap to city center
+  const destC = getCityById(t.toId);
+  if (destC) {
+    t.x = (destC.x + destC.w/2) * TILE;
+    t.y = (destC.y + destC.h/2) * TILE;
+  }
+  // Sell all cargo at destination
+  for (const [itemId, qty] of Object.entries(t.inv)) {
+    if (!qty) continue;
+    const it = ITEMS.find(i => i.id === itemId);
+    if (it) { const q = quoteFor(t.toId, it); t.gold += q.sell * qty; }
+  }
+  t.inv = {};
+  t.path = [];       // clear path so stale idx can't re-trigger
+  t.pathIdx = 0;
+  t.state = 'in_city';
+  t.cityTimer = 5 + Math.random() * 8;
+}
+
+function traderDepart(t) {
+  const route = traderDecideRoute(t);
+  // Never route to the same city
+  if (route.toId === t.toId) {
+    const others = world.cities.filter(c => c.id !== t.toId);
+    if (others.length) route.toId = others[Math.floor(Math.random() * others.length)].id;
+  }
+  t.fromId = t.toId;
+  t.toId = route.toId;
+  t.itemId = route.itemId;
+  // Buy cargo
+  const it = ITEMS.find(i => i.id === route.itemId);
+  if (it) {
+    const buyQ = quoteFor(t.fromId, it);
+    const units = Math.min(
+      Math.floor(t.capacity / it.weight),
+      t.gold > 0 ? Math.floor(t.gold / buyQ.buy) : 0
+    );
+    if (units > 0) {
+      t.gold -= buyQ.buy * units;
+      t.inv = { [route.itemId]: units };
+    }
+  }
+  t.path = buildTraderPath(t.fromId, t.toId);
+  t.pathIdx = 0;
+  t.state = 'traveling';
+  t._stuckT = stateTime;
+  t._lastX = t.x;
+  t._lastY = t.y;
 }
 
 function updateAiTraders(dt) {
   for (const t of AI_TRADERS) {
+    // ── In city: wait then depart ─────────────────────────────────────
     if (t.state === 'in_city') {
       t.cityTimer -= dt;
-      if (t.cityTimer <= 0) {
-        // Time to leave — decide next route
-        const route = traderDecideRoute(t);
-        t.fromId = t.toId;
-        t.toId = route.toId;
-        t.itemId = route.itemId;
-        // Load cargo
-        const it = ITEMS.find(i => i.id === route.itemId);
-        const buyQ = quoteFor(t.fromId, it);
-        const units = Math.min(Math.floor(t.capacity / (it?.weight || 1)), Math.floor(t.gold / buyQ.buy));
-        if (units > 0 && t.gold >= buyQ.buy) {
-          t.gold -= buyQ.buy * units;
-          t.inv = { [route.itemId]: units };
-        } else {
-          t.inv = {};
-        }
-        t.path = buildTraderPath(t.fromId, t.toId);
-        t.pathIdx = 0;
-        t.state = 'traveling';
-      }
+      if (t.cityTimer <= 0) traderDepart(t);
       continue;
     }
 
-    // Traveling state
-    if (!t.path || t.path.length === 0) { t.state = 'idle'; continue; }
+    if (t.state !== 'traveling') continue;
+
+    // ── Traveling: follow path waypoints ─────────────────────────────
+    if (!t.path || t.path.length === 0) { traderArrive(t); continue; }
+
+    // Guard: pathIdx out of range → arrive
+    if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
+
     const target = t.path[t.pathIdx];
-    if (!target) { t.pathIdx = 0; continue; }
+    if (!target) { traderArrive(t); continue; }
 
     const dx = target.x - t.x;
     const dy = target.y - t.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist < 8) {
-      // Reached this waypoint
+    if (dist < 12) {
+      // Reached waypoint — advance
       t.pathIdx++;
-      if (t.pathIdx >= t.path.length) {
-        // Arrived at destination city
-        const destC = getCityById(t.toId);
-        if (destC) {
-          t.x = (destC.x + destC.w/2) * TILE;
-          t.y = (destC.y + destC.h/2) * TILE;
-        }
-        // Sell cargo
-        for (const [itemId, qty] of Object.entries(t.inv)) {
-          if (!qty) continue;
-          const it2 = ITEMS.find(i => i.id === itemId);
-          if (it2) {
-            const sellQ = quoteFor(t.toId, it2);
-            t.gold += sellQ.sell * qty;
-          }
-        }
-        t.inv = {};
-        t.state = 'in_city';
-        t.cityTimer = 4 + Math.random() * 6; // wait 4-10s in city
-        continue;
-      }
-    } else {
-      // Move toward waypoint
-      const spd = t.speed;
-      t.x += (dx / dist) * spd * dt;
-      t.y += (dy / dist) * spd * dt;
+      if (t.pathIdx >= t.path.length) { traderArrive(t); }
+      continue; // re-evaluate next frame
     }
 
-    // Stuck detection
-    if (!t._stuckT) { t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y; }
-    if (stateTime - t._stuckT > 3000) {
-      const moved = Math.hypot(t.x - t._lastX, t.y - t._lastY);
-      if (moved < 5) { t.pathIdx++; } // skip waypoint
+    // Move
+    t.x += (dx / dist) * t.speed * dt;
+    t.y += (dy / dist) * t.speed * dt;
+
+    // Stuck detection — skip waypoint if blocked for 3s
+    if (stateTime - (t._stuckT || 0) > 3000) {
+      const moved = Math.hypot(t.x - (t._lastX || t.x), t.y - (t._lastY || t.y));
+      if (moved < 8) {
+        t.pathIdx = Math.min(t.pathIdx + 1, t.path.length);
+        if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
+      }
       t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y;
     }
   }
@@ -3316,7 +3336,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.6',
+    version: 'v0.2.7',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
