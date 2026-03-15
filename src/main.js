@@ -1315,6 +1315,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   rebuildMiniMap();
 
+  // Spawn AI traders after world is ready (deferred so getCityById works)
+  setTimeout(() => spawnAiTraders(), 0);
+
   const PERMIT_PRICE = 45;
 
   const CITY_RULES = {
@@ -1874,6 +1877,386 @@ if (!__QA.enabled) loadNpcDialogue();
 
 const entities = [];
 let activeNpcCityId = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI TRADER SYSTEM
+// Merchants travel the roads between cities, buy low/sell high, visible on map.
+// Player can intercept them to trade or watch them compete.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AI_TRADERS = [];
+
+const TRADER_DEFS = [
+  { id: 'olt_the_bold',    name: 'Olt the Bold',    style: 'guard',    personality: 'aggressive',  color: '#ef4444', speed: 75 },
+  { id: 'mira_silvertong', name: 'Mira Silvertongue',style: 'scribe',   personality: 'opportunist', color: '#a78bfa', speed: 60 },
+  { id: 'cargo_dom',       name: 'Cargo Dom',       style: 'broker',   personality: 'cautious',    color: '#f59e0b', speed: 50 },
+  { id: 'wren_the_swift',  name: 'Wren the Swift',  style: 'smuggler', personality: 'aggressive',  color: '#34d399', speed: 85 },
+];
+
+// Road waypoint paths between cities (pixel coords)
+// Each path is an array of {x,y} checkpoints the trader follows in order
+function buildTraderPath(fromId, toId) {
+  const T = TILE;
+  const g = {};
+  for (const c of world.cities) {
+    g[c.id] = { x: (c.x + Math.floor(c.w/2)) * T, y: (c.y + c.h) * T };
+  }
+  // Key road junctions (from carveRoad network)
+  const J = {
+    vjunc:  { x: 30*T, y: 30*T },    // Valdenmere south junction
+    bridge: { x: 68*T, y: 8*T  },    // North river bridge
+    ironN:  { x: 115*T, y: 8*T },    // North road east of bridge
+    ironE:  { x: 130*T, y: 28*T },   // Ironholt east loop
+    ironSE: { x: 130*T, y: 55*T },   // Ironholt SE loop
+    crossN: { x: 48*T, y: 55*T },    // Crosshaven north approach
+    crossS: { x: 62*T, y: 82*T },    // Crosshaven south exit
+    ashW:   { x: 80*T, y: 72*T },    // Ashport west approach
+  };
+
+  const paths = {
+    'valdenmere→ironholt': [g.valdenmere, J.vjunc, {x:68*T,y:30*T}, {x:68*T,y:14*T}, J.bridge, J.ironN, {x:115*T,y:14*T}, g.ironholt],
+    'ironholt→valdenmere': [g.ironholt, {x:115*T,y:14*T}, J.ironN, J.bridge, {x:68*T,y:14*T}, {x:68*T,y:30*T}, J.vjunc, g.valdenmere],
+    'valdenmere→crosshaven': [g.valdenmere, J.vjunc, {x:30*T,y:55*T}, J.crossN, {x:48*T,y:70*T}, g.crosshaven],
+    'crosshaven→valdenmere': [g.crosshaven, {x:48*T,y:70*T}, J.crossN, {x:30*T,y:55*T}, J.vjunc, g.valdenmere],
+    'crosshaven→ashport': [g.crosshaven, J.crossS, {x:80*T,y:82*T}, J.ashW, g.ashport],
+    'ashport→crosshaven': [g.ashport, J.ashW, {x:80*T,y:82*T}, J.crossS, g.crosshaven],
+    'ironholt→ashport': [g.ironholt, J.ironE, J.ironSE, {x:112*T,y:55*T}, g.ashport],
+    'ashport→ironholt': [g.ashport, {x:112*T,y:55*T}, J.ironSE, J.ironE, g.ironholt],
+  };
+
+  const key = `${fromId}→${toId}`;
+  if (paths[key]) return paths[key];
+
+  // Indirect: via intermediate city
+  const via = {
+    'valdenmere→ashport': ['valdenmere→crosshaven', 'crosshaven→ashport'],
+    'ashport→valdenmere': ['ashport→crosshaven', 'crosshaven→valdenmere'],
+    'crosshaven→ironholt': ['crosshaven→ashport', 'ashport→ironholt'],
+    'ironholt→crosshaven': ['ironholt→ashport', 'ashport→crosshaven'],
+  };
+  if (via[key]) {
+    const combined = [];
+    for (const seg of via[key]) {
+      const pts = paths[seg] || [];
+      if (combined.length) combined.push(...pts.slice(1)); // skip duplicate junction
+      else combined.push(...pts);
+    }
+    return combined;
+  }
+  // Fallback: straight line
+  return [g[fromId] || g.valdenmere, g[toId] || g.ashport];
+}
+
+/**
+ * Decide the best route for a trader based on personality + current prices.
+ * Returns { fromId, toId, itemId } — the trip they'll do.
+ */
+function traderDecideRoute(trader) {
+  const cities = world.cities.map(c => c.id);
+  const candidates = [];
+  for (const from of cities) {
+    for (const to of cities) {
+      if (from === to) continue;
+      for (const it of ITEMS) {
+        const buy  = quoteFor(from, it).buy;
+        const sell = quoteFor(to, it).sell;
+        const profit = sell - buy;
+        if (profit <= 0) continue;
+        const units = Math.floor(trader.capacity / it.weight);
+        candidates.push({ from, to, itemId: it.id, profit: profit * units });
+      }
+    }
+  }
+  if (!candidates.length) return { fromId: 'valdenmere', toId: 'ashport', itemId: 'ore' };
+  candidates.sort((a, b) => b.profit - a.profit);
+
+  if (trader.personality === 'aggressive') {
+    // Pick top route
+    const best = candidates[0];
+    return { fromId: best.from, toId: best.to, itemId: best.itemId };
+  } else if (trader.personality === 'cautious') {
+    // Pick a mid-tier route (safer, less risky)
+    const mid = candidates[Math.floor(candidates.length * 0.4)];
+    return { fromId: mid.from, toId: mid.to, itemId: mid.itemId };
+  } else {
+    // Opportunist: pick randomly from top 5
+    const top5 = candidates.slice(0, 5);
+    const pick = top5[Math.floor(Math.random() * top5.length)];
+    return { fromId: pick.from, toId: pick.to, itemId: pick.itemId };
+  }
+}
+
+function spawnAiTraders() {
+  AI_TRADERS.length = 0;
+  const startCities = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+  for (let i = 0; i < TRADER_DEFS.length; i++) {
+    const def = TRADER_DEFS[i];
+    const startCity = startCities[i % startCities.length];
+    const startC = getCityById(startCity);
+    const startX = startC ? (startC.x + startC.w/2) * TILE : 400;
+    const startY = startC ? (startC.y + startC.h/2) * TILE : 400;
+    const route = traderDecideRoute({ ...def, capacity: 12 });
+    const path = buildTraderPath(startCity, route.toId);
+
+    AI_TRADERS.push({
+      ...def,
+      capacity: 12,
+      gold: 80 + i * 20,
+      inv: { [route.itemId]: Math.floor(12 / (ITEMS.find(it => it.id === route.itemId)?.weight || 1)) },
+      x: startX,
+      y: startY,
+      path,
+      pathIdx: 0,
+      fromId: startCity,
+      toId: route.toId,
+      itemId: route.itemId,
+      state: 'traveling', // 'traveling' | 'in_city' | 'idle'
+      cityTimer: 0,       // time to spend in city before departing
+      _lastX: startX,
+      _lastY: startY,
+      _stuckT: 0,
+      radius: 7,
+      label: null,        // shown when near player
+    });
+  }
+}
+
+function updateAiTraders(dt) {
+  for (const t of AI_TRADERS) {
+    if (t.state === 'in_city') {
+      t.cityTimer -= dt;
+      if (t.cityTimer <= 0) {
+        // Time to leave — decide next route
+        const route = traderDecideRoute(t);
+        t.fromId = t.toId;
+        t.toId = route.toId;
+        t.itemId = route.itemId;
+        // Load cargo
+        const it = ITEMS.find(i => i.id === route.itemId);
+        const buyQ = quoteFor(t.fromId, it);
+        const units = Math.min(Math.floor(t.capacity / (it?.weight || 1)), Math.floor(t.gold / buyQ.buy));
+        if (units > 0 && t.gold >= buyQ.buy) {
+          t.gold -= buyQ.buy * units;
+          t.inv = { [route.itemId]: units };
+        } else {
+          t.inv = {};
+        }
+        t.path = buildTraderPath(t.fromId, t.toId);
+        t.pathIdx = 0;
+        t.state = 'traveling';
+      }
+      continue;
+    }
+
+    // Traveling state
+    if (!t.path || t.path.length === 0) { t.state = 'idle'; continue; }
+    const target = t.path[t.pathIdx];
+    if (!target) { t.pathIdx = 0; continue; }
+
+    const dx = target.x - t.x;
+    const dy = target.y - t.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 8) {
+      // Reached this waypoint
+      t.pathIdx++;
+      if (t.pathIdx >= t.path.length) {
+        // Arrived at destination city
+        const destC = getCityById(t.toId);
+        if (destC) {
+          t.x = (destC.x + destC.w/2) * TILE;
+          t.y = (destC.y + destC.h/2) * TILE;
+        }
+        // Sell cargo
+        for (const [itemId, qty] of Object.entries(t.inv)) {
+          if (!qty) continue;
+          const it2 = ITEMS.find(i => i.id === itemId);
+          if (it2) {
+            const sellQ = quoteFor(t.toId, it2);
+            t.gold += sellQ.sell * qty;
+          }
+        }
+        t.inv = {};
+        t.state = 'in_city';
+        t.cityTimer = 4 + Math.random() * 6; // wait 4-10s in city
+        continue;
+      }
+    } else {
+      // Move toward waypoint
+      const spd = t.speed;
+      t.x += (dx / dist) * spd * dt;
+      t.y += (dy / dist) * spd * dt;
+    }
+
+    // Stuck detection
+    if (!t._stuckT) { t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y; }
+    if (stateTime - t._stuckT > 3000) {
+      const moved = Math.hypot(t.x - t._lastX, t.y - t._lastY);
+      if (moved < 5) { t.pathIdx++; } // skip waypoint
+      t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y;
+    }
+  }
+}
+
+const TRADER_INTERACT_RADIUS = 40; // pixels — close enough to trade
+
+function findNearestTrader(px, py) {
+  let best = null, bestD = TRADER_INTERACT_RADIUS;
+  for (const t of AI_TRADERS) {
+    const d = Math.hypot(t.x - px, t.y - py);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best;
+}
+
+function openTraderUI(trader) {
+  // Show a quick trade modal — buy what they're carrying at a slight discount
+  const cargoEntries = Object.entries(trader.inv).filter(([,q]) => q > 0);
+  let content = '';
+  if (cargoEntries.length === 0) {
+    content = `<div style="color:#888;padding:10px 0">Their wagon is empty right now.</div>`;
+  } else {
+    content = cargoEntries.map(([itemId, qty]) => {
+      const it = ITEMS.find(i => i.id === itemId);
+      if (!it) return '';
+      const marketBuy = quoteFor(trader.toId || trader.fromId, it).buy;
+      const discountPrice = Math.max(1, Math.round(marketBuy * 0.88)); // 12% under market
+      const canAfford = player.gold >= discountPrice;
+      const hasSpace = invWeight() + it.weight <= player.capacity;
+      return `
+        <div style="background:#1a1508;border:1px solid #3a2e10;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <span style="color:#f0d080;font-weight:600">${it.name}</span>
+            <span style="color:#888;font-size:11px;margin-left:6px">×${qty} available</span>
+            <div style="color:#b0a060;font-size:11px">Market: ${marketBuy}g → Trader: <b style="color:#a0d060">${discountPrice}g</b></div>
+          </div>
+          <button data-buy="${itemId}" data-price="${discountPrice}" style="background:${canAfford&&hasSpace?'#2a4a10':'#2a2a2a'};border:1px solid ${canAfford&&hasSpace?'#4a8a20':'#444'};color:${canAfford&&hasSpace?'#90d040':'#666'};padding:4px 10px;border-radius:4px;cursor:${canAfford&&hasSpace?'pointer':'default'};font-size:12px">
+            Buy 1
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  let el = document.getElementById('cr-trader-modal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'cr-trader-modal';
+    el.style.cssText = `position:fixed;inset:0;z-index:810;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);font-family:system-ui,sans-serif`;
+    document.body.appendChild(el);
+  }
+
+  const cargoLabel = cargoEntries.map(([id,q]) => {
+    const it = ITEMS.find(i=>i.id===id);
+    return it ? `${q}× ${it.name}` : '';
+  }).filter(Boolean).join(', ') || 'empty wagon';
+
+  el.innerHTML = `
+    <div style="background:#100e08;border:2px solid #8b6914;border-radius:10px;padding:16px;width:min(340px,90vw);color:#e0cfa0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:15px;font-weight:700">🛒 ${htmlEscape(trader.name)}</span>
+        <button id="cr-trader-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="color:#888;font-size:12px;margin-bottom:10px">
+        ${trader.personality === 'aggressive' ? '⚔️ Aggressive trader' : trader.personality === 'cautious' ? '🛡️ Cautious merchant' : '🎲 Opportunist'}
+        &nbsp;·&nbsp; Heading to <b style="color:#f0d080">${getCityById(trader.toId)?.name || trader.toId}</b>
+        &nbsp;·&nbsp; Carrying: <span style="color:#b0c0a0">${cargoLabel}</span>
+      </div>
+      <div style="color:#666;font-size:11px;margin-bottom:8px">Items offered at 12% below market rate:</div>
+      ${content}
+      <div style="text-align:center;margin-top:8px">
+        <button id="cr-trader-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:12px">Close [Esc]</button>
+      </div>
+    </div>`;
+
+  el.querySelector('#cr-trader-close').onclick = closeTraderUI;
+  el.querySelector('#cr-trader-close2').onclick = closeTraderUI;
+  el.querySelectorAll('[data-buy]').forEach(btn => {
+    btn.onclick = () => {
+      const itemId = btn.dataset.buy;
+      const price = Number(btn.dataset.price);
+      const it = ITEMS.find(i => i.id === itemId);
+      if (!it || player.gold < price) { toast('Not enough gold.', 2); return; }
+      if (invWeight() + it.weight > player.capacity) { toast('No cargo space.', 2); return; }
+      if ((trader.inv[itemId] || 0) <= 0) { toast('Sold out.', 2); return; }
+      player.gold -= price;
+      player.inv[itemId] = (player.inv[itemId] || 0) + 1;
+      trader.inv[itemId]--;
+      trader.gold += price;
+      toast(`Bought 1 ${it.name} from ${trader.name} for ${price}g.`, 2.5);
+      openTraderUI(trader); // refresh
+    };
+  });
+}
+
+function closeTraderUI() {
+  const el = document.getElementById('cr-trader-modal');
+  if (el) el.remove();
+}
+
+function drawAiTrader(t) {
+  const sx = t.x - camera.x;
+  const sy = t.y - camera.y;
+  if (sx < -20 || sx > VIEW_W+20 || sy < -20 || sy > VIEW_H+20) return;
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  const r = t.radius;
+
+  // Wagon shadow
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(0, r+4, r+2, 4, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Wagon body (small rectangle)
+  ctx.fillStyle = t.color || '#d97706';
+  ctx.fillRect(-r-2, -r*0.5, r*2+4, r*1.4);
+  // Wagon cover/canvas
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(-r, -r*0.5, r*2, r*0.7);
+  // Wagon wheels
+  ctx.fillStyle = '#4a3010';
+  ctx.beginPath(); ctx.arc(-r, r*0.6, 3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(r, r*0.6, 3, 0, Math.PI*2); ctx.fill();
+  // Spokes
+  ctx.strokeStyle = '#6b4a20'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(-r-1, r*0.6-2); ctx.lineTo(-r+1, r*0.6+2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-r-2, r*0.6); ctx.lineTo(-r+2, r*0.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(r-1, r*0.6-2); ctx.lineTo(r+1, r*0.6+2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(r-2, r*0.6); ctx.lineTo(r+2, r*0.6); ctx.stroke();
+
+  // Name tag (always visible when state is traveling)
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(-24, -r*1.8-10, 48, 12);
+  ctx.fillStyle = t.color || '#f0d080';
+  ctx.font = `bold ${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(t.name.split(' ')[0], 0, -r*1.8);
+  ctx.textAlign = 'left';
+
+  // Cargo indicator dot
+  const hasGoods = Object.values(t.inv).some(q => q > 0);
+  if (hasGoods) {
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(r+1, -r*0.5, 3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // "Interact" hint when nearby
+  const dist = Math.hypot(t.x - player.x, t.y - player.y);
+  if (dist < TRADER_INTERACT_RADIUS) {
+    ctx.fillStyle = 'rgba(251,191,36,0.9)';
+    ctx.font = `${Math.round(9*UI_SCALE)}px system-ui,sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('[T] Trade', 0, -r*2.4);
+    ctx.textAlign = 'left';
+  }
+
+  ctx.restore();
+}
 
 function npcCityBounds(city) {
   // Keep NPCs 1.5 tiles inside the perimeter walls (avoid wall edge)
@@ -2933,7 +3316,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.5',
+    version: 'v0.2.6',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4537,6 +4920,17 @@ function drawNpcBubble() {
   window.addEventListener('keydown', (e) => {
     // Close intel modal on Escape
     if (e.code === 'Escape' && intelUI.open) { closeIntelUI(); return; }
+    // Close trader modal on Escape
+    if (e.code === 'Escape' && document.getElementById('cr-trader-modal')) { closeTraderUI(); return; }
+
+    // [T] — interact with nearby AI trader
+    if (e.code === 'KeyT') {
+      if (document.getElementById('cr-trader-modal')) { closeTraderUI(); return; }
+      const nearby = findNearestTrader(player.x, player.y);
+      if (nearby) { openTraderUI(nearby); return; }
+      toast('No traders nearby.', 1.5);
+      return;
+    }
 
     if (e.code === 'KeyE') {
       if (intelUI.open) { closeIntelUI(); return; }
@@ -6254,6 +6648,7 @@ function drawEvent() {
       }
     }
     updateEntities(dt);
+    updateAiTraders(dt);
     npcDiagTick(dt);
     moveWithCollision(dt);
     npcDiagPostMove();
@@ -6294,6 +6689,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
     drawEntities();
+    for (const t of AI_TRADERS) drawAiTrader(t);
     drawPlayer();
     drawNpcBubble();
     drawMobileOverlay();
