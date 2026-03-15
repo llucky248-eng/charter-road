@@ -1559,7 +1559,7 @@ const NPC_INTERACT_RADIUS = 18;
   // - Avoid degenerate buy->sell loops in the same town (spread).
   // - Provide profit clarity via “reference/base” and “last seen” prices.
   const MARKET = {
-    spread: 0.14,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2)
+    spread: 0.10,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2)
     lastSeen: {
       // cityId: { itemId: { buy:number, sell:number, t:number } }
     },
@@ -2913,7 +2913,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.3',
+    version: 'v0.2.4',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -3581,7 +3581,7 @@ function drawNpcBubble() {
     // Movement-derived facing/anim
     facing: { x: 0, y: 1 },
 
-    gold: 120,
+    gold: 160,
     capacity: 18,
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
 
@@ -3863,10 +3863,16 @@ function drawNpcBubble() {
   function priceFor(cityId, item) {
     // City-specific price multipliers
     const mults = {
-      valdenmere: { food: 1.0, ore: 1.2, herbs: 1.0, potion: 0.8, relic: 1.1, ink: 0.9 },
-      ashport:    { food: 0.85, ore: 1.0, herbs: 1.05, potion: 1.0, relic: 1.25, ink: 1.15 },
-      crosshaven: { food: 0.75, ore: 1.1, herbs: 0.9, potion: 0.95, relic: 0.9, ink: 1.0 },
-      ironholt:   { food: 1.3, ore: 0.65, herbs: 1.2, potion: 1.1, relic: 0.85, ink: 0.8 },
+      //            food   ore    herbs  potion  relic   ink
+      //              food   ore    herbs  potion  relic   ink
+      // Valdenmere: trade capital — pays well for raw goods, brews cheap potions
+      valdenmere: { food: 1.05, ore: 1.15, herbs: 1.0,  potion: 0.85, relic: 1.15, ink: 1.0  },
+      // Ashport: port — cheap food (imports), premium on relics/ink (export market)
+      ashport:    { food: 0.90, ore: 1.05, herbs: 1.1,  potion: 1.05, relic: 1.20, ink: 1.08 },
+      // Crosshaven: farming village — cheapest food/herbs, average everything else
+      crosshaven: { food: 0.78, ore: 1.0,  herbs: 0.88, potion: 1.0,  relic: 0.95, ink: 0.98 },
+      // Ironholt: mining town — cheap ore/ink (industrial), expensive food/herbs
+      ironholt:   { food: 1.22, ore: 0.72, herbs: 1.18, potion: 1.08, relic: 0.88, ink: 0.92 },
     };
     const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
     // tiny wobble so it feels alive
