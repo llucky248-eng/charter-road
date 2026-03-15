@@ -644,18 +644,30 @@ ${line4}`;
   function updateAutoNav(dt) {
     if (!autoNav.active) return;
     if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
-    // Manual click or keyboard cancels auto-nav
-    if (clickMove.active || isDown('ArrowUp') || isDown('ArrowDown') ||
+
+    // Manual input cancels auto-nav
+    if (isDown('ArrowUp') || isDown('ArrowDown') ||
         isDown('ArrowLeft') || isDown('ArrowRight') ||
         isDown('KeyW') || isDown('KeyA') || isDown('KeyS') || isDown('KeyD')) {
       autoNav.active = false;
       return;
     }
 
+    // Check if already inside the destination city — done!
+    const destC = getCityById(autoNav.destCityId);
+    if (destC) {
+      const px = player.x / TILE, py = player.y / TILE;
+      if (px >= destC.x && px < destC.x + destC.w &&
+          py >= destC.y && py < destC.y + destC.h) {
+        autoNav.active = false;
+        toast(`Arrived at ${destC.name}.`, 2);
+        return;
+      }
+    }
+
     if (autoNav.pathIdx >= autoNav.path.length) {
       autoNav.active = false;
-      const dest = getCityById(autoNav.destCityId);
-      if (dest) toast(`Arrived at ${dest.name}.`, 2);
+      if (destC) toast(`Arrived at ${destC.name}.`, 2);
       return;
     }
 
@@ -664,34 +676,39 @@ ${line4}`;
     const dy = wp.y - player.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist < 12) {
+    // Arrival threshold — large enough to handle gate offsets
+    if (dist < TILE * 1.5) {
       autoNav.pathIdx++;
       return;
     }
 
-    // Move player toward waypoint
     const nx = dx / dist, ny = dy / dist;
-    player.vx = nx * player.speed;
-    player.vy = ny * player.speed;
+    const stepX = nx * player.speed * dt;
+    const stepY = ny * player.speed * dt;
     player.facing = { x: nx, y: ny };
 
-    const stepX = player.vx * dt;
-    const stepY = player.vy * dt;
+    // Wall-slide movement
+    const canX = !isSolidAt(player.x + stepX - player.r, player.y - player.r) &&
+                 !isSolidAt(player.x + stepX + player.r, player.y - player.r) &&
+                 !isSolidAt(player.x + stepX - player.r, player.y + player.r) &&
+                 !isSolidAt(player.x + stepX + player.r, player.y + player.r);
+    const canY = !isSolidAt(player.x - player.r, player.y + stepY - player.r) &&
+                 !isSolidAt(player.x + player.r, player.y + stepY - player.r) &&
+                 !isSolidAt(player.x - player.r, player.y + stepY + player.r) &&
+                 !isSolidAt(player.x + player.r, player.y + stepY + player.r);
 
-    let nxPos = player.x + stepX;
-    if (!isSolidAt(nxPos - player.r, player.y - player.r) &&
-        !isSolidAt(nxPos + player.r, player.y - player.r) &&
-        !isSolidAt(nxPos - player.r, player.y + player.r) &&
-        !isSolidAt(nxPos + player.r, player.y + player.r)) {
-      player.x = nxPos;
-    } else { autoNav.pathIdx++; } // skip blocked waypoint
+    if (canX) player.x += stepX;
+    if (canY) player.y += stepY;
 
-    let nyPos = player.y + stepY;
-    if (!isSolidAt(player.x - player.r, nyPos - player.r) &&
-        !isSolidAt(player.x + player.r, nyPos - player.r) &&
-        !isSolidAt(player.x - player.r, nyPos + player.r) &&
-        !isSolidAt(player.x + player.r, nyPos + player.r)) {
-      player.y = nyPos;
+    // If fully blocked for too long, skip waypoint
+    if (!canX && !canY) {
+      autoNav._blockedFrames = (autoNav._blockedFrames || 0) + 1;
+      if (autoNav._blockedFrames > 30) {
+        autoNav.pathIdx++;
+        autoNav._blockedFrames = 0;
+      }
+    } else {
+      autoNav._blockedFrames = 0;
     }
 
     player.x = clamp(player.x, TILE, MAP_W*TILE - TILE);
@@ -969,6 +986,11 @@ function handleGlobalHudTap(clientX, clientY, e) {
         if (!loadGame()) toast('No save found.', 1.6);
         e.preventDefault(); return;
       }
+    }
+
+    // ── Cancel auto-nav on any canvas tap ──────────────────────────────
+    if (autoNav.active && !ui.marketOpen && !ui.eventOpen && !ui.contractsOpen) {
+      autoNav.active = false;
     }
 
     // ── Modal scroll (market/event/contracts) ──────────────────────────
@@ -3594,7 +3616,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.9',
+    version: 'v0.3.0',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4575,7 +4597,7 @@ function drawNpcBubble() {
 
   function moveWithCollision(dt) {
     if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return;
-    if (autoNav.active) return; // auto-nav handles movement
+    if (autoNav.active) return; // auto-nav handles movement in updateAutoNav
 
     // ── Direction from keyboard (still supported as fallback) ─────────
     let ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
