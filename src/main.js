@@ -1856,12 +1856,13 @@ const entities = [];
 let activeNpcCityId = null;
 
 function npcCityBounds(city) {
-  const pad = Math.max(6, Math.round(TILE * 0.6));
+  // Keep NPCs 1.5 tiles inside the perimeter walls (avoid wall edge)
+  const pad = Math.round(TILE * 1.5);
   return {
-    x1: (city.x + 0.5) * TILE + pad,
-    y1: (city.y + 0.5) * TILE + pad,
-    x2: (city.x + city.w - 0.5) * TILE - pad,
-    y2: (city.y + city.h - 0.5) * TILE - pad,
+    x1: city.x * TILE + pad,
+    y1: city.y * TILE + pad,
+    x2: (city.x + city.w) * TILE - pad,
+    y2: (city.y + city.h) * TILE - pad,
   };
 }
 
@@ -2027,34 +2028,70 @@ function buildNpcWaypoints(role, city) {
   }
 }
 
+/**
+ * Find the nearest passable pixel position to (tx, ty) within maxDist.
+ * Searches in a spiral to avoid walls.
+ */
+function npcFindWalkable(tx, ty, radius, maxDist = TILE * 3) {
+  if (!npcBlockedAt(tx, ty, radius)) return { x: tx, y: ty };
+  for (let d = TILE; d <= maxDist; d += TILE) {
+    const offsets = [
+      [d, 0], [-d, 0], [0, d], [0, -d],
+      [d, d], [-d, d], [d, -d], [-d, -d],
+    ];
+    for (const [ox, oy] of offsets) {
+      if (!npcBlockedAt(tx + ox, ty + oy, radius)) return { x: tx + ox, y: ty + oy };
+    }
+  }
+  return null; // totally blocked — caller will skip
+}
+
 function npcPickTarget(e) {
   // Role-based: advance to next waypoint
   if (e.waypoints && e.waypoints.length > 0) {
     e.waypointIdx = ((e.waypointIdx || 0) + 1) % e.waypoints.length;
     const wp = e.waypoints[e.waypointIdx];
-    e.target = { x: wp.x, y: wp.y };
-    // Small positional jitter so NPCs don't stack perfectly on same routes
-    const jitter = TILE * 0.35;
-    e.target.x += (seeded01(hashStr(e.id), e.waypointIdx, 17) - 0.5) * 2 * jitter;
-    e.target.y += (seeded01(hashStr(e.id), e.waypointIdx, 31) - 0.5) * 2 * jitter;
-    // Clamp to bounds
-    e.target.x = clamp(e.target.x, e.bounds.x1, e.bounds.x2);
-    e.target.y = clamp(e.target.y, e.bounds.y1, e.bounds.y2);
-    e.pendingPauseMs = wp.pauseMs || 800;
-    e.nextWanderAt = stateTime + 99999; // will be set after arrival
+
+    // Tiny jitter so NPCs on same route don't stack (much smaller than before)
+    const jitter = TILE * 0.2;
+    const jx = wp.x + (seeded01(hashStr(e.id), e.waypointIdx, 17) - 0.5) * 2 * jitter;
+    const jy = wp.y + (seeded01(hashStr(e.id), e.waypointIdx, 31) - 0.5) * 2 * jitter;
+
+    // Clamp to bounds first
+    const cx = clamp(jx, e.bounds.x1, e.bounds.x2);
+    const cy = clamp(jy, e.bounds.y1, e.bounds.y2);
+
+    // Find nearest walkable point (avoids walls)
+    const walkable = npcFindWalkable(cx, cy, e.radius);
+    if (walkable) {
+      e.target = walkable;
+      e.pendingPauseMs = wp.pauseMs || 800;
+    } else {
+      // Can't reach this waypoint — skip to next one next frame
+      e.target = { x: e.x, y: e.y };
+      e.pendingPauseMs = 200;
+    }
+    e.nextWanderAt = stateTime + 99999; // set after arrival
     return;
   }
-  // Fallback: pure random
+
+  // Fallback: pick a random walkable point within bounds
   const b = e.bounds;
-  const t = Math.floor(stateTime / 1000);
-  const rx = seeded01(hashStr(e.id), t, 11);
-  const ry = seeded01(hashStr(e.id), t, 37);
-  e.target = {
-    x: b.x1 + rx * (b.x2 - b.x1),
-    y: b.y1 + ry * (b.y2 - b.y1),
-  };
-  const jitter = seeded01(hashStr(e.id), t, 99);
-  e.nextWanderAt = stateTime + 1600 + jitter * 1200;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const t = Math.floor(stateTime / 1000) + attempt;
+    const rx = seeded01(hashStr(e.id), t, 11 + attempt);
+    const ry = seeded01(hashStr(e.id), t, 37 + attempt);
+    const tx = b.x1 + rx * (b.x2 - b.x1);
+    const ty = b.y1 + ry * (b.y2 - b.y1);
+    if (!npcBlockedAt(tx, ty, e.radius)) {
+      e.target = { x: tx, y: ty };
+      e.nextWanderAt = stateTime + 1600 + seeded01(hashStr(e.id), t, 99) * 1200;
+      return;
+    }
+  }
+  // Give up and stay put briefly
+  e.target = { x: e.x, y: e.y };
+  e.nextWanderAt = stateTime + 600;
 }
 
 function npcBlockedAt(px, py, r) {
@@ -2119,7 +2156,8 @@ function spawnCityNPCs(cityId) {
   }
 }
 
-const NPC_ARRIVAL_THRESHOLD = 7; // pixels — within this, NPC has "arrived" at waypoint
+const NPC_ARRIVAL_THRESHOLD = 10; // pixels — within this, NPC has "arrived" at waypoint
+const NPC_STUCK_THRESHOLD = 12;   // pixels — if NPC barely moved in 1.5s, it's stuck
 
 function updateEntities(dt) {
   if (!entities.length) return;
@@ -2127,29 +2165,26 @@ function updateEntities(dt) {
     if (e.kind !== 'npc') continue;
     if (!e.bounds) continue;
 
-    // Pausing at waypoint
+    // ── Pausing at waypoint ──────────────────────────────────────────────
     if (e.pauseUntil > stateTime) {
-      // Stay still but allow repulsion
-      let vx = 0, vy = 0;
-      const pdx = e.x - player.x;
-      const pdy = e.y - player.y;
-      const pd = Math.hypot(pdx, pdy);
-      const pr = e.radius + player.r + 6;
-      if (pd > 0 && pd < pr) {
-        const push = (pr - pd) * 1.8;
-        vx += (pdx / pd) * push;
-        vy += (pdy / pd) * push;
+      // Drift back to exact waypoint position while paused (looks more natural)
+      if (e.target) {
+        const pdrift = Math.hypot(e.target.x - e.x, e.target.y - e.y);
+        if (pdrift > 2) {
+          const ddx = (e.target.x - e.x) / pdrift;
+          const ddy = (e.target.y - e.y) / pdrift;
+          const snx = e.x + ddx * e.speed * 0.3 * dt;
+          const sny = e.y + ddy * e.speed * 0.3 * dt;
+          if (!npcBlockedAt(snx, e.y, e.radius)) e.x = snx;
+          if (!npcBlockedAt(e.x, sny, e.radius)) e.y = sny;
+        }
       }
-      const nx = e.x + vx * dt;
-      const ny = e.y + vy * dt;
-      if (!npcBlockedAt(nx, e.y, e.radius)) e.x = nx;
-      if (!npcBlockedAt(e.x, ny, e.radius)) e.y = ny;
       e.x = clamp(e.x, e.bounds.x1, e.bounds.x2);
       e.y = clamp(e.y, e.bounds.y1, e.bounds.y2);
       continue;
     }
 
-    // Need a new target?
+    // ── Need new target? ─────────────────────────────────────────────────
     if (!e.target || stateTime >= e.nextWanderAt) npcPickTarget(e);
 
     const dx = e.target.x - e.x;
@@ -2157,31 +2192,51 @@ function updateEntities(dt) {
     const dist = Math.hypot(dx, dy);
 
     // Arrived at waypoint — start pause
-    if (dist < NPC_ARRIVAL_THRESHOLD && e.pendingPauseMs > 0) {
-      e.pauseUntil = stateTime + e.pendingPauseMs;
-      e.pendingPauseMs = 0;
-      e.nextWanderAt = e.pauseUntil; // will pick next after pause
+    if (dist < NPC_ARRIVAL_THRESHOLD) {
+      if (e.pendingPauseMs > 0) {
+        e.pauseUntil = stateTime + e.pendingPauseMs;
+        e.pendingPauseMs = 0;
+        e.nextWanderAt = e.pauseUntil;
+      } else {
+        // No pause defined — go straight to next waypoint
+        npcPickTarget(e);
+      }
       continue;
     }
 
-    let vx = 0, vy = 0;
-    if (dist > 1) {
-      vx = (dx / dist) * e.speed;
-      vy = (dy / dist) * e.speed;
+    // ── Stuck detection ──────────────────────────────────────────────────
+    if (!e._stuckCheckT) { e._stuckCheckT = stateTime; e._stuckCheckX = e.x; e._stuckCheckY = e.y; }
+    if (stateTime - e._stuckCheckT > 1500) {
+      const moved = Math.hypot(e.x - e._stuckCheckX, e.y - e._stuckCheckY);
+      if (moved < NPC_STUCK_THRESHOLD) {
+        // Stuck — skip to next waypoint
+        npcPickTarget(e);
+        e._stuckCheckT = stateTime;
+        e._stuckCheckX = e.x;
+        e._stuckCheckY = e.y;
+        continue;
+      }
+      e._stuckCheckT = stateTime;
+      e._stuckCheckX = e.x;
+      e._stuckCheckY = e.y;
     }
 
-    // soft repulsion from player
+    // ── Movement with wall-sliding ───────────────────────────────────────
+    let vx = dist > 0 ? (dx / dist) * e.speed : 0;
+    let vy = dist > 0 ? (dy / dist) * e.speed : 0;
+
+    // Soft repulsion from player
     const pdx = e.x - player.x;
     const pdy = e.y - player.y;
     const pd = Math.hypot(pdx, pdy);
-    const pr = e.radius + player.r + 6;
+    const pr = e.radius + player.r + 8;
     if (pd > 0 && pd < pr) {
-      const push = (pr - pd) * 2.2;
+      const push = (pr - pd) * 2.0;
       vx += (pdx / pd) * push;
       vy += (pdy / pd) * push;
     }
 
-    // soft repulsion from other NPCs
+    // Soft repulsion from other NPCs
     for (const o of entities) {
       if (o === e || o.kind !== 'npc') continue;
       const odx = e.x - o.x;
@@ -2189,16 +2244,25 @@ function updateEntities(dt) {
       const od = Math.hypot(odx, ody);
       const or = e.radius + o.radius + 4;
       if (od > 0 && od < or) {
-        const push = (or - od) * 1.6;
+        const push = (or - od) * 1.4;
         vx += (odx / od) * push;
         vy += (ody / od) * push;
       }
     }
 
-    const nx = e.x + vx * dt;
-    const ny = e.y + vy * dt;
-    if (!npcBlockedAt(nx, e.y, e.radius)) e.x = nx; else e.target = null;
-    if (!npcBlockedAt(e.x, ny, e.radius)) e.y = ny; else e.target = null;
+    // Normalise to max speed
+    const spd = Math.hypot(vx, vy);
+    if (spd > e.speed * 1.5) { vx = vx/spd * e.speed * 1.5; vy = vy/spd * e.speed * 1.5; }
+
+    // Wall-sliding: try full move, then axis-only fallbacks
+    const stepX = vx * dt;
+    const stepY = vy * dt;
+    const canX = !npcBlockedAt(e.x + stepX, e.y, e.radius);
+    const canY = !npcBlockedAt(e.x, e.y + stepY, e.radius);
+    if (canX && canY) { e.x += stepX; e.y += stepY; }
+    else if (canX)    { e.x += stepX; }           // slide along X
+    else if (canY)    { e.y += stepY; }           // slide along Y
+    // else fully blocked this frame — stuck detection will handle it
 
     e.x = clamp(e.x, e.bounds.x1, e.bounds.x2);
     e.y = clamp(e.y, e.bounds.y1, e.bounds.y2);
@@ -2849,7 +2913,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.2',
+    version: 'v0.2.3',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
