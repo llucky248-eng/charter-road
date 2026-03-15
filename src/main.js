@@ -895,13 +895,13 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // base grass
     for (let i = 0; i < m.length; i++) m[i] = 0;
 
-    // North river (spans map east of Valdenmere)
+    // North river (spans map east of Valdenmere, rows y=6-8)
     for (let y = 6; y < 9; y++) {
-      for (let x = 38; x < MAP_W; x++) m[y * MAP_W + x] = 2;
+      for (let x = 38; x < MAP_W-1; x++) m[y * MAP_W + x] = 2;
     }
-    // North river bridge (road crosses at x:68-72)
+    // North river bridge at x:66-70 (road crosses here for Valdenmere→Ironholt)
     for (let y = 6; y < 9; y++) {
-      for (let x = 68; x < 72; x++) m[y * MAP_W + x] = 1;
+      for (let x = 66; x < 71; x++) m[y * MAP_W + x] = 1;
     }
 
     // South river (crosses near Crosshaven)
@@ -1131,27 +1131,49 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const gateD = paintCity(cityD);
 
     // ── ROAD NETWORK ────────────────────────────────────────────────────────
-    // Valdenmere → bridge → Ironholt (N corridor)
-    carveRoad(gateA.gx, gateA.gy+1, 30, 30);  // exit south from Valdenmere
-    carveRoad(30, 30, 70, 28);                  // east across land
-    carveRoad(70, 28, 70, 12);                  // north to bridge
-    carveRoad(70, 12, 110, 12);                 // east to near Ironholt
-    carveRoad(110, 12, gateD.gx, gateD.gy+1);  // into Ironholt gate
+    // Design targets (1 day = 1200px = 75 tiles at TILE=16):
+    //   Valdenmere ↔ Ironholt  : ~2.1 days  (157 tiles)
+    //   Valdenmere ↔ Crosshaven: ~1.6 days  (120 tiles)
+    //   Crosshaven ↔ Ashport   : ~1.5 days  (112 tiles)
+    //   Ironholt   ↔ Ashport   : ~2.4 days  (180 tiles, long loop south)
+    //   Valdenmere ↔ Ashport   : ~3.1 days  (via Crosshaven: 232 tiles)
+    //   Crosshaven ↔ Ironholt  : ~2.6 days  (via shared roads: 195 tiles)
 
-    // Valdenmere → south → Crosshaven (W-center road)
-    carveRoad(gateA.gx, gateA.gy+1, 28, 55);
-    carveRoad(28, 55, gateC.gx, gateC.gy+1);
+    // ── Valdenmere → Ironholt (N highway via bridge) ────────────────────
+    // Gate(22,28) → junction(30,30) → east junction(68,30) → north(68,8) → east(115,8) → Ironholt
+    carveRoad(gateA.gx, gateA.gy+1, 30, 30);    // 8+2 = 10 tiles
+    carveRoad(30, 30, 68, 30);                    // 38 tiles
+    carveRoad(68, 30, 68, 8);                     // 22 tiles N (crosses river via bridge)
+    carveRoad(68, 8, 115, 8);                     // 47 tiles E
+    carveRoad(115, 8, gateD.gx, gateD.gy+1);     // ~13 tiles → total ~130 tiles = 1.73 days
 
-    // Crosshaven → east → Ashport (S road)
-    carveRoad(gateC.gx, gateC.gy+1, gateC.gx, 78);
-    carveRoad(gateC.gx, 78, 100, 78);
-    carveRoad(100, 78, gateB.gx, gateB.gy+1);
+    // ── Valdenmere → Crosshaven (W road south) ──────────────────────────
+    // Same junction(30,30) → south(30,55) → east to Crosshaven gate
+    carveRoad(30, 30, 30, 55);                    // 25 tiles S
+    carveRoad(30, 55, gateC.gx, gateC.gy+1);     // 32+10 = ~42 tiles → segment = 67 tiles
+    // Total from Valdenmere: 10+67 = 77 tiles = 1.03 days — add extra loop for realism
+    // Extra: road winds through valley before Crosshaven
+    carveRoad(30, 55, 48, 55);                    // extra east segment (18 tiles)
+    carveRoad(48, 55, 48, 70);                    // south (15 tiles)
+    carveRoad(48, 70, gateC.gx, gateC.gy+1);     // east to gate (~16 tiles)
+    // Total V→CH: 10+25+18+15+16 = 84 tiles = 1.12 days
 
-    // Ironholt → south → Ashport (E corridor, adds trade route variety)
-    carveRoad(gateD.gx, gateD.gy+1, 112, 50);
-    carveRoad(112, 50, gateB.gx+4, gateB.gy+1);
+    // ── Crosshaven → Ashport (S-E road, longer scenic route) ────────────
+    // Gate(62,75) → south(62,82) → E loop → Ashport
+    carveRoad(gateC.gx, gateC.gy+1, gateC.gx, 82);  // 7 tiles S
+    carveRoad(gateC.gx, 82, 80, 82);                  // 18 tiles E
+    carveRoad(80, 82, 80, 72);                         // 10 tiles N
+    carveRoad(80, 72, gateB.gx, gateB.gy+1);          // 28+7 tiles = 35 tiles → total CH→A: 70 tiles = 0.93 days
 
-    // Detour cache route: NE lowlands fork
+    // ── Ironholt → Ashport (long loop east+south, NO shortcut) ─────────
+    // Forces traders to travel far — long haul route for big margins
+    // Gate(115,28) → SE(130,28) → south(130,55) → west(108,55) → south to Ashport
+    carveRoad(gateD.gx, gateD.gy+1, 130, gateD.gy+1);  // E 15 tiles
+    carveRoad(130, gateD.gy+1, 130, 55);                 // S ~27 tiles
+    carveRoad(130, 55, gateB.gx+4, 55);                  // W ~18 tiles
+    carveRoad(gateB.gx+4, 55, gateB.gx+4, gateB.gy+1);  // S ~16 tiles → total: ~76 tiles = 1.01 days
+
+    // Detour cache route in NE highlands (off main roads)
     carveRoad(74, 14, 92, 26);
     carveRoad(92, 26, 104, 40);
 
@@ -1177,8 +1199,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
     paintPatch(18, 50, 10, 10, 0.78);  // W forest
     paintPatch(90, 36, 10, 11, 0.75);  // NE swamp
     paintPatch(44, 70, 8, 11, 0.80);   // S swamp near Crosshaven
-
-    carveRoad(70, 12, gateB.gx, gateB.gy+1);
 
     // scatter a few rocks for flavor
     for (let i = 0; i < 650; i++) {
@@ -2913,7 +2933,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.4',
+    version: 'v0.2.5',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -3865,14 +3885,19 @@ function drawNpcBubble() {
     const mults = {
       //            food   ore    herbs  potion  relic   ink
       //              food   ore    herbs  potion  relic   ink
-      // Valdenmere: trade capital — pays well for raw goods, brews cheap potions
-      valdenmere: { food: 1.05, ore: 1.15, herbs: 1.0,  potion: 0.85, relic: 1.15, ink: 1.0  },
-      // Ashport: port — cheap food (imports), premium on relics/ink (export market)
-      ashport:    { food: 0.90, ore: 1.05, herbs: 1.1,  potion: 1.05, relic: 1.20, ink: 1.08 },
-      // Crosshaven: farming village — cheapest food/herbs, average everything else
-      crosshaven: { food: 0.78, ore: 1.0,  herbs: 0.88, potion: 1.0,  relic: 0.95, ink: 0.98 },
-      // Ironholt: mining town — cheap ore/ink (industrial), expensive food/herbs
-      ironholt:   { food: 1.22, ore: 0.72, herbs: 1.18, potion: 1.08, relic: 0.88, ink: 0.92 },
+      // Valdenmere: trade capital — buys ore/relics high, brews potions cheap
+      // Far from Ashport (3 days) → big relic margin reward for long haul
+      valdenmere: { food: 1.05, ore: 1.18, herbs: 1.0,  potion: 0.82, relic: 1.20, ink: 1.05 },
+      // Ashport: port — cheap food (sea imports), very high relic/ink demand
+      // Far from Valdenmere → high margin. Near Ironholt but different speciality
+      ashport:    { food: 0.88, ore: 1.05, herbs: 1.12, potion: 1.08, relic: 1.25, ink: 1.10 },
+      // Crosshaven: farming village — cheapest food/herbs, average other goods
+      // Between Valdenmere and Ashport → moderate margins on both sides
+      crosshaven: { food: 0.76, ore: 1.02, herbs: 0.85, potion: 1.02, relic: 1.00, ink: 1.00 },
+      // Ironholt: mining town — very cheap ore, expensive food/herbs
+      // Near Ashport but sells ORE (Ashport has average ore) → short-trip ore viable
+      // but NOT relic/ink (similar prices) → prevents short Ironholt→Ashport exploit
+      ironholt:   { food: 1.25, ore: 0.70, herbs: 1.20, potion: 1.10, relic: 0.88, ink: 0.92 },
     };
     const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
     // tiny wobble so it feels alive
@@ -3948,8 +3973,10 @@ function drawNpcBubble() {
     if (!c) return [];
 
     // Always-true rumors derived from actual computed prices vs another city.
+    // Use day directly as index so it reliably rotates each day
     const others = world.cities.filter(c => c.id !== id);
-    const otherC = others[Math.floor(others.length * ((hashStr(id + String(Math.floor(time.day))) % 100) / 100))] || others[0];
+    const dayIdx = Math.floor(time.day) % others.length;
+    const otherC = others[dayIdx] || others[0];
     const other = otherC ? otherC.id : id;
 
     const list = [];
@@ -3966,17 +3993,18 @@ function drawNpcBubble() {
     list.sort((a, b) => b.ratio - a.ratio);
     const pricey = list[0];
 
+    const otherName = cityName(other);
     const lines = [];
     if (cheap && cheap.it) {
-      lines.push(`${cheap.it.name} is cheaper in ${cityName(id)} today.`);
+      lines.push(`${cheap.it.name} is cheaper here vs ${otherName}.`);
     }
     if (pricey && pricey.it) {
       // Avoid duplicate item line; pick next best if needed.
       if (cheap && pricey.it.id === cheap.it.id) {
         const alt = list.find(x => x.it.id !== cheap.it.id);
-        if (alt) lines.push(`${alt.it.name} is pricier in ${cityName(id)} today.`);
+        if (alt) lines.push(`${alt.it.name} fetches more in ${otherName}.`);
       } else {
-        lines.push(`${pricey.it.name} is pricier in ${cityName(id)} today.`);
+        lines.push(`${pricey.it.name} fetches more in ${otherName}.`);
       }
     }
 
