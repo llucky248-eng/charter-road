@@ -1572,7 +1572,132 @@ function npcSeed(id, salt = 0, salt2 = 0) {
   return seeded01(hashStr(id) + salt, salt2, npcDayKey());
 }
 
+// ─────────────────────────────────────────────
+// NPC BEHAVIOR SYSTEM
+// Each NPC has a role-based behavior with named waypoints (tile-relative to city origin).
+// Behaviors: 'patrol', 'routine', 'pace', 'dock', 'lurk'
+// ─────────────────────────────────────────────
+
+/**
+ * Build purposeful waypoints for an NPC based on role + city layout.
+ * Waypoints are in world pixels.
+ * Each waypoint: { x, y, pauseMs }  — pauseMs: how long to idle at this point.
+ */
+function buildNpcWaypoints(role, city) {
+  const T = TILE;
+  // city origin in pixels
+  const cx = city.x * T;
+  const cy = city.y * T;
+  const cw = city.w * T;
+  const ch = city.h * T;
+  // key landmark offsets (relative to city pixel origin)
+  const center   = { x: cx + cw * 0.50, y: cy + ch * 0.50 };
+  const market   = { x: cx + cw * 0.35, y: cy + ch * 0.38 };
+  const gate     = { x: cx + cw * 0.50, y: cy + ch * 0.92 }; // near bottom exit
+  const wallNE   = { x: cx + cw * 0.82, y: cy + ch * 0.18 };
+  const wallNW   = { x: cx + cw * 0.18, y: cy + ch * 0.18 };
+  const wallSE   = { x: cx + cw * 0.82, y: cy + ch * 0.75 };
+  const office   = { x: cx + cw * 0.22, y: cy + ch * 0.28 };
+  const restArea = { x: cx + cw * 0.65, y: cy + ch * 0.70 };
+  const oven     = { x: cx + cw * 0.30, y: cy + ch * 0.62 };
+  const dockEdge = { x: cx + cw * 0.75, y: cy + ch * 0.85 };
+  const dockMid  = { x: cx + cw * 0.60, y: cy + ch * 0.72 };
+  const cornerSW = { x: cx + cw * 0.15, y: cy + ch * 0.80 };
+  const cornerNE = { x: cx + cw * 0.80, y: cy + ch * 0.20 };
+  const alley    = { x: cx + cw * 0.80, y: cy + ch * 0.60 };
+
+  const wp = (pt, pauseMs = 800) => ({ x: pt.x, y: pt.y, pauseMs });
+
+  switch (role) {
+    case 'guard':
+      // Patrol: gate → wall NW → wall NE → market check → wall SE → gate
+      return [
+        wp(gate, 1200),
+        wp(wallNW, 700),
+        wp(wallNE, 700),
+        wp(market, 1500),  // lingers at market
+        wp(wallSE, 700),
+        wp(gate, 1200),
+      ];
+
+    case 'scribe':
+      // Routine: office → market (morning) → center (midday) → rest area (afternoon) → office
+      return [
+        wp(office, 2000),
+        wp(market, 1800),
+        wp(center, 1200),
+        wp(restArea, 2500),
+        wp(office, 1500),
+      ];
+
+    case 'baker':
+      // Bakes in the morning (oven), sells at market midday, wanders back
+      return [
+        wp(oven, 3000),     // standing at oven a while
+        wp(market, 2000),   // selling wares
+        wp(center, 1000),
+        wp(oven, 2500),
+      ];
+
+    case 'fisher':
+      // Dock → city center → dock. Long pauses at water edge.
+      return [
+        wp(dockEdge, 3500),
+        wp(dockMid, 1000),
+        wp(center, 1500),
+        wp(dockMid, 800),
+        wp(dockEdge, 3000),
+      ];
+
+    case 'smuggler':
+      // Skulks perimeter quickly, brief lurks at corners and alleys
+      return [
+        wp(cornerSW, 400),
+        wp(alley, 300),
+        wp(cornerNE, 400),
+        wp(gate, 600),     // watches the gate
+        wp(alley, 300),
+        wp(cornerSW, 500),
+      ];
+
+    case 'broker':
+      // Short pacing near market, occasional wander to center
+      return [
+        wp(market, 2500),
+        wp({ x: market.x + 12, y: market.y + 20 }, 600),
+        wp({ x: market.x - 16, y: market.y - 12 }, 600),
+        wp(center, 1200),
+        wp(market, 2000),
+      ];
+
+    default:
+      // Fallback: simple 4-corner wander
+      return [
+        wp(center, 1000),
+        wp({ x: cx + cw * 0.3, y: cy + ch * 0.3 }, 800),
+        wp({ x: cx + cw * 0.7, y: cy + ch * 0.7 }, 800),
+      ];
+  }
+}
+
 function npcPickTarget(e) {
+  // Role-based: advance to next waypoint
+  if (e.waypoints && e.waypoints.length > 0) {
+    e.waypointIdx = ((e.waypointIdx || 0) + 1) % e.waypoints.length;
+    const wp = e.waypoints[e.waypointIdx];
+    e.target = { x: wp.x, y: wp.y };
+    // Small positional jitter so NPCs don't stack perfectly on same routes
+    const jitter = TILE * 0.35;
+    e.target.x += (seeded01(hashStr(e.id), e.waypointIdx, 17) - 0.5) * 2 * jitter;
+    e.target.y += (seeded01(hashStr(e.id), e.waypointIdx, 31) - 0.5) * 2 * jitter;
+    // Clamp to bounds
+    e.target.x = clamp(e.target.x, e.bounds.x1, e.bounds.x2);
+    e.target.y = clamp(e.target.y, e.bounds.y1, e.bounds.y2);
+    e.pendingPauseMs = wp.pauseMs || 800;
+    e.nextWanderAt = stateTime + 99999; // will be set after arrival
+    return;
+  }
+  // Fallback: pure random
   const b = e.bounds;
   const t = Math.floor(stateTime / 1000);
   const rx = seeded01(hashStr(e.id), t, 11);
@@ -1615,6 +1740,9 @@ function spawnCityNPCs(cityId) {
         x = nx; y = ny; placed = true; break;
       }
     }
+    const waypoints = buildNpcWaypoints(tpl.role, city);
+    // Stagger starting waypoint so NPCs don't all converge at once
+    const startIdx = Math.floor(seeded01(hashStr(tpl.id), 77, 3) * waypoints.length);
     const e = {
       id: tpl.id,
       kind: 'npc',
@@ -1630,23 +1758,65 @@ function spawnCityNPCs(cityId) {
       bounds: b,
       target: null,
       nextWanderAt: 0,
+      waypoints,
+      waypointIdx: startIdx,
+      pauseUntil: 0,
+      pendingPauseMs: 0,
       dialogueIdx: Math.floor(npcSeed(tpl.id, 3, 5) * 10) % 10,
       talkCooldown: 0,
     };
+    // Set initial target to first waypoint
+    const wp0 = waypoints[startIdx];
+    e.target = { x: wp0.x, y: wp0.y };
     entities.push(e);
   }
 }
+
+const NPC_ARRIVAL_THRESHOLD = 7; // pixels — within this, NPC has "arrived" at waypoint
 
 function updateEntities(dt) {
   if (!entities.length) return;
   for (const e of entities) {
     if (e.kind !== 'npc') continue;
     if (!e.bounds) continue;
+
+    // Pausing at waypoint
+    if (e.pauseUntil > stateTime) {
+      // Stay still but allow repulsion
+      let vx = 0, vy = 0;
+      const pdx = e.x - player.x;
+      const pdy = e.y - player.y;
+      const pd = Math.hypot(pdx, pdy);
+      const pr = e.radius + player.r + 6;
+      if (pd > 0 && pd < pr) {
+        const push = (pr - pd) * 1.8;
+        vx += (pdx / pd) * push;
+        vy += (pdy / pd) * push;
+      }
+      const nx = e.x + vx * dt;
+      const ny = e.y + vy * dt;
+      if (!npcBlockedAt(nx, e.y, e.radius)) e.x = nx;
+      if (!npcBlockedAt(e.x, ny, e.radius)) e.y = ny;
+      e.x = clamp(e.x, e.bounds.x1, e.bounds.x2);
+      e.y = clamp(e.y, e.bounds.y1, e.bounds.y2);
+      continue;
+    }
+
+    // Need a new target?
     if (!e.target || stateTime >= e.nextWanderAt) npcPickTarget(e);
 
     const dx = e.target.x - e.x;
     const dy = e.target.y - e.y;
     const dist = Math.hypot(dx, dy);
+
+    // Arrived at waypoint — start pause
+    if (dist < NPC_ARRIVAL_THRESHOLD && e.pendingPauseMs > 0) {
+      e.pauseUntil = stateTime + e.pendingPauseMs;
+      e.pendingPauseMs = 0;
+      e.nextWanderAt = e.pauseUntil; // will pick next after pause
+      continue;
+    }
+
     let vx = 0, vy = 0;
     if (dist > 1) {
       vx = (dx / dist) * e.speed;
@@ -2331,7 +2501,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.10',
+    version: 'v0.1.15',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',

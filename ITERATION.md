@@ -1,5 +1,11 @@
 # Iteration Log — The Charter Road
 
+## v0.1.15 — 2026-03-14
+- NPCs: role-based purposeful movement (guard patrol, scribe routine, baker schedule, fisher dock, smuggler lurk, broker pace).
+- NPCs: waypoint system with arrival pauses — each role follows a defined multi-point route.
+- NPCs: staggered start waypoints so NPCs don't all converge simultaneously.
+- NPCs: pause-at-waypoint with repulsion still active while idle.
+
 ## v0.1.10 — 2026-03-14
 - Intelligence Market: NPCs now offer to sell trade tips (5g each).
 - Intel cards added to player ledger: predicted item price in other city, expiry in 4 days.
