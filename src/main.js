@@ -547,7 +547,181 @@ ${line4}`;
     markerX: 0, // screen coords for the ripple marker
     markerY: 0,
     markerT: 0, // stateTime when clicked (for fade animation)
+    _tapAction: null,
+    _tapTarget: null,
   };
+
+  // ── AUTO-NAVIGATE (follow a multi-waypoint road path to a city) ────────
+  const autoNav = {
+    active: false,
+    destCityId: null,
+    path: [],       // world-pixel waypoints
+    pathIdx: 0,
+    destMarkerT: 0,
+  };
+
+  function showNavPicker() {
+    let el = document.getElementById('cr-nav-picker');
+    if (el) { el.remove(); return; }
+    el = document.createElement('div');
+    el.id = 'cr-nav-picker';
+    el.style.cssText = `
+      position:fixed; inset:0; z-index:820; display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.55); font-family:system-ui,sans-serif;
+    `;
+    const currentC = currentCity();
+    const buttons = world.cities
+      .filter(c2 => !currentC || c2.id !== currentC.id)
+      .map(c2 => {
+        const rules = CITY_RULES[c2.id] || {};
+        return `
+          <button data-city="${c2.id}" style="
+            display:flex; flex-direction:column; align-items:flex-start;
+            background:#1a1408; border:1px solid #5a4a20; border-radius:8px;
+            padding:10px 14px; cursor:pointer; color:#e0cfa0; text-align:left;
+            width:100%; margin-bottom:6px; transition:border-color 0.15s;
+          ">
+            <span style="font-size:14px;font-weight:700;color:#f0d080">📍 ${c2.name}</span>
+            <span style="font-size:11px;color:#888;margin-top:2px">${rules.vibe || ''}</span>
+          </button>`;
+      }).join('');
+
+    el.innerHTML = `
+      <div style="background:#100e08;border:2px solid #8b6914;border-radius:12px;padding:16px;width:min(300px,90vw);color:#e0cfa0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span style="font-size:15px;font-weight:700">🗺️ Navigate To</span>
+          <button id="cr-nav-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
+        </div>
+        ${buttons}
+        <div style="color:#555;font-size:11px;text-align:center;margin-top:6px">Or tap a city on the minimap</div>
+      </div>`;
+
+    el.querySelector('#cr-nav-close').onclick = () => el.remove();
+    el.addEventListener('click', ev => { if (ev.target === el) el.remove(); });
+    el.querySelectorAll('[data-city]').forEach(btn => {
+      btn.addEventListener('pointerdown', ev => {
+        ev.stopPropagation();
+        startNavTo(btn.dataset.city);
+        el.remove();
+        _fabLastKey = ''; // force FAB refresh
+      });
+    });
+    document.body.appendChild(el);
+  }
+
+  function startNavTo(cityId) {
+    const fromCity = currentCity();
+    const fromId = fromCity ? fromCity.id : _nearestCityId();
+    if (!fromId || fromId === cityId) {
+      toast('Already there.', 1.5);
+      return;
+    }
+    const path = buildTraderPath(fromId, cityId);
+    if (!path || path.length === 0) {
+      toast('No route found.', 1.5);
+      return;
+    }
+    autoNav.active = true;
+    autoNav.destCityId = cityId;
+    autoNav.path = path;
+    autoNav.pathIdx = 0;
+    autoNav.destMarkerT = stateTime;
+    clickMove.active = false; // cancel any manual click-move
+    const dest = getCityById(cityId);
+    toast(`Navigating to ${dest?.name || cityId}…`, 2);
+  }
+
+  function _nearestCityId() {
+    let best = null, bestD = Infinity;
+    for (const c of world.cities) {
+      const cx = (c.x + c.w/2) * TILE, cy = (c.y + c.h/2) * TILE;
+      const d = Math.hypot(player.x - cx, player.y - cy);
+      if (d < bestD) { bestD = d; best = c.id; }
+    }
+    return best;
+  }
+
+  function updateAutoNav(dt) {
+    if (!autoNav.active) return;
+    if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
+    // Manual click or keyboard cancels auto-nav
+    if (clickMove.active || isDown('ArrowUp') || isDown('ArrowDown') ||
+        isDown('ArrowLeft') || isDown('ArrowRight') ||
+        isDown('KeyW') || isDown('KeyA') || isDown('KeyS') || isDown('KeyD')) {
+      autoNav.active = false;
+      return;
+    }
+
+    if (autoNav.pathIdx >= autoNav.path.length) {
+      autoNav.active = false;
+      const dest = getCityById(autoNav.destCityId);
+      if (dest) toast(`Arrived at ${dest.name}.`, 2);
+      return;
+    }
+
+    const wp = autoNav.path[autoNav.pathIdx];
+    const dx = wp.x - player.x;
+    const dy = wp.y - player.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 12) {
+      autoNav.pathIdx++;
+      return;
+    }
+
+    // Move player toward waypoint
+    const nx = dx / dist, ny = dy / dist;
+    player.vx = nx * player.speed;
+    player.vy = ny * player.speed;
+    player.facing = { x: nx, y: ny };
+
+    const stepX = player.vx * dt;
+    const stepY = player.vy * dt;
+
+    let nxPos = player.x + stepX;
+    if (!isSolidAt(nxPos - player.r, player.y - player.r) &&
+        !isSolidAt(nxPos + player.r, player.y - player.r) &&
+        !isSolidAt(nxPos - player.r, player.y + player.r) &&
+        !isSolidAt(nxPos + player.r, player.y + player.r)) {
+      player.x = nxPos;
+    } else { autoNav.pathIdx++; } // skip blocked waypoint
+
+    let nyPos = player.y + stepY;
+    if (!isSolidAt(player.x - player.r, nyPos - player.r) &&
+        !isSolidAt(player.x + player.r, nyPos - player.r) &&
+        !isSolidAt(player.x - player.r, nyPos + player.r) &&
+        !isSolidAt(player.x + player.r, nyPos + player.r)) {
+      player.y = nyPos;
+    }
+
+    player.x = clamp(player.x, TILE, MAP_W*TILE - TILE);
+    player.y = clamp(player.y, TILE, MAP_H*TILE - TILE);
+  }
+
+  function drawNavPath() {
+    if (!autoNav.active || autoNav.path.length === 0) return;
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = 'rgba(251,191,36,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(player.x - camera.x, player.y - camera.y);
+    for (let i = autoNav.pathIdx; i < autoNav.path.length; i++) {
+      const wp = autoNav.path[i];
+      ctx.lineTo(wp.x - camera.x, wp.y - camera.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Destination marker (pulsing ring)
+    const dest = autoNav.path[autoNav.path.length - 1];
+    const pulse = 0.5 + 0.5 * Math.sin(stateTime * 0.004);
+    ctx.strokeStyle = `rgba(251,191,36,${(0.5 + pulse * 0.4).toFixed(2)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(dest.x - camera.x, dest.y - camera.y, 12 + pulse * 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Disable long-press context menu globally (mobile browsers).
   document.addEventListener('contextmenu', (e) => {
@@ -761,6 +935,27 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // ── HUD taps ────────────────────────────────────────────────────────
     if (handleMobileHudTap(sx, sy)) { e.preventDefault(); return; }
+
+    // ── Minimap tap → navigate to city ─────────────────────────────────
+    const mm = ui._minimapRect;
+    if (mm && sx >= mm.x && sx <= mm.x + mm.w && sy >= mm.y && sy <= mm.y + mm.h) {
+      // Convert tap to map tile coords
+      const mapFx = (sx - mm.x) / mm.w;
+      const mapFy = (sy - mm.y) / mm.h;
+      const mapTileX = mapFx * MAP_W;
+      const mapTileY = mapFy * MAP_H;
+      // Find nearest city to tap
+      let bestCity = null, bestDist = 999;
+      for (const c2 of world.cities) {
+        const cx2 = c2.x + c2.w/2, cy2 = c2.y + c2.h/2;
+        const d = Math.hypot(cx2 - mapTileX, cy2 - mapTileY);
+        if (d < bestDist) { bestDist = d; bestCity = c2; }
+      }
+      if (bestCity && bestDist < 8) {
+        startNavTo(bestCity.id);
+        e.preventDefault(); return;
+      }
+    }
 
     // HUD Save/Load buttons (desktop)
     if (!IS_MOBILE && sy <= HUD_H) {
@@ -3399,7 +3594,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.8',
+    version: 'v0.2.9',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4380,6 +4575,7 @@ function drawNpcBubble() {
 
   function moveWithCollision(dt) {
     if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return;
+    if (autoNav.active) return; // auto-nav handles movement
 
     // ── Direction from keyboard (still supported as fallback) ─────────
     let ax = (isDown('KeyD') || isDown('ArrowRight') ? 1 : 0) - (isDown('KeyA') || isDown('ArrowLeft') ? 1 : 0);
@@ -5061,6 +5257,8 @@ function drawNpcBubble() {
     if (e.code === 'Escape' && intelUI.open) { closeIntelUI(); return; }
     // Close trader modal on Escape
     if (e.code === 'Escape' && document.getElementById('cr-trader-modal')) { closeTraderUI(); return; }
+    // Close nav picker on Escape
+    if (e.code === 'Escape') { const np = document.getElementById('cr-nav-picker'); if (np) { np.remove(); return; } }
 
     // [T] — interact with nearby AI trader
     if (e.code === 'KeyT') {
@@ -5818,8 +6016,20 @@ function drawEntities() {
         _fabLastKey = '';
       });
     }
+    // Navigate button — always show when not in a city, or show city list
+    if (!atMarket && !atContracts) {
+      if (autoNav.active) {
+        const destName = getCityById(autoNav.destCityId)?.name || '';
+        addFab('✕', `Cancel nav to ${destName}`, () => {
+          autoNav.active = false;
+          toast('Navigation cancelled.', 1.5);
+          _fabLastKey = '';
+        });
+      } else {
+        addFab('🗺️', 'Navigate to city…', () => showNavPicker());
+      }
+    }
     if (!c) {
-      // On road — show save button
       addFab('💾', 'Save Game', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); });
     }
   }
@@ -5949,11 +6159,25 @@ if (ui._hudTapDebug) {
     // map image
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, mmX, mmY, mmSize, mmSize);
+    // store minimap rect for tap detection
+    ui._minimapRect = { x: mmX, y: mmY, w: mmSize, h: mmSize };
     // player marker
     const px = (player.x / (MAP_W * TILE)) * mmSize;
     const py = (player.y / (MAP_H * TILE)) * mmSize;
     ctx.fillStyle = '#f43f5e';
     ctx.fillRect(mmX + Math.floor(px) - 1, mmY + Math.floor(py) - 1, 3, 3);
+    // city dots on minimap
+    for (const c2 of world.cities) {
+      const cx2 = mmX + ((c2.x + c2.w/2) / MAP_W) * mmSize;
+      const cy2 = mmY + ((c2.y + c2.h/2) / MAP_H) * mmSize;
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath(); ctx.arc(cx2, cy2, 3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.font = `bold ${Math.round(7*UI_SCALE)}px system-ui,sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText(c2.name.slice(0,3), cx2 + 4, cy2 + 3);
+      ctx.textAlign = 'left';
+    }
     // contract compass
     drawCompassArrowOnMinimap(mmX, mmY, mmSize);
     // camera viewport box
@@ -6899,6 +7123,7 @@ function drawEvent() {
     }
     updateEntities(dt);
     updateAiTraders(dt);
+    updateAutoNav(dt);
     npcDiagTick(dt);
     moveWithCollision(dt);
     npcDiagPostMove();
@@ -6940,6 +7165,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawWorld();
     drawEntities();
     for (const t of AI_TRADERS) drawAiTrader(t);
+    drawNavPath();
     drawClickMarker();
     drawPlayer();
     drawNpcBubble();
