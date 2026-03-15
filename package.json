@@ -6,6 +6,7 @@
   "scripts": {
     "serve": "bash ops/scripts/serve_local.sh",
     "qa:selftest": "node ops/scripts/qa_selftest.mjs",
+    "qa:city-walk": "node ops/scripts/qa_city_walk.mjs",
     "test": "node ops/scripts/qa_selftest.mjs"
   },
   "repository": {
