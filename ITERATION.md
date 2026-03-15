@@ -1,5 +1,18 @@
 # Iteration Log — The Charter Road
 
+## v0.2.0 — 2026-03-14
+- **Rebrand**: "The Charter Road" → "The Amber Road".
+- **4 cities** (was 2): Valdenmere (large capital), Ashport (port), Crosshaven (small crossroads), Ironholt (mining town).
+- **Different city sizes**: Valdenmere 28×20, Ashport 24×16, Crosshaven 14×10, Ironholt 20×14.
+- **More buildings per city**: inn/tavern (tile 7), warehouse (tile 8), cobblestone variety (tile 9) — larger cities get more.
+- **Road network**: all 4 cities connected; N + S rivers with bridges.
+- **Biomes**: 5 forest/swamp patches spread across the new map.
+- **Price system**: each city has unique multipliers (Ironholt ore cheap, Crosshaven food cheap, etc).
+- **10 wild events** (was 5): added wandering merchant, wounded soldier, plague cart, abandoned crate, wolf pack.
+- **New NPCs**: Crosshaven innkeeper+peddler; Ironholt miner+foreman+smith (all with role-based movement).
+- **Save migration**: old sunspire/gloomwharf saves auto-migrate to new city IDs.
+- QA: all tests updated to new city IDs, all passing.
+
 ## v0.1.15 — 2026-03-14
 - NPCs: role-based purposeful movement (guard patrol, scribe routine, baker schedule, fisher dock, smuggler lurk, broker pace).
 - NPCs: waypoint system with arrival pauses — each role follows a defined multi-point route.

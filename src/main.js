@@ -1,4 +1,4 @@
-/* The Charter Road — web prototype (tiles + free roam)
+/* The Amber Road — web prototype (tiles + free roam)
    Step goal: tile engine + collision + 2 city zones with different rules.
 */
 
@@ -215,8 +215,8 @@ ${line4}`;
           const id = String(cityId);
           contracts.byCity[id] = regenContractsForCity(id);
         } else {
-          contracts.byCity.sunspire = regenContractsForCity('sunspire');
-          contracts.byCity.gloomwharf = regenContractsForCity('gloomwharf');
+          for (const cid of ['valdenmere','ashport','crosshaven','ironholt'])
+            contracts.byCity[cid] = regenContractsForCity(cid);
         }
         return true;
       },
@@ -355,7 +355,7 @@ ${line4}`;
         return true;
       },
 
-      marketBuy: (itemId, qty = 1, cityId = 'sunspire') => {
+      marketBuy: (itemId, qty = 1, cityId = 'valdenmere') => {
         __QA.api.teleportToCity(cityId);
         ui.mode = 'buy';
         const idx = ITEMS.findIndex(it => it.id === itemId);
@@ -368,7 +368,7 @@ ${line4}`;
         const ok = afterQty > beforeQty;
         return { ok, cost: Math.max(0, beforeGold - afterGold) };
       },
-      marketSell: (itemId, qty = 1, cityId = 'sunspire') => {
+      marketSell: (itemId, qty = 1, cityId = 'valdenmere') => {
         __QA.api.teleportToCity(cityId);
         ui.mode = 'sell';
         const idx = ITEMS.findIndex(it => it.id === itemId);
@@ -476,7 +476,7 @@ ${line4}`;
 
       /** QA helper: open the market DOM modal for a city and run a domRender pass.
        *  Returns true if .cr-panel is present in the DOM after the call. */
-      openMarketUI: (cityId = 'gloomwharf', mode = 'buy') => {
+      openMarketUI: (cityId = 'ashport', mode = 'buy') => {
         try {
           __QA.api.forceCityEntry(cityId);
           ui.marketOpen = true;
@@ -895,13 +895,22 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // base grass
     for (let i = 0; i < m.length; i++) m[i] = 0;
 
-    // add water band (north river)
-    for (let y = 10; y < 14; y++) {
-      for (let x = 0; x < MAP_W; x++) m[y * MAP_W + x] = 2;
+    // North river (spans map east of Valdenmere)
+    for (let y = 6; y < 9; y++) {
+      for (let x = 38; x < MAP_W; x++) m[y * MAP_W + x] = 2;
     }
-    // bridges
-    for (let y = 10; y < 14; y++) {
+    // North river bridge (road crosses at x:68-72)
+    for (let y = 6; y < 9; y++) {
       for (let x = 68; x < 72; x++) m[y * MAP_W + x] = 1;
+    }
+
+    // South river (crosses near Crosshaven)
+    for (let y = 60; y < 63; y++) {
+      for (let x = 0; x < 52; x++) m[y * MAP_W + x] = 2;
+    }
+    // South river bridge at x:28-32
+    for (let y = 60; y < 63; y++) {
+      for (let x = 26; x < 32; x++) m[y * MAP_W + x] = 1;
     }
 
     // rocks/walls border
@@ -916,30 +925,25 @@ function handleGlobalHudTap(clientX, clientY, e) {
       m[y*MAP_W + x] = 1;
     };
 
-    // City A region (Sunspire)
-    const cityA = { id:'sunspire', name:'Sunspire', x: 18, y: 26, w: 22, h: 16 };
-    // City B region (Gloomwharf)
-    const cityB = { id:'gloomwharf', name:'Gloomwharf', x: 96, y: 54, w: 26, h: 18 };
+    // ── CITIES ──────────────────────────────────────────────────────────────
+    // Valdenmere: large capital (NW)
+    const cityA = { id:'valdenmere', name:'Valdenmere', x: 8,  y: 8,  w: 28, h: 20 };
+    // Ashport: medium fishing port (SE)
+    const cityB = { id:'ashport',    name:'Ashport',    x: 96, y: 55, w: 24, h: 16 };
+    // Crosshaven: small crossroads village (S-center)
+    const cityC = { id:'crosshaven', name:'Crosshaven', x: 55, y: 65, w: 14, h: 10 };
+    // Ironholt: medium mining town (NE)
+    const cityD = { id:'ironholt',   name:'Ironholt',   x: 105, y: 14, w: 20, h: 14 };
 
     const paintCity = (c) => {
+      // City floor
       for (let yy = c.y; yy < c.y + c.h; yy++) {
         for (let xx = c.x; xx < c.x + c.w; xx++) {
           m[yy*MAP_W + xx] = 4;
         }
       }
 
-      // market stall (simple interaction point)
-      const mx = c.x + 4;
-      const my = c.y + 4;
-      m[my*MAP_W + mx] = 6;
-      m[my*MAP_W + (mx+1)] = 6;
-
-      // contracts board
-      const cx = c.x + 10;
-      const cy = c.y + 4;
-      m[cy*MAP_W + cx] = 12;
-
-      // simple wall border
+      // Wall border
       for (let xx = c.x; xx < c.x + c.w; xx++) {
         m[(c.y-1)*MAP_W + xx] = 3;
         m[(c.y+c.h)*MAP_W + xx] = 3;
@@ -948,23 +952,82 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[yy*MAP_W + (c.x-1)] = 3;
         m[yy*MAP_W + (c.x+c.w)] = 3;
       }
-      // gate (road entry) — wider for easier access
+
+      // Gate (south wall, wider for access)
       const gx = c.x + Math.floor(c.w/2);
       const gy = c.y + c.h;
       for (let ox = -2; ox <= 2; ox++) {
         m[gy*MAP_W + (gx + ox)] = 5;
         m[(gy+1)*MAP_W + (gx + ox)] = 1;
       }
+
+      // Market stall (tile 6)
+      const mx = c.x + Math.max(3, Math.floor(c.w * 0.18));
+      const my = c.y + Math.max(3, Math.floor(c.h * 0.22));
+      const mw = c.w >= 20 ? 3 : 2; // bigger cities get wider market
+      for (let ox = 0; ox < mw; ox++) m[my*MAP_W + (mx+ox)] = 6;
+
+      // Contracts board (tile 12)
+      const kx = c.x + Math.floor(c.w * 0.45);
+      const ky = c.y + Math.max(2, Math.floor(c.h * 0.22));
+      m[ky*MAP_W + kx] = 12;
+
+      // Inn / Tavern (tile 7) — near upper-right quadrant
+      if (c.w >= 14) {
+        const ix = c.x + Math.floor(c.w * 0.65);
+        const iy = c.y + Math.floor(c.h * 0.25);
+        m[iy*MAP_W + ix] = 7;
+        if (c.w >= 20) m[iy*MAP_W + (ix+1)] = 7; // bigger cities, 2-tile inn
+      }
+
+      // Warehouse / Storage (tile 8) — center-ish
+      if (c.w >= 14) {
+        const wx = c.x + Math.floor(c.w * 0.50);
+        const wy = c.y + Math.floor(c.h * 0.60);
+        m[wy*MAP_W + wx] = 8;
+        if (c.w >= 20) m[wy*MAP_W + (wx+1)] = 8;
+      }
+
+      // Cobblestone variety inside (tile 9) — scatter a few tiles
+      if (c.w >= 20) {
+        const spots = [[0.30, 0.50],[0.55, 0.75],[0.70, 0.45],[0.25, 0.70]];
+        for (const [fx, fy] of spots) {
+          const sx = c.x + Math.floor(c.w * fx);
+          const sy = c.y + Math.floor(c.h * fy);
+          if (m[sy*MAP_W + sx] === 4) m[sy*MAP_W + sx] = 9; // only on plain floor
+        }
+      }
+
       return { gx, gy };
     };
 
     const gateA = paintCity(cityA);
     const gateB = paintCity(cityB);
+    const gateC = paintCity(cityC);
+    const gateD = paintCity(cityD);
 
-    carveRoad(gateA.gx, gateA.gy+1, 70, 12);
+    // ── ROAD NETWORK ────────────────────────────────────────────────────────
+    // Valdenmere → bridge → Ironholt (N corridor)
+    carveRoad(gateA.gx, gateA.gy+1, 30, 30);  // exit south from Valdenmere
+    carveRoad(30, 30, 70, 28);                  // east across land
+    carveRoad(70, 28, 70, 12);                  // north to bridge
+    carveRoad(70, 12, 110, 12);                 // east to near Ironholt
+    carveRoad(110, 12, gateD.gx, gateD.gy+1);  // into Ironholt gate
 
-    // Branching detour: fork off the main road near the river crossing, loop through the NE lowlands,
-    // and rejoin the main route further east. Longer path, but has cache POIs.
+    // Valdenmere → south → Crosshaven (W-center road)
+    carveRoad(gateA.gx, gateA.gy+1, 28, 55);
+    carveRoad(28, 55, gateC.gx, gateC.gy+1);
+
+    // Crosshaven → east → Ashport (S road)
+    carveRoad(gateC.gx, gateC.gy+1, gateC.gx, 78);
+    carveRoad(gateC.gx, 78, 100, 78);
+    carveRoad(100, 78, gateB.gx, gateB.gy+1);
+
+    // Ironholt → south → Ashport (E corridor, adds trade route variety)
+    carveRoad(gateD.gx, gateD.gy+1, 112, 50);
+    carveRoad(112, 50, gateB.gx+4, gateB.gy+1);
+
+    // Detour cache route: NE lowlands fork
     carveRoad(74, 14, 92, 26);
     carveRoad(92, 26, 104, 40);
 
@@ -984,11 +1047,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
       }
     };
 
-    // place forests mostly in NW and SE, swamp near river lowlands
-    paintPatch(26, 18, 16, 10, 0.85);
-    paintPatch(108, 70, 18, 10, 0.80);
-    paintPatch(56, 18, 12, 11, 0.80);
-    paintPatch(86, 16, 10, 11, 0.75);
+    // Forests and swamp — spread across the new larger map
+    paintPatch(46, 38, 14, 10, 0.85);  // central forest
+    paintPatch(82, 72, 14, 10, 0.80);  // SE forest
+    paintPatch(18, 50, 10, 10, 0.78);  // W forest
+    paintPatch(90, 36, 10, 11, 0.75);  // NE swamp
+    paintPatch(44, 70, 8, 11, 0.80);   // S swamp near Crosshaven
 
     carveRoad(70, 12, gateB.gx, gateB.gy+1);
 
@@ -1018,10 +1082,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         );
         if (!nearRoad) continue;
 
-        // avoid city rectangles (with padding)
-        const inA = (x >= cityA.x-3 && x < cityA.x + cityA.w + 3 && y >= cityA.y-3 && y < cityA.y + cityA.h + 3);
-        const inB = (x >= cityB.x-3 && x < cityB.x + cityB.w + 3 && y >= cityB.y-3 && y < cityB.y + cityB.h + 3);
-        if (inA || inB) continue;
+        // avoid all city rectangles (with padding)
+        const inCity = [cityA, cityB, cityC, cityD].some(c =>
+          x >= c.x-3 && x < c.x + c.w + 3 && y >= c.y-3 && y < c.y + c.h + 3);
+        if (inCity) continue;
 
         m[i] = wantId;
         return;
@@ -1050,10 +1114,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // Prefer detour zone (NE-ish)
         if (!(x >= 74 && x <= 112 && y >= 14 && y <= 48)) continue;
 
-        // Avoid city rectangles
-        const inA = (x >= cityA.x-3 && x < cityA.x + cityA.w + 3 && y >= cityA.y-3 && y < cityA.y + cityA.h + 3);
-        const inB = (x >= cityB.x-3 && x < cityB.x + cityB.w + 3 && y >= cityB.y-3 && y < cityB.y + cityB.h + 3);
-        if (inA || inB) continue;
+        // Avoid all city rectangles
+        const inCityC = [cityA, cityB, cityC, cityD].some(c =>
+          x >= c.x-3 && x < c.x + c.w + 3 && y >= c.y-3 && y < c.y + c.h + 3);
+        if (inCityC) continue;
 
         m[i] = 13;
         return true;
@@ -1063,7 +1127,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     for (let i = 0; i < 3; i++) placeCache();
 
-    return { m, cityA, cityB };
+    return { m, cities: [cityA, cityB, cityC, cityD] };
   }
 
   const world = makeMap();
@@ -1110,47 +1174,81 @@ function handleGlobalHudTap(clientX, clientY, e) {
   const PERMIT_PRICE = 45;
 
   const CITY_RULES = {
-    sunspire: {
+    valdenmere: {
       taxRate: 0.18,
       inspectionChance: 0.65,
-      contraband: ['Cursed Relics', 'Demon Ink'],
+      contraband: ['Demon Ink'],
       fineBase: 18,
       finePerItem: 6,
-      vibe: 'Orderly. Safe. Expensive.'
+      vibe: 'Orderly. Taxed. Prestigious.'
     },
-    gloomwharf: {
+    ashport: {
       taxRate: 0.05,
       inspectionChance: 0.15,
       contraband: ['Blessed Water'],
       fineBase: 8,
       finePerItem: 3,
       vibe: 'Lawless. Profitable. Risky.'
-    }
+    },
+    crosshaven: {
+      taxRate: 0.03,
+      inspectionChance: 0.05,
+      contraband: [],
+      fineBase: 2,
+      finePerItem: 1,
+      vibe: 'Quiet. Dusty. Cheap.'
+    },
+    ironholt: {
+      taxRate: 0.10,
+      inspectionChance: 0.30,
+      contraband: ['Demon Ink'],
+      fineBase: 10,
+      finePerItem: 4,
+      vibe: 'Rough. Industrial. Busy.'
+    },
   };
 
   const CITY_NPCS = {
-    sunspire: [
-      { id: "sunspire_scribe", name: "Archivist Rowen", role: "scribe" },
-      { id: "sunspire_baker", name: "Mara the Baker", role: "baker" },
-      { id: "sunspire_guard", name: "Captain Venn", role: "guard" },
+    valdenmere: [
+      { id: "valdenmere_scribe", name: "Archivist Rowen", role: "scribe" },
+      { id: "valdenmere_baker", name: "Mara the Baker", role: "baker" },
+      { id: "valdenmere_guard", name: "Captain Venn", role: "guard" },
     ],
-    gloomwharf: [
-      { id: "gloomwharf_fisher", name: "Old Maren", role: "fisher" },
-      { id: "gloomwharf_smuggler", name: "Lira of the Docks", role: "smuggler" },
-      { id: "gloomwharf_broker", name: "Brusk the Broker", role: "broker" },
+    ashport: [
+      { id: "ashport_fisher", name: "Old Maren", role: "fisher" },
+      { id: "ashport_smuggler", name: "Lira of the Docks", role: "smuggler" },
+      { id: "ashport_broker", name: "Brusk the Broker", role: "broker" },
+    ],
+    crosshaven: [
+      { id: "crosshaven_innkeeper", name: "Bram the Innkeeper", role: "innkeeper" },
+      { id: "crosshaven_peddler", name: "Syla the Peddler", role: "peddler" },
+    ],
+    ironholt: [
+      { id: "ironholt_miner", name: "Dag the Miner", role: "miner" },
+      { id: "ironholt_foreman", name: "Boss Kira", role: "foreman" },
+      { id: "ironholt_smith", name: "Torven the Smith", role: "smith" },
     ],
   };
 
 const CITY_ENTITY_TEMPLATES = {
-  sunspire: [
-    { id: 'sunspire_scribe', role: 'scribe', style: 'scribe', speed: 26, radius: 6 },
-    { id: 'sunspire_baker', role: 'baker', style: 'baker', speed: 24, radius: 6 },
-    { id: 'sunspire_guard', role: 'guard', style: 'guard', speed: 28, radius: 7 },
+  valdenmere: [
+    { id: 'valdenmere_scribe', role: 'scribe', style: 'scribe', speed: 26, radius: 6 },
+    { id: 'valdenmere_baker', role: 'baker', style: 'baker', speed: 24, radius: 6 },
+    { id: 'valdenmere_guard', role: 'guard', style: 'guard', speed: 28, radius: 7 },
   ],
-  gloomwharf: [
-    { id: 'gloomwharf_fisher', role: 'fisher', style: 'fisher', speed: 24, radius: 6 },
-    { id: 'gloomwharf_smuggler', role: 'smuggler', style: 'smuggler', speed: 26, radius: 6 },
-    { id: 'gloomwharf_broker', role: 'broker', style: 'broker', speed: 25, radius: 6 },
+  ashport: [
+    { id: 'ashport_fisher', role: 'fisher', style: 'fisher', speed: 24, radius: 6 },
+    { id: 'ashport_smuggler', role: 'smuggler', style: 'smuggler', speed: 26, radius: 6 },
+    { id: 'ashport_broker', role: 'broker', style: 'broker', speed: 25, radius: 6 },
+  ],
+  crosshaven: [
+    { id: 'crosshaven_innkeeper', role: 'innkeeper', style: 'baker', speed: 22, radius: 6 },
+    { id: 'crosshaven_peddler', role: 'peddler', style: 'scribe', speed: 24, radius: 6 },
+  ],
+  ironholt: [
+    { id: 'ironholt_miner', role: 'miner', style: 'fisher', speed: 25, radius: 6 },
+    { id: 'ironholt_foreman', role: 'foreman', style: 'guard', speed: 26, radius: 7 },
+    { id: 'ironholt_smith', role: 'smith', style: 'broker', speed: 22, radius: 6 },
   ],
 };
 
@@ -1160,13 +1258,13 @@ const NPC_INTERACT_RADIUS = 18;
   const NPC_DIALOGUE_FIXTURE = {
   date: "fixture",
   cities: {
-    sunspire: {
+    valdenmere: {
       npcs: {
-        sunspire_scribe: [
+        valdenmere_scribe: [
           "Rowen: The archives are three days behind.",
           "Rowen: Taxes rose again after the last caravan.",
           "Rowen: A permit stamp can save you trouble.",
-          "Rowen: Sunspire keeps ledgers tighter than chains.",
+          "Rowen: Valdenmere keeps ledgers tighter than chains.",
           "Rowen: I can hear the market bell from here.",
           "Rowen: Merchants whisper about relics at dusk.",
           "Rowen: Every city has its price; ours is just honest.",
@@ -1174,22 +1272,22 @@ const NPC_INTERACT_RADIUS = 18;
           "Rowen: A clean manifest keeps your wagon moving.",
           "Rowen: The road is quiet when ink runs dry.",
   ],
-        sunspire_baker: [
+        valdenmere_baker: [
           "Mara: Fresh loaves for the road\u2014if you pay upfront.",
           "Mara: Flour is scarce, but rations still sell.",
           "Mara: Travelers love warm bread more than gold.",
-          "Mara: Sunspire ovens never sleep.",
+          "Mara: Valdenmere ovens never sleep.",
           "Mara: Bring herbs and I\u2019ll trade you a crust.",
           "Mara: The guards eat first; everyone else waits.",
           "Mara: Markets buzz louder than my ovens.",
           "Mara: A pinch of salt keeps spirits steady.",
-          "Mara: I saw a courier racing to Gloomwharf.",
+          "Mara: I saw a courier racing south to Crosshaven.",
           "Mara: Keep your pack light, keep your steps fast.",
   ],
-        sunspire_guard: [
+        valdenmere_guard: [
           "Venn: Papers ready? We don\u2019t bend for excuses.",
           "Venn: Contraband earns a night in the cells.",
-          "Venn: Sunspire\u2019s gates close at the third bell.",
+          "Venn: Valdenmere\u2019s gates close at the third bell.",
           "Venn: I\u2019ve seen more deals than duels.",
           "Venn: The road south is clear\u2014for now.",
           "Venn: Permits make inspections shorter.",
@@ -1200,43 +1298,111 @@ const NPC_INTERACT_RADIUS = 18;
   ],
       }
     },
-    gloomwharf: {
+    ashport: {
       npcs: {
-        gloomwharf_fisher: [
+        ashport_fisher: [
           "Maren: The tide brings profit and rot alike.",
           "Maren: Fish sells, if you can stomach the stink.",
-          "Maren: Gloomwharf taxes are light, but knives are not.",
+          "Maren: Ashport taxes are light, but knives are not.",
           "Maren: The docks remember every debt.",
           "Maren: I trade rumors for a clean hook.",
           "Maren: Storms hide smugglers better than fog.",
           "Maren: The market here answers to coin, not law.",
           "Maren: Keep your boots dry or lose a toe.",
-          "Maren: Sunspire men count coins; we count favors.",
+          "Maren: Valdenmere men count coins; we count favors.",
           "Maren: The sea doesn\u2019t care who you are.",
   ],
-        gloomwharf_smuggler: [
+        ashport_smuggler: [
           "Lira: If it fits under a cloak, it fits the law.",
-          "Lira: Gloomwharf\u2019s best deals happen after dark.",
+          "Lira: Ashport\u2019s best deals happen after dark.",
           "Lira: Don\u2019t ask where I found it.",
           "Lira: Contraband? That\u2019s just \u201crare stock\u201d here.",
           "Lira: The docks have eyes; pay them.",
           "Lira: I know a shortcut if you know a price.",
-          "Lira: Sunspire\u2019s rules make good black-market business.",
+          "Lira: Valdenmere\u2019s rules make good black-market business.",
           "Lira: Keep moving\u2014guards hate still shadows.",
           "Lira: I trade whispers for weightless goods.",
           "Lira: The fog hides more than ships.",
   ],
-        gloomwharf_broker: [
+        ashport_broker: [
           "Brusk: Prices swing like a pendulum\u2014watch it.",
           "Brusk: I can move ore faster than you can blink.",
           "Brusk: Contracts favor the bold, not the honest.",
-          "Brusk: Gloomwharf pays in silence.",
+          "Brusk: Ashport pays in silence.",
           "Brusk: Bring relics; I\u2019ll find a buyer.",
           "Brusk: Every deal leaves a footprint.",
           "Brusk: The road north bleeds profit if you rush.",
           "Brusk: Keep your numbers tight, your hands tighter.",
           "Brusk: I don\u2019t haggle\u2014time is the fee.",
           "Brusk: Markets here are sharp; come prepared.",
+  ],
+      }
+    },
+    crosshaven: {
+      npcs: {
+        crosshaven_innkeeper: [
+          "Bram: Bed and board, no questions asked.",
+          "Bram: The road north is clear today.",
+          "Bram: Pay upfront. Always.",
+          "Bram: Ironholt miners drink heavy but tip light.",
+          "Bram: Crosshaven sees all roads. I see all deals.",
+          "Bram: We\u2019re small, but we\u2019re on the map.",
+          "Bram: Travelers come through here like the seasons.",
+          "Bram: A warm hearth is worth more than a sword.",
+          "Bram: The east road gets rough after the rains.",
+          "Bram: Ask me anything; I won\u2019t remember telling you.",
+  ],
+        crosshaven_peddler: [
+          "Syla: I buy anything, sell anything.",
+          "Syla: Crosshaven sees all roads. I see all deals.",
+          "Syla: Herbs are cheap here if you know who to ask.",
+          "Syla: Valdenmere wants relics; Ironholt wants food.",
+          "Syla: I once sold a broken compass for twelve gold.",
+          "Syla: My cart is lighter than my secrets.",
+          "Syla: The best deals happen at dusk here.",
+          "Syla: Ashport\u2019s prices drop when the fleet returns.",
+          "Syla: A peddler\u2019s life: always moving, always watching.",
+          "Syla: Rations go fast when miners pass through.",
+  ],
+      }
+    },
+    ironholt: {
+      npcs: {
+        ironholt_miner: [
+          "Dag: Ten years underground, and still the sky surprises me.",
+          "Dag: Ore flows east this season.",
+          "Dag: Watch the shaft elevator \u2014 she sticks.",
+          "Dag: We dig hard so you can trade soft.",
+          "Dag: The seam goes deeper than the foreman admits.",
+          "Dag: Iron is patient. So am I.",
+          "Dag: They\u2019re hiring if your back is strong.",
+          "Dag: Keep away from the east shaft after dark.",
+          "Dag: Dust settles; debts don\u2019t.",
+          "Dag: Food\u2019s worth more than ore some weeks.",
+  ],
+        ironholt_foreman: [
+          "Boss Kira: Production is behind. Always behind.",
+          "Boss Kira: You want ore? Pay market rate or move on.",
+          "Boss Kira: No loitering near the smelter.",
+          "Boss Kira: Bring food and herbs; our stores run thin.",
+          "Boss Kira: The east vein is dry. Don\u2019t let that leave this yard.",
+          "Boss Kira: Ironholt doesn\u2019t do charity.",
+          "Boss Kira: Contracts are honored here, unlike Ashport.",
+          "Boss Kira: The smelter burns day and night.",
+          "Boss Kira: Lost two workers last week. Don\u2019t ask.",
+          "Boss Kira: Valdenmere\u2019s traders know where the good ore is.",
+  ],
+        ironholt_smith: [
+          "Torven: Steel remembers the hand that shaped it.",
+          "Torven: Good iron, if you need it.",
+          "Torven: The forge is always hungry.",
+          "Torven: I\u2019ve shod horses from here to Valdenmere.",
+          "Torven: Potions keep my hands from cracking in the cold.",
+          "Torven: A blade holds secrets longer than a man.",
+          "Torven: Ironholt ore is the finest on the road.",
+          "Torven: The market pays well when the army passes.",
+          "Torven: I don\u2019t sell\u2014I trade, if the metal\u2019s right.",
+          "Torven: Keep your tools sharper than your tongue.",
   ],
       }
     },
@@ -1278,7 +1444,8 @@ const NPC_INTERACT_RADIUS = 18;
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
     // 1..1e9-ish.
-    const a = cityId === 'sunspire' ? 1337 : 7331;
+    const seeds = { valdenmere: 1337, ashport: 7331, crosshaven: 4219, ironholt: 9901 };
+    const a = seeds[cityId] || 5555;
     return a;
   }
 
@@ -1366,7 +1533,9 @@ const NPC_INTERACT_RADIUS = 18;
     const want = randChoice(CONTRACT_ITEMS);
     // Higher tiers tend to request more goods.
     const qty = 1 + (Math.random() * (2 + tier) | 0);
-    const toId = fromId === 'sunspire' ? 'gloomwharf' : 'sunspire';
+    const allCities = ['valdenmere','ashport','crosshaven','ironholt'];
+    const others = allCities.filter(id => id !== fromId);
+    const toId = randChoice(others);
     const reward = rewardForContract(want, qty);
     return { fromId, toId, want, qty, reward, tier };
   }
@@ -1384,8 +1553,10 @@ const NPC_INTERACT_RADIUS = 18;
 
   const contracts = {
     byCity: {
-      sunspire: regenContractsForCity('sunspire'),
-      gloomwharf: regenContractsForCity('gloomwharf'),
+      valdenmere:  regenContractsForCity('valdenmere'),
+      ashport:     regenContractsForCity('ashport'),
+      crosshaven:  regenContractsForCity('crosshaven'),
+      ironholt:    regenContractsForCity('ironholt'),
     },
     active: null,
   };
@@ -1408,8 +1579,10 @@ const NPC_INTERACT_RADIUS = 18;
 
   // Simple, slow market drift by day (small per-item per-city multipliers)
   const marketDrift = {
-    sunspire: Object.fromEntries(ITEMS.map(it => [it.id, 1])),
-    gloomwharf: Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+    valdenmere:  Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+    ashport:     Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+    crosshaven:  Object.fromEntries(ITEMS.map(it => [it.id, 1])),
+    ironholt:    Object.fromEntries(ITEMS.map(it => [it.id, 1])),
   };
 
 function hashStr(s) {
@@ -1670,6 +1843,56 @@ function buildNpcWaypoints(role, city) {
         wp(market, 2000),
       ];
 
+    case 'innkeeper':
+      // Paces between inn and market, long pause at inn
+      return [
+        wp({ x: cx + cw * 0.65, y: cy + ch * 0.25 }, 3000), // at inn
+        wp(market, 1200),
+        wp(center, 800),
+        wp({ x: cx + cw * 0.65, y: cy + ch * 0.25 }, 2500),
+      ];
+
+    case 'peddler':
+      // Wanders all around city selling wares
+      return [
+        wp(market, 1500),
+        wp(center, 800),
+        wp({ x: cx + cw * 0.2, y: cy + ch * 0.7 }, 600),
+        wp({ x: cx + cw * 0.75, y: cy + ch * 0.65 }, 600),
+        wp(gate, 800),
+        wp(market, 1200),
+      ];
+
+    case 'miner':
+      // Short patrol: warehouse → gate → back
+      return [
+        wp({ x: cx + cw * 0.50, y: cy + ch * 0.60 }, 1500), // warehouse
+        wp(gate, 600),
+        wp(center, 700),
+        wp({ x: cx + cw * 0.50, y: cy + ch * 0.60 }, 2000),
+      ];
+
+    case 'foreman':
+      // Big patrol loop around the whole city
+      return [
+        wp(gate, 1000),
+        wp(wallNW, 500),
+        wp({ x: cx + cw * 0.50, y: cy + ch * 0.60 }, 800), // warehouse check
+        wp(wallNE, 500),
+        wp(wallSE, 500),
+        wp(market, 1000),
+        wp(gate, 800),
+      ];
+
+    case 'smith':
+      // Stays near warehouse/forge, occasional market walk
+      return [
+        wp({ x: cx + cw * 0.50, y: cy + ch * 0.60 }, 3500), // forge
+        wp({ x: cx + cw * 0.52, y: cy + ch * 0.62 }, 500),  // pacing
+        wp(market, 1200),
+        wp({ x: cx + cw * 0.50, y: cy + ch * 0.60 }, 3000),
+      ];
+
     default:
       // Fallback: simple 4-corner wander
       return [
@@ -1903,7 +2126,7 @@ function npcDiagTick(dt) {
 
   if (d.state === 'init') {
     ui.marketOpen = false; ui.contractsOpen = false; ui.eventOpen = false;
-    const c = getCityById('sunspire') || currentCity();
+    const c = getCityById('valdenmere') || currentCity();
     if (!c) { d.note = 'no city'; return; }
     player.x = (c.x + Math.floor(c.w / 2)) * TILE;
     player.y = (c.y + Math.floor(c.h / 2)) * TILE;
@@ -2041,7 +2264,8 @@ const INTEL_EXPIRY_DAYS = 4; // intel is valid for 4 days
 
 /** Generate an intel tip from npc at cityId */
 function generateIntel(npc, cityId) {
-  const otherCity = cityId === 'sunspire' ? 'gloomwharf' : 'sunspire';
+  const otherCities = world.cities.filter(c => c.id !== cityId);
+  const otherCity = (otherCities[Math.floor(rand01() * otherCities.length)] || world.cities[1]).id;
   // Pick a random item
   const item = ITEMS[Math.floor(rand01() * ITEMS.length)];
   const currentPrice = priceFor(otherCity, item);
@@ -2059,7 +2283,7 @@ function generateIntel(npc, cityId) {
     item: item.id,
     itemName: item.name,
     cityId: otherCity,
-    cityName: otherCity === 'sunspire' ? 'Sunspire' : 'Gloomwharf',
+    cityName: getCityById(otherCity)?.name || otherCity,
     predictedPrice: predicted,
     truePrice: currentPrice,
     direction,
@@ -2501,7 +2725,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.15',
+    version: 'v0.2.0',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -3159,8 +3383,8 @@ function drawNpcBubble() {
   }
 
   const player = {
-    x: (world.cityA.x + world.cityA.w/2) * TILE,
-    y: (world.cityA.y + world.cityA.h + 4) * TILE,
+    x: (world.cities[0].x + world.cities[0].w/2) * TILE,
+    y: (world.cities[0].y + world.cities[0].h/2) * TILE,
     r: 8,
     vx: 0,
     vy: 0,
@@ -3179,8 +3403,8 @@ function drawNpcBubble() {
     moveStallX: 0,
     moveStallY: 0,
 
-    rep: { sunspire: 0, gloomwharf: 0 },
-    permits: { sunspire: false, gloomwharf: false },
+    rep: { valdenmere: 0, ashport: 0, crosshaven: 0, ironholt: 0 },
+    permits: { valdenmere: false, ashport: false, crosshaven: false, ironholt: false },
 
     // Intelligence Market: purchased intel cards
     intelLedger: [], // [{id, item, cityId, predictedPrice, direction, boughtDay, expiryDay, reliable, sold, verified}]
@@ -3223,10 +3447,9 @@ function drawNpcBubble() {
         intelSells: player.intelSells || 0,
       },
       time: { ...time },
-      marketDrift: {
-        sunspire: { ...marketDrift.sunspire },
-        gloomwharf: { ...marketDrift.gloomwharf },
-      },
+      marketDrift: Object.fromEntries(
+        Object.keys(marketDrift).map(cid => [cid, { ...marketDrift[cid] }])
+      ),
       contracts: {
         active: contracts.active ? { ...contracts.active } : null,
       },
@@ -3287,8 +3510,7 @@ function drawNpcBubble() {
     if (s.marketDrift !== undefined) {
       if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
       else {
-        if (!isObj(s.marketDrift.sunspire)) errors.push('marketDrift.sunspire must be object');
-        if (!isObj(s.marketDrift.gloomwharf)) errors.push('marketDrift.gloomwharf must be object');
+        if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
       }
     }
 
@@ -3327,12 +3549,26 @@ function drawNpcBubble() {
 
       s.player ||= {};
       s.player.inv ||= {};
-      s.player.rep ||= { sunspire: 0, gloomwharf: 0 };
-      s.player.permits ||= { sunspire: false, gloomwharf: false };
+      // Migration: old saves used sunspire/gloomwharf ids
+      if (s.player.rep?.sunspire !== undefined) { s.player.rep.valdenmere = s.player.rep.sunspire; delete s.player.rep.sunspire; }
+      if (s.player.rep?.gloomwharf !== undefined) { s.player.rep.ashport = s.player.rep.gloomwharf; delete s.player.rep.gloomwharf; }
+      if (s.player.permits?.sunspire !== undefined) { s.player.permits.valdenmere = s.player.permits.sunspire; delete s.player.permits.sunspire; }
+      if (s.player.permits?.gloomwharf !== undefined) { s.player.permits.ashport = s.player.permits.gloomwharf; delete s.player.permits.gloomwharf; }
+      s.player.rep ||= { valdenmere: 0, ashport: 0, crosshaven: 0, ironholt: 0 };
+      s.player.permits ||= { valdenmere: false, ashport: false, crosshaven: false, ironholt: false };
+      // Ensure all city keys exist
+      for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) {
+        s.player.rep[cid] ??= 0;
+        s.player.permits[cid] ??= false;
+      }
       s.player.facing ||= { x: 0, y: 1 };
 
       s.time ||= { day: 1, frac: 0, seed: 1 };
-      s.marketDrift ||= { sunspire: {}, gloomwharf: {} };
+      s.marketDrift ||= {};
+      for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) s.marketDrift[cid] ||= {};
+      // Migrate old city keys
+      if (s.marketDrift.sunspire) { s.marketDrift.valdenmere = s.marketDrift.sunspire; delete s.marketDrift.sunspire; }
+      if (s.marketDrift.gloomwharf) { s.marketDrift.ashport = s.marketDrift.gloomwharf; delete s.marketDrift.gloomwharf; }
 
       s.contracts ||= { active: null };
       if (s.contracts.active === undefined) s.contracts.active = null;
@@ -3376,8 +3612,9 @@ function drawNpcBubble() {
       // Restore time
       Object.assign(time, state.time);
       // Restore market drift
-      if (state.marketDrift?.sunspire) Object.assign(marketDrift.sunspire, state.marketDrift.sunspire);
-      if (state.marketDrift?.gloomwharf) Object.assign(marketDrift.gloomwharf, state.marketDrift.gloomwharf);
+      for (const cid of Object.keys(marketDrift)) {
+        if (state.marketDrift?.[cid]) Object.assign(marketDrift[cid], state.marketDrift[cid]);
+      }
       // Restore contracts
       contracts.active = state.contracts?.active || null;
 
@@ -3436,10 +3673,14 @@ function drawNpcBubble() {
   }
 
   function priceFor(cityId, item) {
-    // Simple city multipliers (data-driven later)
-    const mult = cityId === 'sunspire'
-      ? (item.id === 'potion' ? 0.8 : item.id === 'ore' ? 1.2 : 1.0)
-      : (item.id === 'relic' ? 1.25 : item.id === 'food' ? 0.85 : 1.05);
+    // City-specific price multipliers
+    const mults = {
+      valdenmere: { food: 1.0, ore: 1.2, herbs: 1.0, potion: 0.8, relic: 1.1, ink: 0.9 },
+      ashport:    { food: 0.85, ore: 1.0, herbs: 1.05, potion: 1.0, relic: 1.25, ink: 1.15 },
+      crosshaven: { food: 0.75, ore: 1.1, herbs: 0.9, potion: 0.95, relic: 0.9, ink: 1.0 },
+      ironholt:   { food: 1.3, ore: 0.65, herbs: 1.2, potion: 1.1, relic: 0.85, ink: 0.8 },
+    };
+    const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
     // tiny wobble so it feels alive
     const wob = 0.95 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.04;
     const drift = (marketDrift[cityId] && marketDrift[cityId][item.id]) ? marketDrift[cityId][item.id] : 1;
@@ -3499,9 +3740,7 @@ function drawNpcBubble() {
 
 
   function getCityById(id) {
-    if (id === world.cityA.id) return world.cityA;
-    if (id === world.cityB.id) return world.cityB;
-    return null;
+    return world.cities.find(c => c.id === id) || null;
   }
 
   function cityName(id) {
@@ -3514,9 +3753,10 @@ function drawNpcBubble() {
     const c = getCityById(id);
     if (!c) return [];
 
-    // Always-true rumors derived from actual computed prices.
-    const other = (id === 'sunspire') ? 'gloomwharf' : 'sunspire';
-    const otherC = getCityById(other);
+    // Always-true rumors derived from actual computed prices vs another city.
+    const others = world.cities.filter(c => c.id !== id);
+    const otherC = others[Math.floor(others.length * ((hashStr(id + String(Math.floor(time.day))) % 100) / 100))] || others[0];
+    const other = otherC ? otherC.id : id;
 
     const list = [];
     for (const it of ITEMS) {
@@ -3551,10 +3791,9 @@ function drawNpcBubble() {
   function currentCity() {
     const px = player.x / TILE;
     const py = player.y / TILE;
-    const cA = world.cityA;
-    const cB = world.cityB;
-    if (px >= cA.x && px < cA.x + cA.w && py >= cA.y && py < cA.y + cA.h) return cA;
-    if (px >= cB.x && px < cB.x + cB.w && py >= cB.y && py < cB.y + cB.h) return cB;
+    for (const c of world.cities) {
+      if (px >= c.x && px < c.x + c.w && py >= c.y && py < c.y + c.h) return c;
+    }
     return null;
   }
 
@@ -3841,7 +4080,11 @@ function drawNpcBubble() {
     road.travel = 0;
     road.cooldown = 6.0;
 
-    const kind = randChoice(['bandits', 'toll', 'storm', 'omen', 'escort']);
+    const kind = randChoice([
+      'bandits', 'toll', 'storm', 'omen', 'escort',
+      'wandering_merchant', 'wounded_soldier', 'plague_cart',
+      'lost_cargo', 'wild_animal',
+    ]);
 
     if (kind === 'bandits') {
       openEvent({
@@ -3915,12 +4158,10 @@ function drawNpcBubble() {
     });
 
     if (kind === 'omen') {
-      // Good omen: small windfall
       const g = 5 + Math.floor(rand01() * 8);
       player.gold += g;
       toast(`Good omen on the road! Found ${g}g.`, 2.4);
       closeEvent();
-
       return;
     }
 
@@ -3929,16 +4170,144 @@ function drawNpcBubble() {
         title: 'Merchant Escort',
         text: 'A nervous merchant asks for protection through a rough stretch. Tip: 8g.',
         choices: [
-          { label: 'Escort (+8g)', run: () => {
-              player.gold += 8;
-              toast('You escort the merchant safely. (+8g)', 2.4);
-              closeEvent();
-            }
-          },
+          { label: 'Escort (+8g)', run: () => { player.gold += 8; toast('You escort the merchant safely. (+8g)', 2.4); closeEvent(); } },
           { label: 'Decline', run: () => { toast('The merchant finds others.', 2); closeEvent(); } },
         ],
       });
+      return;
+    }
 
+    if (kind === 'wandering_merchant') {
+      const it = ITEMS[Math.floor(rand01() * ITEMS.length)];
+      const nearCityId = (world.cities.length > 0) ? world.cities[Math.floor(rand01() * world.cities.length)].id : 'valdenmere';
+      const fullPrice = priceFor(nearCityId, it);
+      const discountPrice = Math.max(1, Math.round(fullPrice * 0.80));
+      openEvent({
+        title: 'Wandering Merchant',
+        text: `A road merchant offers ${it.name} at a discount — ${discountPrice}g each (market is ~${fullPrice}g).`,
+        choices: [
+          { label: `Buy 1 for ${discountPrice}g`, run: () => {
+              if (player.gold < discountPrice) { toast('Not enough gold.', 2); closeEvent(); return; }
+              const w = invWeight() + it.weight;
+              if (w > player.capacity) { toast('No room in your pack.', 2); closeEvent(); return; }
+              player.gold -= discountPrice;
+              player.inv[it.id] = (player.inv[it.id] || 0) + 1;
+              toast(`Bought 1 ${it.name} for ${discountPrice}g.`, 2.5);
+              closeEvent();
+            }
+          },
+          { label: 'Pass', run: closeEvent },
+        ],
+      });
+      return;
+    }
+
+    if (kind === 'wounded_soldier') {
+      openEvent({
+        title: 'Wounded Soldier',
+        text: 'A soldier collapsed on the road, uniform torn. He needs food and rest.',
+        choices: [
+          { label: 'Help (spend 1 ration)', run: () => {
+              if ((player.inv['food'] || 0) < 1) { toast('No rations to spare.', 2); closeEvent(); return; }
+              player.inv['food'] -= 1;
+              const nearCity = currentCity() || world.cities[0];
+              player.rep[nearCity.id] = (player.rep[nearCity.id] || 0) + 2;
+              toast(`You helped the soldier. +2 rep in ${nearCity.name}.`, 3);
+              closeEvent();
+            }
+          },
+          { label: 'Ignore and move on', run: () => { toast('You walk past. The road feels heavier.', 2.5); closeEvent(); } },
+        ],
+      });
+      return;
+    }
+
+    if (kind === 'plague_cart') {
+      openEvent({
+        title: 'Quarantine Barrier',
+        text: 'Guards in masks block the road — a plague cart passed through. Pay a 15g disinfection fee, or wait it out.',
+        choices: [
+          { label: 'Pay 15g to pass', run: () => {
+              const paid = Math.min(player.gold, 15);
+              player.gold -= paid;
+              toast(`Paid ${paid}g. You continue onward.`, 2.4);
+              closeEvent();
+            }
+          },
+          { label: 'Wait (lose 1 day)', run: () => {
+              advanceDays(1, 'quarantine wait');
+              toast('You wait at camp. The road clears by morning.', 3);
+              closeEvent();
+            }
+          },
+        ],
+      });
+      return;
+    }
+
+    if (kind === 'lost_cargo') {
+      openEvent({
+        title: 'Abandoned Crate',
+        text: 'A sealed crate sits in the ditch, no markings. Might be valuable — or dangerous.',
+        choices: [
+          { label: 'Open it', run: () => {
+              const r = rand01();
+              if (r < 0.5) {
+                const pool = ['potion','herbs','relic'];
+                const itId = pool[Math.floor(rand01() * pool.length)];
+                const it2 = ITEMS.find(x => x.id === itId);
+                player.inv[itId] = (player.inv[itId] || 0) + 1;
+                toast(`Found 1 ${it2 ? it2.name : itId}!`, 2.6);
+              } else if (r < 0.8) {
+                const loss = 8 + Math.floor(rand01() * 10);
+                const paid = Math.min(player.gold, loss);
+                player.gold -= paid;
+                toast(`Booby-trapped! Lost ${paid}g dealing with it.`, 3);
+              } else {
+                toast('Just hay and broken glass. Nothing useful.', 2.2);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Leave it', run: closeEvent },
+        ],
+      });
+      return;
+    }
+
+    if (kind === 'wild_animal') {
+      openEvent({
+        title: 'Wolf Pack',
+        text: 'A hungry wolf pack circles the road ahead, blocking your path.',
+        choices: [
+          { label: 'Flee (drop 1 ration)', run: () => {
+              if ((player.inv['food'] || 0) > 0) {
+                player.inv['food'] -= 1;
+                toast('You flee, tossing a ration behind you. They take the bait.', 3);
+              } else {
+                const g = Math.min(player.gold, 6);
+                player.gold -= g;
+                toast(`Nothing to drop! They chase you. Lost ${g}g in the confusion.`, 3.2);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Fight them off', run: () => {
+              if (rand01() < 0.52) {
+                const g = 4 + Math.floor(rand01() * 8);
+                player.gold += g;
+                toast(`You drove them off! Sold the pelt for ${g}g.`, 2.8);
+              } else {
+                const hurt = 8 + Math.floor(rand01() * 10);
+                const paid = Math.min(player.gold, hurt);
+                player.gold -= paid;
+                toast(`Bitten badly. Lost ${paid}g on road-side medicine.`, 3);
+              }
+              closeEvent();
+            }
+          },
+        ],
+      });
       return;
     }
   }
@@ -5688,7 +6057,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // Buy should schedule autosave and persist the updated state
       __QA.api.setPlayer({ gold: 120, inv: { food: 0 }, capacity: 999 });
       const beforeBuy = __QA.api.snapshot();
-      const buyR = __QA.api.marketBuy('food', 1, 'sunspire');
+      const buyR = __QA.api.marketBuy('food', 1, 'valdenmere');
       assert(buyR.ok === true, 'marketBuy should succeed');
       assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after buy');
       const buySave = __QA.api.readSave();
@@ -5699,7 +6068,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       __QA.api.clearSave();
       __QA.api.setPlayer({ gold: 50, inv: { food: 2 }, capacity: 999 });
       const beforeSell = __QA.api.snapshot();
-      const sellR = __QA.api.marketSell('food', 1, 'sunspire');
+      const sellR = __QA.api.marketSell('food', 1, 'valdenmere');
       assert(sellR.ok === true, 'marketSell should succeed');
       assert(__QA.api.flushAutosave() === true, 'autosave should be scheduled after sell');
       const sellSave = __QA.api.readSave();
@@ -5709,7 +6078,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // Failed buy should not schedule autosave
       __QA.api.clearSave();
       __QA.api.setPlayer({ gold: 0, inv: { food: 0 }, capacity: 999 });
-      const badBuy = __QA.api.marketBuy('food', 1, 'sunspire');
+      const badBuy = __QA.api.marketBuy('food', 1, 'valdenmere');
       assert(badBuy.ok === false, 'marketBuy should fail with insufficient gold');
       assert(__QA.api.flushAutosave() === false, 'no autosave should be scheduled after failed buy');
       assert(__QA.api.readSaveRaw() === null, 'no save should be written after failed buy');
@@ -5729,25 +6098,25 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
       // --- Contracts rep/permit tiers QA
       {
-        __QA.api.setRep('sunspire', 0);
-        __QA.api.regenContracts('sunspire');
-        const vis0 = __QA.api.listVisibleContracts('sunspire');
+        __QA.api.setRep('valdenmere', 0);
+        __QA.api.regenContracts('valdenmere');
+        const vis0 = __QA.api.listVisibleContracts('valdenmere');
         assert(vis0.every(j => (j.tier ?? 0) <= 0), 'rep=0 should only show tier0 contracts');
 
-        __QA.api.setRep('sunspire', 3);
-        const vis1 = __QA.api.listVisibleContracts('sunspire');
+        __QA.api.setRep('valdenmere', 3);
+        const vis1 = __QA.api.listVisibleContracts('valdenmere');
         assert(vis1.some(j => (j.tier ?? 0) === 1) || vis1.length === 0, 'rep=3 should allow tier1 contracts');
 
-        __QA.api.setRep('sunspire', 7);
-        const vis2 = __QA.api.listVisibleContracts('sunspire');
+        __QA.api.setRep('valdenmere', 7);
+        const vis2 = __QA.api.listVisibleContracts('valdenmere');
         assert(vis2.some(j => (j.tier ?? 0) === 2) || vis2.length === 0, 'rep=7 should allow tier2 contracts');
 
         // Reward math: permit should increase reward.
-        __QA.api.setRep('sunspire', 0);
-        __QA.api.setPermit('sunspire', false);
-        const rNo = contractRewardForAccept('sunspire', 100, 0);
-        __QA.api.setPermit('sunspire', true);
-        const rYes = contractRewardForAccept('sunspire', 100, 0);
+        __QA.api.setRep('valdenmere', 0);
+        __QA.api.setPermit('valdenmere', false);
+        const rNo = contractRewardForAccept('valdenmere', 100, 0);
+        __QA.api.setPermit('valdenmere', true);
+        const rYes = contractRewardForAccept('valdenmere', 100, 0);
         assert(rYes > rNo, 'permit should increase contract reward');
       }
 
@@ -5785,13 +6154,13 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // --- Market Rumors QA (deterministic, always true)
       {
         __QA.api.setTime({ day: 20, frac: 0, seed: 7 });
-        const r1 = __QA.api.getRumors('sunspire');
-        const r2 = __QA.api.getRumors('sunspire');
-        assert(Array.isArray(r1) && r1.length === 2, 'sunspire should return exactly 2 rumors');
+        const r1 = __QA.api.getRumors('valdenmere');
+        const r2 = __QA.api.getRumors('valdenmere');
+        assert(Array.isArray(r1) && r1.length === 2, 'valdenmere should return exactly 2 rumors');
         assert(JSON.stringify(r1) === JSON.stringify(r2), 'rumors should be stable across repeated calls');
 
         __QA.api.travelDays(1);
-        const r3 = __QA.api.getRumors('sunspire');
+        const r3 = __QA.api.getRumors('valdenmere');
         assert(JSON.stringify(r3) !== JSON.stringify(r1), 'rumors should change after day advances (most days)');
       }
 
@@ -5800,12 +6169,12 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         try { localStorage.removeItem(NPC_CACHE_KEY); } catch {}
         __QA.api.setTime({ day: 12, frac: 0, seed: 7 });
 
-        const lines = __QA.api.getNpcLines('sunspire', 'sunspire_scribe');
+        const lines = __QA.api.getNpcLines('valdenmere', 'valdenmere_scribe');
         assert(Array.isArray(lines) && lines.length === 10, 'npc lines should be 10');
         assert(lines.every(s => typeof s === 'string' && s.trim().length > 0), 'npc lines should be non-empty strings');
 
-        const panel = __QA.api.getNpcPanel('sunspire');
-        assert(Array.isArray(panel) && panel.length === 3, 'npc panel should return 3 npcs for sunspire');
+        const panel = __QA.api.getNpcPanel('valdenmere');
+        assert(Array.isArray(panel) && panel.length === 3, 'npc panel should return 3 npcs for valdenmere');
         assert(panel.every(r => typeof r.line === 'string' && r.line.trim().length > 0), 'npc panel lines should be non-empty');
 
         const day0 = __QA.api.getNpcCacheDay();
@@ -5822,11 +6191,11 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 {
   __QA.api.clearNpcBubble();
   __QA.api.setTime({ day: 15, frac: 0, seed: 3 });
-  __QA.api.teleportToCity('sunspire');
-  __QA.api.spawnCityNPCs('sunspire');
+  __QA.api.teleportToCity('valdenmere');
+  __QA.api.spawnCityNPCs('valdenmere');
 
   const walkers = __QA.api.getNpcEntities();
-  assert(Array.isArray(walkers) && walkers.length === 3, 'sunspire should spawn 3 NPC walkers');
+  assert(Array.isArray(walkers) && walkers.length === 3, 'valdenmere should spawn 3 NPC walkers');
   assert(walkers.every(w => w.bounds && Number.isFinite(w.x) && Number.isFinite(w.y)), 'NPC walkers should have bounds and positions');
   assert(walkers.every(w => w.x >= w.bounds.x1 && w.x <= w.bounds.x2 && w.y >= w.bounds.y1 && w.y <= w.bounds.y2), 'NPC walkers spawn within bounds');
 
@@ -5839,7 +6208,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   assert(__QA.api.interactNpc(target.id) === true, 'interacting with nearby NPC should succeed');
   const bubble = __QA.api.getNpcBubble();
   assert(!!bubble && typeof bubble.text === 'string' && bubble.text.length > 0, 'NPC bubble should appear with text');
-  const lines = __QA.api.getNpcLines('sunspire', target.id);
+  const lines = __QA.api.getNpcLines('valdenmere', target.id);
   assert(lines.includes(bubble.text), 'bubble text should come from npc lines');
 
   const dxp = player.x - target.x;
@@ -5856,8 +6225,8 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 // --- NPC bubble bounds (mobile-safe)
 {
   __QA.api.setTime({ day: 16, frac: 0, seed: 2 });
-  __QA.api.teleportToCity('sunspire');
-  __QA.api.spawnCityNPCs('sunspire');
+  __QA.api.teleportToCity('valdenmere');
+  __QA.api.spawnCityNPCs('valdenmere');
   const walkers = __QA.api.getNpcEntities();
   const target = walkers[0];
   __QA.api.setPlayer({ x: target.x, y: target.y });
@@ -5945,11 +6314,11 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         const qty = 2;
         const reward = 33;
         __QA.api.setPlayer({ inv: { [want]: qty } });
-        assert(__QA.api.setActiveContract({ fromId: 'sunspire', toId: 'gloomwharf', want, qty, reward }) === true, 'setActiveContract should succeed');
+        assert(__QA.api.setActiveContract({ fromId: 'valdenmere', toId: 'ashport', want, qty, reward }) === true, 'setActiveContract should succeed');
         const before = __QA.api.snapshot();
 
         // Enter destination city and process entry logic.
-        assert(__QA.api.forceCityEntry('gloomwharf') === true, 'forceCityEntry gloomwharf should succeed');
+        assert(__QA.api.forceCityEntry('ashport') === true, 'forceCityEntry ashport should succeed');
 
         assert(contracts.active === null, 'contract should be cleared after successful delivery');
         assert((player.inv[want] || 0) === (before.player.inv[want] || 0) - qty, 'delivered goods should be removed from inventory');
@@ -5982,13 +6351,13 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         const want = 'ore';
         const qty = 2;
         const reward = 33;
-        assert(__QA.api.setActiveContract({ fromId: 'sunspire', toId: 'gloomwharf', want, qty, reward }) === true, 'setActiveContract should succeed (insufficient case)');
+        assert(__QA.api.setActiveContract({ fromId: 'valdenmere', toId: 'ashport', want, qty, reward }) === true, 'setActiveContract should succeed (insufficient case)');
         const before = __QA.api.snapshot();
 
-        assert(__QA.api.forceCityEntry('gloomwharf') === true, 'forceCityEntry gloomwharf should succeed (insufficient case)');
+        assert(__QA.api.forceCityEntry('ashport') === true, 'forceCityEntry ashport should succeed (insufficient case)');
 
         assert(!!contracts.active, 'contract should remain active when insufficient goods');
-        assert(contracts.active.want === want && contracts.active.qty === qty && contracts.active.toId === 'gloomwharf', 'active contract should remain unchanged');
+        assert(contracts.active.want === want && contracts.active.qty === qty && contracts.active.toId === 'ashport', 'active contract should remain unchanged');
         assert((player.inv[want] || 0) === (before.player.inv[want] || 0), 'inventory should not change when insufficient goods');
         assert(player.gold === before.player.gold, 'gold should not change when insufficient goods');
 
