@@ -1,5 +1,17 @@
 # Iteration Log — The Charter Road
 
+## v0.2.1 — 2026-03-14
+- Buildings: full pixel-art redraw for all city tile types.
+- Market stall (tile 6): amber awning, display counter, colored goods, sign.
+- Inn/Tavern (tile 7): timber-frame walls, thatched roof, animated warm window glow, door.
+- Warehouse (tile 8 in city): stone blocks, flat slate roof, double loading doors.
+- Camp (tile 8 on road): tent with door + animated campfire.
+- Contracts board (tile 12): wooden post, parchment notices with text lines, official green seal.
+- City floor (tile 4): cobblestone with mortar grid lines and stone highlights.
+- Cobblestone plaza (tile 9): 3×3 large-block pattern with individual stone shading.
+- Stone wall (tile 3): battlements on top edge, horizontal mortar, block highlights.
+- Gate (tile 5): stone arch with portcullis bars and dark passage.
+
 ## v0.2.0 — 2026-03-14
 - **Rebrand**: "The Charter Road" → "The Amber Road".
 - **4 cities** (was 2): Valdenmere (large capital), Ashport (port), Crosshaven (small crossroads), Ironholt (mining town).

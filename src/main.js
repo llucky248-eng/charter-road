@@ -2725,7 +2725,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.0',
+    version: 'v0.2.1',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -4458,114 +4458,198 @@ function drawNpcBubble() {
     }
 
     if (id === 3) {
-      ctx.fillStyle = '#3b3f4a';
+      // Stone wall — with battlements on top, beveled blocks
+      const n = hash2(tx, ty);
+      const wallBase = n < 0.5 ? '#484e5c' : '#404654';
+      ctx.fillStyle = wallBase;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      // Horizontal mortar line
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
+      // Block highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(x+1, y+1, TILE-2, 2);
+      ctx.fillRect(x+1, y+Math.floor(TILE/2)+1, TILE-2, 2);
+      // Battlements on top row of walls (decorative notch)
+      if (tileAt(tx, ty-1) !== 3) {
+        ctx.fillStyle = '#2e333d';
+        ctx.fillRect(x, y, Math.floor(TILE/3), 3);
+        ctx.fillRect(x+Math.floor(TILE*2/3), y, Math.floor(TILE/3)+1, 3);
+      }
       return;
     }
 
     if (id === 4) {
+      // City floor — cobblestone with mortar lines
       const n = hash2(tx, ty);
-      ctx.fillStyle = n < 0.5 ? '#5b4b3a' : '#5f4f3d';
+      const base = n < 0.33 ? '#6b5642' : (n < 0.66 ? '#5f4e3c' : '#645446');
+      ctx.fillStyle = base;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(x, y, TILE, 1);
-      ctx.fillRect(x, y, 1, TILE);
-
-      // cobble accents
-      if (n > 0.78) {
-        ctx.fillStyle = 'rgba(0,0,0,0.10)';
-        ctx.fillRect(x + 3, y + 3, 4, 3);
-        ctx.fillRect(x + 9, y + 9, 3, 4);
-      }
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      // mortar grid
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
+      ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
+      // stone highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillRect(x + 1, y + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
+      ctx.fillRect(x + Math.floor(TILE/2) + 1, y + Math.floor(TILE/2) + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
       return;
     }
 
     if (id === 5) {
-      ctx.fillStyle = '#5b4b3a';
+      // Gate arch — stone archway with portcullis bars
+      ctx.fillStyle = '#4a3f2e';
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#c7a36a';
-      ctx.fillRect(x+2, y+4, TILE-4, TILE-8);
-      ctx.fillStyle = '#2a1f14';
-      ctx.fillRect(x+5, y+6, TILE-10, TILE-12);
-      ctx.fillStyle = 'rgba(56,189,248,0.18)';
-      ctx.fillRect(x+6, y+4, TILE-12, 2);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      // arch body
+      ctx.fillStyle = '#8b7355';
+      ctx.fillRect(x+1, y+2, TILE-2, TILE-4);
+      // arch opening (dark passage)
+      ctx.fillStyle = '#1a1208';
+      ctx.fillRect(x+4, y+4, TILE-8, TILE-6);
+      // portcullis bars
+      ctx.fillStyle = '#5a4a30';
+      for (let bx = x+5; bx < x+TILE-4; bx += 3) {
+        ctx.fillRect(bx, y+4, 1, TILE-7);
+      }
+      // stone highlight top
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x+1, y+2, TILE-2, 1);
       return;
     }
 
     if (id === 6) {
-      ctx.fillStyle = '#5b4b3a';
+      // Market stall — wooden awning + hanging goods + counter
+      // Floor
+      ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#eab308';
-      ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
-      ctx.fillStyle = '#0b0f14';
-      ctx.fillRect(x+4, y+6, TILE-8, 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
-      ctx.fillRect(x+3, y+3, TILE-6, 1);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
-      return;
-    }
-
-    if (id === 7) { // shrine
-      ctx.fillStyle = '#5b4b3a';
-      ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#a78bfa';
-      ctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.22)';
-      ctx.fillRect(x + 5, y + 4, TILE - 10, 2);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
-      return;
-    }
-
-    if (id === 8) { // camp
-      ctx.fillStyle = '#5b4b3a';
-      ctx.fillRect(x, y, TILE, TILE);
+      // Back wall of stall
+      ctx.fillStyle = '#8b6914';
+      ctx.fillRect(x+1, y+1, TILE-2, TILE-5);
+      // Roof/awning (amber yellow, slanted feel)
       ctx.fillStyle = '#d97706';
+      ctx.fillRect(x, y, TILE, 4);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(x+1, y+1, TILE-2, 2);
+      // Counter / display shelf
+      ctx.fillStyle = '#6b4c12';
+      ctx.fillRect(x+1, y+TILE-5, TILE-2, 3);
+      // Items on counter (small colored dots)
+      ctx.fillStyle = '#ef4444'; ctx.fillRect(x+3, y+TILE-6, 2, 2);  // red item
+      ctx.fillStyle = '#84cc16'; ctx.fillRect(x+7, y+TILE-6, 2, 2);  // green item
+      ctx.fillStyle = '#a78bfa'; ctx.fillRect(x+11, y+TILE-6, 2, 2); // purple item
+      // Sign above
+      ctx.fillStyle = '#292524';
+      ctx.fillRect(x+4, y+4, TILE-8, 3);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(x+5, y+5, TILE-10, 1);
+      return;
+    }
+
+    if (id === 7) {
+      // Inn / Tavern — timbered building, warm window glow
+      // Stone foundation
+      ctx.fillStyle = '#4a3f2e';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Building walls (warm plaster)
+      ctx.fillStyle = '#c4a882';
+      ctx.fillRect(x+1, y+3, TILE-2, TILE-5);
+      // Timber framing (dark cross beams)
+      ctx.fillStyle = '#3d2b1a';
+      ctx.fillRect(x+1, y+3, TILE-2, 1);      // top beam
+      ctx.fillRect(x+Math.floor(TILE/2), y+3, 1, TILE-4); // vertical beam
+      ctx.fillRect(x+1, y+Math.floor(TILE*0.6)|0, TILE-2, 1); // middle beam
+      // Thatched roof (dark red-brown triangle)
+      ctx.fillStyle = '#7c2d12';
       ctx.beginPath();
-      ctx.moveTo(x + TILE/2, y + 3);
-      ctx.lineTo(x + 3, y + TILE - 3);
-      ctx.lineTo(x + TILE - 3, y + TILE - 3);
+      ctx.moveTo(x + TILE/2, y);
+      ctx.lineTo(x, y+5);
+      ctx.lineTo(x+TILE, y+5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(x + 5, y + TILE - 6, TILE - 10, 2);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      ctx.fillStyle = '#9a3412';
+      ctx.fillRect(x, y+4, TILE, 1);
+      // Warm window glow
+      const glow = 0.55 + 0.15 * Math.sin(stateTime * 0.0012 + tx);
+      ctx.fillStyle = `rgba(251,191,36,${glow.toFixed(2)})`;
+      ctx.fillRect(x+3, y+5, 4, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(x+4, y+6, 2, 2);  // window cross
+      // Door
+      ctx.fillStyle = '#2a1810';
+      ctx.fillRect(x+TILE-6, y+TILE-7, 4, 6);
+      ctx.fillStyle = '#7c4a1a';
+      ctx.fillRect(x+TILE-5, y+TILE-6, 2, 4);
       return;
     }
 
-    if (id === 9) { // ruins
-      ctx.fillStyle = '#5b4b3a';
+    if (id === 8) {
+      // Warehouse in cities, Traveler Camp on roads
+      const isInCity = tileAt(tx-1,ty)===4 || tileAt(tx+1,ty)===4 || tileAt(tx,ty-1)===4 || tileAt(tx,ty+1)===4;
+      if (!isInCity) {
+        // Road camp: fire + tent
+        ctx.fillStyle = '#2e3a22';
+        ctx.fillRect(x, y, TILE, TILE);
+        // Tent
+        ctx.fillStyle = '#7c5c2e';
+        ctx.beginPath();
+        ctx.moveTo(x + TILE/2, y + 2);
+        ctx.lineTo(x + 2, y + TILE - 4);
+        ctx.lineTo(x + TILE - 2, y + TILE - 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#5a3d18';
+        ctx.fillRect(x + Math.floor(TILE/2)-1, y+TILE-4, 3, 3); // tent door
+        // Campfire glow
+        const flame = 0.5 + 0.25 * Math.sin(stateTime * 0.004 + tx * 3);
+        ctx.fillStyle = `rgba(255,140,0,${flame.toFixed(2)})`;
+        ctx.fillRect(x+TILE-5, y+TILE-5, 3, 3);
+        ctx.fillStyle = `rgba(255,220,0,${(flame*0.7).toFixed(2)})`;
+        ctx.fillRect(x+TILE-4, y+TILE-5, 1, 2);
+        return;
+      }
+      // Warehouse / Storage — large stone building, big dark doors
+      ctx.fillStyle = '#3a3028';
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#6b7280';
-      ctx.fillRect(x + 2, y + 2, 4, 4);
-      ctx.fillRect(x + TILE - 6, y + 3, 4, 4);
-      ctx.fillRect(x + 5, y + TILE - 6, 6, 4);
+      // Walls (rough stone)
+      ctx.fillStyle = '#6b5c4a';
+      ctx.fillRect(x+1, y+4, TILE-2, TILE-5);
+      // Stone blocks detail
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fillRect(x+1, y+7, TILE-2, 1);
+      ctx.fillRect(x+1, y+11, TILE-2, 1);
+      ctx.fillRect(x+Math.floor(TILE*0.4)|0, y+4, 1, TILE-5);
+      // Flat roof (dark grey slate)
+      ctx.fillStyle = '#4b4540';
+      ctx.fillRect(x, y+2, TILE, 4);
+      ctx.fillStyle = '#5a5048';
+      ctx.fillRect(x+1, y+3, TILE-2, 2);
+      // Big loading doors (double)
+      ctx.fillStyle = '#1c140a';
+      ctx.fillRect(x+2, y+TILE-7, (TILE-4)/2-1, 6);
+      ctx.fillRect(x+TILE/2+1, y+TILE-7, (TILE-4)/2-1, 6);
+      // Door handles
+      ctx.fillStyle = '#8b6914';
+      ctx.fillRect(x + Math.floor(TILE/2)-2, y+TILE-5, 2, 1);
+      ctx.fillRect(x + Math.floor(TILE/2)+1, y+TILE-5, 2, 1);
+      return;
+    }
 
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+    if (id === 9) {
+      // Cobblestone plaza / courtyard — premium city floor
+      const n = hash2(tx, ty);
+      ctx.fillStyle = n < 0.4 ? '#5c4d3c' : '#503f2e';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Large cobble pattern
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(x,   y + Math.floor(TILE/3),     TILE, 1);
+      ctx.fillRect(x,   y + Math.floor(TILE*2/3),   TILE, 1);
+      ctx.fillRect(x + Math.floor(TILE/3),   y,     1, TILE);
+      ctx.fillRect(x + Math.floor(TILE*2/3), y,     1, TILE);
+      // Stone highlights
+      ctx.fillStyle = 'rgba(255,255,255,0.09)';
+      ctx.fillRect(x+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
+      ctx.fillRect(x+Math.floor(TILE/3)+1, y+Math.floor(TILE/3)+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
+      ctx.fillRect(x+Math.floor(TILE*2/3)+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
       return;
     }
 
@@ -4614,18 +4698,33 @@ function drawNpcBubble() {
       return;
     }
 
-    if (id === 12) { // contracts board
-      ctx.fillStyle = '#5b4b3a';
+    if (id === 12) {
+      // Contracts board — wooden post with parchment notices
+      ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#22c55e';
-      ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
-      ctx.fillStyle = '#0b0f14';
-      ctx.fillRect(x+4, y+5, TILE-8, 2);
-      ctx.fillRect(x+4, y+9, TILE-8, 2);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      // Post / board backing (dark wood)
+      ctx.fillStyle = '#6b4c1a';
+      ctx.fillRect(x+3, y+1, TILE-6, TILE-2);
+      // Board face (parchment)
+      ctx.fillStyle = '#d4b483';
+      ctx.fillRect(x+4, y+2, TILE-8, TILE-7);
+      // Notice lines (text illusion)
+      ctx.fillStyle = '#3d2b0a';
+      ctx.fillRect(x+5, y+4, TILE-10, 1);
+      ctx.fillRect(x+5, y+6, TILE-10, 1);
+      ctx.fillRect(x+5, y+8, (TILE-10)*0.7|0, 1);
+      // Official seal (green circle)
+      ctx.fillStyle = '#16a34a';
+      ctx.beginPath();
+      ctx.arc(x+TILE-6, y+TILE-5, 2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.arc(x+TILE-7, y+TILE-6, 1, 0, Math.PI*2);
+      ctx.fill();
+      // Post foot
+      ctx.fillStyle = '#3d2b0a';
+      ctx.fillRect(x + Math.floor(TILE/2)-1, y+TILE-3, 3, 2);
       return;
     }
 
