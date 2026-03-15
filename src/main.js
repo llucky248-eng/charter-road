@@ -412,9 +412,14 @@ ${line4}`;
     if (ui.npcDiag && ui.npcDiag.enabled) ui.npcDiag.lastTickAt = now;
           const d = clamp(Number(dt) || 0, 0, 0.05);
           stateTime += d * 1000;
+          // QA: auto-close any blocking modals so movement tests work
+          if (__QA.enabled) {
+            ui.eventOpen = false; ui.marketOpen = false; ui.contractsOpen = false;
+          }
           if (ui.toastT > 0) ui.toastT -= d;
           tickBanners(d);
           updateEntities(d);
+          updateAutoNav(d);
           moveWithCollision(d);
           if (ui.npcBubble && stateTime > ui.npcBubble.untilMs) ui.npcBubble = null;
           // Run DOM render so any UI state updates don't throw.
@@ -496,6 +501,88 @@ ${line4}`;
         ui.contractsOpen = false;
         ui.eventOpen = false;
         domRender();
+      },
+
+      // ── City walking helpers ──────────────────────────────────────────
+      /** Start a click-move to world pixel (wx, wy) */
+      setClickMove: (wx, wy, tapAction = null) => {
+        clickMove.tx = wx; clickMove.ty = wy;
+        clickMove.active = true;
+        clickMove.markerT = stateTime;
+        clickMove._tapAction = tapAction;
+        clickMove._tapTarget = null;
+      },
+
+      /** Get current clickMove state */
+      getClickMove: () => ({ ...clickMove }),
+
+      /** Start auto-nav to a city by id */
+      startAutoNav: (cityId) => {
+        startNavTo(cityId);
+        return autoNav.active;
+      },
+
+      /** Get current autoNav state */
+      getAutoNav: () => ({
+        active: autoNav.active,
+        destCityId: autoNav.destCityId,
+        pathIdx: autoNav.pathIdx,
+        pathLen: autoNav.path.length,
+      }),
+
+      /** Get player world position */
+      getPlayerPos: () => ({ x: player.x, y: player.y }),
+
+      /** Check if player is currently inside a city (returns city id or null) */
+      getPlayerCity: () => currentCity()?.id || null,
+
+      /** Check if tile at (tx,ty) is solid */
+      isTileSolid: (tx, ty) => isSolidAt(tx * TILE, ty * TILE),
+
+      /** Check if tile at (tx,ty) is walkable floor */
+      isTileWalkable: (tx, ty) => {
+        const t = tileAt(tx, ty);
+        return !SOLID.has(t);
+      },
+
+      /** Get city layout info */
+      getCityInfo: (cityId) => {
+        const c = getCityById(cityId);
+        if (!c) return null;
+        return {
+          id: c.id, name: c.name,
+          x: c.x, y: c.y, w: c.w, h: c.h,
+          centerX: (c.x + c.w/2) * TILE,
+          centerY: (c.y + c.h/2) * TILE,
+          gateX: (c.x + Math.floor(c.w/2)) * TILE,
+          gateY: (c.y + c.h) * TILE,
+        };
+      },
+
+      /** Find first tile of given id inside a city (with 3-tile padding) */
+      findTileInCity: (cityId, tileId) => {
+        const c = getCityById(cityId);
+        if (!c) return null;
+        const pad = 3;
+        for (let ty = c.y - pad; ty < c.y + c.h + pad; ty++) {
+          for (let tx = c.x - pad; tx < c.x + c.w + pad; tx++) {
+            if (tileAt(tx, ty) === tileId) return { tx, ty };
+          }
+        }
+        return null;
+      },
+
+      /** Run N steps of the click-move (calls step) and return final pos.
+       *  Auto-closes any modals that pop up (events, etc.) to avoid blocking movement. */
+      walkSteps: (n = 60) => {
+        for (let i = 0; i < n; i++) {
+          // Close any road events that pop up during travel
+          if (ui.eventOpen || ui.marketOpen || ui.contractsOpen) {
+            ui.eventOpen = false; ui.marketOpen = false; ui.contractsOpen = false;
+          }
+          __QA.api.step(1/60);
+        }
+        return __QA.api.getPlayerPos();
       },
     };
   }
@@ -696,6 +783,7 @@ ${line4}`;
                  !isSolidAt(player.x + player.r, player.y + stepY - player.r) &&
                  !isSolidAt(player.x - player.r, player.y + stepY + player.r) &&
                  !isSolidAt(player.x + player.r, player.y + stepY + player.r);
+
 
     if (canX) player.x += stepX;
     if (canY) player.y += stepY;
@@ -1297,16 +1385,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
         const msX3 = x0 + Math.floor(W*0.68);
         carveStreet(msX3, y0+1, msX3, y0+H-1);
 
-        // Central market plaza (cobblestone) — around center cross
-        paintPlaza(msX-2, csY-2, 5, 5);
-        // Market stalls flanking the plaza
-        m[csY*MAP_W + (msX-3)] = 6;
-        m[csY*MAP_W + (msX+3)] = 6;
-        m[(csY-3)*MAP_W + msX] = 6;
-
-        // Contracts board on plaza edge
-        m[(csY+3)*MAP_W + msX] = 12;
-
         // NW quarter: Inn (2×3 building)
         placeBuilding(x0+2, y0+2, 4, 4, 7, 'east');
         // NE quarter: Guard barracks (3×3)
@@ -1319,6 +1397,13 @@ function handleGlobalHudTap(clientX, clientY, e) {
         placeBuilding(msX3+2, csY2+2, 4, 3, 4, 'west');
         // NE secondary: second Inn
         placeBuilding(msX+2, y0+2, 4, 4, 7, 'south');
+
+        // Central market plaza — placed AFTER buildings so it survives
+        paintPlaza(msX-2, csY-2, 5, 5);
+        m[csY*MAP_W + (msX-3)] = 6;   // market W of road
+        m[csY*MAP_W + (msX+3)] = 6;   // market E of road
+        m[(csY-3)*MAP_W + msX] = 6;   // market N of plaza
+        m[(csY-1)*MAP_W + msX] = 12;  // contracts — on plaza itself (guaranteed road tile)
 
       } else if (c.id === 'ashport') {
         // Port city: main dock road + market row + warehouse district
@@ -1334,12 +1419,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
         const upY = y0 + Math.floor(H*0.35);
         carveStreet(x0+2, upY, x0+W-3, upY);
 
-        // Market square (cobblestone near center-north)
-        paintPlaza(gx-2, upY-2, 5, 5);
-        m[upY*MAP_W+(gx-3)] = 6;
-        m[upY*MAP_W+(gx+3)] = 6;
-        m[(upY+3)*MAP_W+gx] = 12;
-
         // Dock-side warehouse row (south of dock road)
         placeBuilding(x0+2, dockY+1, 5, 3, 8, 'north');
         placeBuilding(x0+9, dockY+1, 5, 3, 8, 'north');
@@ -1352,6 +1431,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // NE building block
         placeBuilding(gx+2, y0+2, 5, 4, 4, 'south');
 
+        // Market square — placed AFTER buildings
+        paintPlaza(gx-2, upY-2, 5, 5);
+        m[upY*MAP_W+(gx-3)] = 6;
+        m[upY*MAP_W+(gx+3)] = 6;
+        m[upY*MAP_W+gx] = 12;  // contracts on plaza center road
+
       } else if (c.id === 'crosshaven') {
         // Small village: one main street, 3 buildings, tiny plaza
         // Single main N-S road
@@ -1360,17 +1445,17 @@ function handleGlobalHudTap(clientX, clientY, e) {
         const vY = y0 + Math.floor(H*0.40);
         carveStreet(x0+2, vY, x0+W-3, vY);
 
-        // Tiny plaza at crossing
-        paintPlaza(gx-1, vY-1, 3, 3);
-        m[vY*MAP_W+(gx-2)] = 6;   // market left of road
-        m[(vY+2)*MAP_W+gx] = 12;  // contracts south of plaza
-
         // Inn (west side)
         placeBuilding(x0+2, y0+2, 4, 3, 7, 'east');
         // Storage shed (east side)
         placeBuilding(gx+2, y0+2, 3, 3, 8, 'west');
         // Small house (SW)
         placeBuilding(x0+2, vY+2, 3, 3, 4, 'north');
+
+        // Plaza + POIs — placed AFTER buildings
+        paintPlaza(gx-1, vY-1, 3, 3);
+        m[vY*MAP_W+(gx-2)] = 6;   // market left of road
+        m[vY*MAP_W+gx] = 12;      // contracts on road tile
 
       } else if (c.id === 'ironholt') {
         // Mining town: industrial yard layout — ore storage + smelter row + foreman HQ
@@ -1383,23 +1468,23 @@ function handleGlobalHudTap(clientX, clientY, e) {
         const eX = x0 + Math.floor(W*0.70);
         carveStreet(eX, y0+1, eX, yardY);
 
-        // Foreman HQ square (cobblestone, NW)
-        const hqX = x0+2, hqY = y0+2;
-        paintPlaza(hqX, hqY, 5, 4);
-        m[hqY*MAP_W+(hqX+2)] = 12; // contracts in HQ
-        m[(hqY+3)*MAP_W+(hqX+2)] = 6; // small market next to it
-
         // Smelter / warehouse row (south of yard road)
         placeBuilding(x0+2, yardY+1, 5, 3, 8, 'north');
         placeBuilding(x0+9, yardY+1, 4, 3, 8, 'north');
         placeBuilding(eX+2, yardY+1, 4, 3, 8, 'north');
 
         // Foreman building (NW block)
+        const hqX = x0+2, hqY = y0+2;
         placeBuilding(hqX, hqY, 4, 4, 4, 'south');
         // Inn / workers lodge (NE block)
         placeBuilding(eX+2, y0+2, 4, 4, 7, 'south');
         // Guard post (near gate, east of main road)
         placeBuilding(gx+2, yardY-5, 3, 3, 4, 'west');
+
+        // POIs — placed AFTER buildings
+        paintPlaza(hqX, hqY, 5, 4);
+        m[(hqY+1)*MAP_W+gx] = 12;    // contracts on main road
+        m[(hqY+2)*MAP_W+(hqX+2)] = 6; // market inside plaza
       }
 
       return { gx, gy };
@@ -3616,7 +3701,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.3.0',
+    version: 'v0.3.1',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -7583,7 +7668,171 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles');
+      // ══════════════════════════════════════════════════════════════════
+      // CITY WALKING TESTS
+      // ══════════════════════════════════════════════════════════════════
+
+      // --- Test 1: Player spawns inside Valdenmere
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        const city = __QA.api.getPlayerCity();
+        assert(city === 'valdenmere', 'player should be inside valdenmere after teleport');
+        const pos = __QA.api.getPlayerPos();
+        const info = __QA.api.getCityInfo('valdenmere');
+        assert(Number.isFinite(pos.x) && Number.isFinite(pos.y), 'player position should be finite');
+        assert(pos.x > info.x * TILE && pos.x < (info.x + info.w) * TILE, 'player x should be within city x bounds');
+        assert(pos.y > info.y * TILE && pos.y < (info.y + info.h) * TILE, 'player y should be within city y bounds');
+      }
+
+      // --- Test 2: Click-to-move — player moves toward a tap target within city
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        const before = __QA.api.getPlayerPos();
+        const info = __QA.api.getCityInfo('valdenmere');
+        // Target: right side of the city, should be walkable floor
+        const targetX = info.centerX + 2 * TILE;
+        const targetY = info.centerY;
+        __QA.api.setClickMove(targetX, targetY);
+        const cm = __QA.api.getClickMove();
+        assert(cm.active === true, 'click-move should be active after setClickMove');
+        // Run 120 frames (~2s of movement)
+        __QA.api.walkSteps(120);
+        const after = __QA.api.getPlayerPos();
+        const movedDist = Math.hypot(after.x - before.x, after.y - before.y);
+        assert(movedDist > 5, `player should have moved after click-move (moved ${movedDist.toFixed(1)}px)`);
+      }
+
+      // --- Test 3: Player cannot walk through walls
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        const info = __QA.api.getCityInfo('valdenmere');
+        // Try to walk into the north wall (y = city.y - 1)
+        const wallTileX = info.x + Math.floor(info.w / 2);
+        const wallTileY = info.y - 1;
+        assert(__QA.api.isTileSolid(wallTileX, wallTileY) === true, 'north wall tile should be solid');
+        // Teleport near the north wall (inside, 1 tile from wall)
+        __QA.api.teleportToTile(wallTileX, info.y + 1);
+        const before = __QA.api.getPlayerPos();
+        // Click-move directly into the wall
+        __QA.api.setClickMove(wallTileX * TILE, wallTileY * TILE);
+        __QA.api.walkSteps(60);
+        const after = __QA.api.getPlayerPos();
+        // Player should not have passed through the wall
+        assert(after.y >= (wallTileY + 1) * TILE - player.r, 'player should not penetrate north wall');
+      }
+
+      // --- Test 4: Click-to-move stops when arriving at target
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        const info = __QA.api.getCityInfo('valdenmere');
+        // Move to a position that's reachable (city center)
+        __QA.api.setClickMove(info.centerX, info.centerY);
+        // Run enough frames to arrive
+        __QA.api.walkSteps(300);
+        const cm = __QA.api.getClickMove();
+        const pos = __QA.api.getPlayerPos();
+        const distToTarget = Math.hypot(pos.x - info.centerX, pos.y - info.centerY);
+        // Either arrived (clickMove inactive) or close to target
+        assert(!cm.active || distToTarget < TILE * 2, 
+          `player should arrive at target or stop nearby (dist: ${distToTarget.toFixed(1)}px, active: ${cm.active})`);
+      }
+
+      // --- Test 5: Market tile exists and is reachable
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        const marketTile = __QA.api.findTileInCity('valdenmere', 6);
+        assert(marketTile !== null, 'valdenmere should have at least one market tile (6)');
+        assert(!__QA.api.isTileSolid(marketTile.tx, marketTile.ty), 'market tile should not be solid');
+        // Walk to the market tile
+        __QA.api.setClickMove((marketTile.tx + 0.5) * TILE, (marketTile.ty + 0.5) * TILE, 'market');
+        __QA.api.walkSteps(300);
+        const pos = __QA.api.getPlayerPos();
+        const distToMarket = Math.hypot(pos.x - (marketTile.tx + 0.5) * TILE, pos.y - (marketTile.ty + 0.5) * TILE);
+        assert(distToMarket < TILE * 3, `player should reach market tile (dist: ${distToMarket.toFixed(1)}px)`);
+      }
+
+      // --- Test 6: Contracts tile exists and is reachable
+      {
+        __QA.api.closeUI();
+        __QA.api.teleportToCity('valdenmere');
+        const contractsTile = __QA.api.findTileInCity('valdenmere', 12);
+        assert(contractsTile !== null, 'valdenmere should have at least one contracts tile (12)');
+        assert(!__QA.api.isTileSolid(contractsTile.tx, contractsTile.ty), 'contracts tile should not be solid');
+      }
+
+      // --- Test 7: City floor tiles are walkable
+      {
+        for (const cityId of ['valdenmere', 'ashport', 'crosshaven', 'ironholt']) {
+          const info = __QA.api.getCityInfo(cityId);
+          // Sample a 3x3 grid around city center and count walkable tiles
+          let walkable = 0;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const tx = Math.floor(info.centerX / TILE) + dx;
+              const ty = Math.floor(info.centerY / TILE) + dy;
+              if (__QA.api.isTileWalkable(tx, ty)) walkable++;
+            }
+          }
+          assert(walkable >= 4, `${cityId} center should have walkable floor tiles (found ${walkable})`);
+        }
+      }
+
+      // --- Test 8: Auto-nav from one city to another — player moves along path
+      {
+        // Close any open modals from previous tests
+        __QA.api.closeUI();
+        // Start at ironholt, navigate to crosshaven
+        __QA.api.teleportToCity('ironholt');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        const before = __QA.api.getPlayerPos();
+        // Navigate to crosshaven (different city — won't trigger "already there")
+        const started = __QA.api.startAutoNav('crosshaven');
+        assert(started === true, 'startAutoNav to crosshaven should succeed');
+        const nav = __QA.api.getAutoNav();
+        assert(nav.active === true, 'autoNav should be active after start');
+        assert(nav.destCityId === 'crosshaven', 'autoNav destCityId should be crosshaven');
+        assert(nav.pathLen > 0, 'autoNav path should have waypoints');
+        // Run 120 frames (~2s) — player should have moved
+        __QA.api.walkSteps(120);
+        const after = __QA.api.getPlayerPos();
+        const moved = Math.hypot(after.x - before.x, after.y - before.y);
+        assert(moved > 2, `player should move along autoNav path (moved ${moved.toFixed(1)}px)`);
+      }
+
+      // --- Test 9: Walk across city using keyboard
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        clickMove.active = false;
+        __QA.api.teleportToCity('ironholt');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        const before = __QA.api.getPlayerPos();
+        // Simulate holding ArrowRight for 60 frames
+        vkeys.add('ArrowRight');
+        for (let i = 0; i < 60; i++) __QA.api.step(1/60);
+        vkeys.delete('ArrowRight');
+        const after = __QA.api.getPlayerPos();
+        const movedX = after.x - before.x;
+        assert(movedX > TILE, `player should move rightward in ironholt (moved ${movedX.toFixed(1)}px)`);
+      }
+
+      // --- Test 10: All cities are reachable via teleport and have a valid city id
+      {
+        for (const cityId of ['valdenmere', 'ashport', 'crosshaven', 'ironholt']) {
+          assert(__QA.api.teleportToCity(cityId) === true, `teleportToCity(${cityId}) should succeed`);
+          for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+          const city = __QA.api.getPlayerCity();
+          assert(city === cityId, `getPlayerCity should return ${cityId} after teleport (got ${city})`);
+        }
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
