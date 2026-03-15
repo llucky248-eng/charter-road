@@ -935,67 +935,191 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Ironholt: medium mining town (NE)
     const cityD = { id:'ironholt',   name:'Ironholt',   x: 105, y: 14, w: 20, h: 14 };
 
+    // Helper: place a building block — outer wall ring (tile 3) with interior tile
+    // bx,by = top-left tile of block, bw,bh = size including walls
+    // interiorTile = tile to fill inside (4=floor, 6=market, 7=inn, 8=warehouse, 12=contracts)
+    const placeBuilding = (bx, by, bw, bh, interiorTile = 4, doorSide = 'south') => {
+      // Walls (ring)
+      for (let dy = 0; dy < bh; dy++) {
+        for (let dx = 0; dx < bw; dx++) {
+          const isWall = dx === 0 || dx === bw-1 || dy === 0 || dy === bh-1;
+          m[(by+dy)*MAP_W + (bx+dx)] = isWall ? 3 : interiorTile;
+        }
+      }
+      // Door: clear one wall tile to floor on requested side
+      if (doorSide === 'south' && bh > 1) m[(by+bh-1)*MAP_W + (bx + Math.floor(bw/2))] = 4;
+      if (doorSide === 'north' && bh > 1) m[by*MAP_W + (bx + Math.floor(bw/2))] = 4;
+      if (doorSide === 'east') m[(by + Math.floor(bh/2))*MAP_W + (bx+bw-1)] = 4;
+      if (doorSide === 'west') m[(by + Math.floor(bh/2))*MAP_W + bx] = 4;
+    };
+
+    // Helper: carve a horizontal or vertical road stripe inside city
+    const carveStreet = (x0, y0, x1, y1) => {
+      // Only overwrite city floor (4) — don't carve through walls
+      let x=x0, y=y0;
+      while (x !== x1 || y !== y1) {
+        if (m[y*MAP_W+x] === 4 || m[y*MAP_W+x] === 9) m[y*MAP_W+x] = 1;
+        if (x !== x1) x += x < x1 ? 1 : -1;
+        else y += y < y1 ? 1 : -1;
+      }
+      m[y*MAP_W+x] = 1;
+    };
+
+    // Helper: paint a plaza (cobblestone) area
+    const paintPlaza = (px, py, pw, ph) => {
+      for (let dy = 0; dy < ph; dy++)
+        for (let dx = 0; dx < pw; dx++)
+          if (m[(py+dy)*MAP_W+(px+dx)] === 4) m[(py+dy)*MAP_W+(px+dx)] = 9;
+    };
+
     const paintCity = (c) => {
-      // City floor
-      for (let yy = c.y; yy < c.y + c.h; yy++) {
-        for (let xx = c.x; xx < c.x + c.w; xx++) {
-          m[yy*MAP_W + xx] = 4;
-        }
+      const x0=c.x, y0=c.y, W=c.w, H=c.h;
+
+      // 1. Fill with city floor
+      for (let yy=y0; yy<y0+H; yy++)
+        for (let xx=x0; xx<x0+W; xx++)
+          m[yy*MAP_W+xx] = 4;
+
+      // 2. Outer perimeter wall
+      for (let xx=x0; xx<x0+W; xx++) {
+        m[(y0-1)*MAP_W+xx] = 3;
+        m[(y0+H)*MAP_W+xx] = 3;
+      }
+      for (let yy=y0; yy<y0+H; yy++) {
+        m[yy*MAP_W+(x0-1)] = 3;
+        m[yy*MAP_W+(x0+W)] = 3;
       }
 
-      // Wall border
-      for (let xx = c.x; xx < c.x + c.w; xx++) {
-        m[(c.y-1)*MAP_W + xx] = 3;
-        m[(c.y+c.h)*MAP_W + xx] = 3;
-      }
-      for (let yy = c.y; yy < c.y + c.h; yy++) {
-        m[yy*MAP_W + (c.x-1)] = 3;
-        m[yy*MAP_W + (c.x+c.w)] = 3;
+      // 3. Gate (south center, wide)
+      const gx = x0 + Math.floor(W/2);
+      const gy = y0 + H;
+      for (let ox=-2; ox<=2; ox++) {
+        m[gy*MAP_W+(gx+ox)] = 5;
+        m[(gy+1)*MAP_W+(gx+ox)] = 1;
       }
 
-      // Gate (south wall, wider for access)
-      const gx = c.x + Math.floor(c.w/2);
-      const gy = c.y + c.h;
-      for (let ox = -2; ox <= 2; ox++) {
-        m[gy*MAP_W + (gx + ox)] = 5;
-        m[(gy+1)*MAP_W + (gx + ox)] = 1;
-      }
+      // 4. LAYOUT by city identity
+      if (c.id === 'valdenmere') {
+        // Capital city: full grid with 4 quarters, central market plaza
+        // Main N-S street (gate → center)
+        const msX = gx;
+        carveStreet(msX, y0, msX, y0+H-1);
+        // E-W cross street (center)
+        const csY = y0 + Math.floor(H/2);
+        carveStreet(x0, csY, x0+W-1, csY);
+        // Second E-W street (lower third)
+        const csY2 = y0 + Math.floor(H*0.75);
+        carveStreet(x0+2, csY2, x0+W-3, csY2);
+        // Second N-S street (left third)
+        const msX2 = x0 + Math.floor(W*0.32);
+        carveStreet(msX2, y0+1, msX2, y0+H-1);
+        // Second N-S street (right third)
+        const msX3 = x0 + Math.floor(W*0.68);
+        carveStreet(msX3, y0+1, msX3, y0+H-1);
 
-      // Market stall (tile 6)
-      const mx = c.x + Math.max(3, Math.floor(c.w * 0.18));
-      const my = c.y + Math.max(3, Math.floor(c.h * 0.22));
-      const mw = c.w >= 20 ? 3 : 2; // bigger cities get wider market
-      for (let ox = 0; ox < mw; ox++) m[my*MAP_W + (mx+ox)] = 6;
+        // Central market plaza (cobblestone) — around center cross
+        paintPlaza(msX-2, csY-2, 5, 5);
+        // Market stalls flanking the plaza
+        m[csY*MAP_W + (msX-3)] = 6;
+        m[csY*MAP_W + (msX+3)] = 6;
+        m[(csY-3)*MAP_W + msX] = 6;
 
-      // Contracts board (tile 12)
-      const kx = c.x + Math.floor(c.w * 0.45);
-      const ky = c.y + Math.max(2, Math.floor(c.h * 0.22));
-      m[ky*MAP_W + kx] = 12;
+        // Contracts board on plaza edge
+        m[(csY+3)*MAP_W + msX] = 12;
 
-      // Inn / Tavern (tile 7) — near upper-right quadrant
-      if (c.w >= 14) {
-        const ix = c.x + Math.floor(c.w * 0.65);
-        const iy = c.y + Math.floor(c.h * 0.25);
-        m[iy*MAP_W + ix] = 7;
-        if (c.w >= 20) m[iy*MAP_W + (ix+1)] = 7; // bigger cities, 2-tile inn
-      }
+        // NW quarter: Inn (2×3 building)
+        placeBuilding(x0+2, y0+2, 4, 4, 7, 'east');
+        // NE quarter: Guard barracks (3×3)
+        placeBuilding(msX3+2, y0+2, 5, 4, 4, 'south');
+        // SW quarter: Warehouse row (3×2 + 3×2)
+        placeBuilding(x0+2, csY+2, 5, 3, 8, 'north');
+        placeBuilding(msX2+2, csY+2, 5, 3, 8, 'north');
+        // SE quarter: Residence blocks (small 3×3)
+        placeBuilding(msX3+2, csY+2, 4, 4, 4, 'west');
+        placeBuilding(msX3+2, csY2+2, 4, 3, 4, 'west');
+        // NE secondary: second Inn
+        placeBuilding(msX+2, y0+2, 4, 4, 7, 'south');
 
-      // Warehouse / Storage (tile 8) — center-ish
-      if (c.w >= 14) {
-        const wx = c.x + Math.floor(c.w * 0.50);
-        const wy = c.y + Math.floor(c.h * 0.60);
-        m[wy*MAP_W + wx] = 8;
-        if (c.w >= 20) m[wy*MAP_W + (wx+1)] = 8;
-      }
+      } else if (c.id === 'ashport') {
+        // Port city: main dock road + market row + warehouse district
+        // Main E-W dock road (near south)
+        const dockY = y0 + Math.floor(H*0.70);
+        carveStreet(x0, dockY, x0+W-1, dockY);
+        // N-S main road (center)
+        carveStreet(gx, y0, gx, y0+H-1);
+        // N-S secondary (west)
+        const sX = x0 + Math.floor(W*0.30);
+        carveStreet(sX, y0+1, sX, dockY);
+        // Upper cross street
+        const upY = y0 + Math.floor(H*0.35);
+        carveStreet(x0+2, upY, x0+W-3, upY);
 
-      // Cobblestone variety inside (tile 9) — scatter a few tiles
-      if (c.w >= 20) {
-        const spots = [[0.30, 0.50],[0.55, 0.75],[0.70, 0.45],[0.25, 0.70]];
-        for (const [fx, fy] of spots) {
-          const sx = c.x + Math.floor(c.w * fx);
-          const sy = c.y + Math.floor(c.h * fy);
-          if (m[sy*MAP_W + sx] === 4) m[sy*MAP_W + sx] = 9; // only on plain floor
-        }
+        // Market square (cobblestone near center-north)
+        paintPlaza(gx-2, upY-2, 5, 5);
+        m[upY*MAP_W+(gx-3)] = 6;
+        m[upY*MAP_W+(gx+3)] = 6;
+        m[(upY+3)*MAP_W+gx] = 12;
+
+        // Dock-side warehouse row (south of dock road)
+        placeBuilding(x0+2, dockY+1, 5, 3, 8, 'north');
+        placeBuilding(x0+9, dockY+1, 5, 3, 8, 'north');
+        placeBuilding(gx+2, dockY+1, 5, 3, 8, 'north');
+
+        // Inn near gate (west of main road)
+        placeBuilding(sX-5, upY+2, 4, 4, 7, 'east');
+        // Smugglers den near dock corner
+        placeBuilding(x0+2, y0+2, 4, 4, 4, 'south');
+        // NE building block
+        placeBuilding(gx+2, y0+2, 5, 4, 4, 'south');
+
+      } else if (c.id === 'crosshaven') {
+        // Small village: one main street, 3 buildings, tiny plaza
+        // Single main N-S road
+        carveStreet(gx, y0, gx, y0+H-1);
+        // Single cross street (upper half)
+        const vY = y0 + Math.floor(H*0.40);
+        carveStreet(x0+2, vY, x0+W-3, vY);
+
+        // Tiny plaza at crossing
+        paintPlaza(gx-1, vY-1, 3, 3);
+        m[vY*MAP_W+(gx-2)] = 6;   // market left of road
+        m[(vY+2)*MAP_W+gx] = 12;  // contracts south of plaza
+
+        // Inn (west side)
+        placeBuilding(x0+2, y0+2, 4, 3, 7, 'east');
+        // Storage shed (east side)
+        placeBuilding(gx+2, y0+2, 3, 3, 8, 'west');
+        // Small house (SW)
+        placeBuilding(x0+2, vY+2, 3, 3, 4, 'north');
+
+      } else if (c.id === 'ironholt') {
+        // Mining town: industrial yard layout — ore storage + smelter row + foreman HQ
+        // Main E-W yard road
+        const yardY = y0 + Math.floor(H*0.55);
+        carveStreet(x0, yardY, x0+W-1, yardY);
+        // N-S access road (center)
+        carveStreet(gx, y0, gx, y0+H-1);
+        // N-S secondary (east)
+        const eX = x0 + Math.floor(W*0.70);
+        carveStreet(eX, y0+1, eX, yardY);
+
+        // Foreman HQ square (cobblestone, NW)
+        const hqX = x0+2, hqY = y0+2;
+        paintPlaza(hqX, hqY, 5, 4);
+        m[hqY*MAP_W+(hqX+2)] = 12; // contracts in HQ
+        m[(hqY+3)*MAP_W+(hqX+2)] = 6; // small market next to it
+
+        // Smelter / warehouse row (south of yard road)
+        placeBuilding(x0+2, yardY+1, 5, 3, 8, 'north');
+        placeBuilding(x0+9, yardY+1, 4, 3, 8, 'north');
+        placeBuilding(eX+2, yardY+1, 4, 3, 8, 'north');
+
+        // Foreman building (NW block)
+        placeBuilding(hqX, hqY, 4, 4, 4, 'south');
+        // Inn / workers lodge (NE block)
+        placeBuilding(eX+2, y0+2, 4, 4, 7, 'south');
+        // Guard post (near gate, east of main road)
+        placeBuilding(gx+2, yardY-5, 3, 3, 4, 'west');
       }
 
       return { gx, gy };
@@ -2725,7 +2849,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.2.1',
+    version: 'v0.2.2',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
