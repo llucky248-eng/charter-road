@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.7'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.8'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -527,6 +527,28 @@ ${line4}`;
       }),
 
       /** Get player world position */
+      /** Full player + time snapshot for simulation/testing */
+      snapState: () => ({
+        gold: player.gold,
+        rep: { ...player.rep },
+        gear: { ...(player.gear || { pack: 0, boots: 0, tool: 0 }) },
+        day: time.day,
+        capacity: player.capacity,
+        speed: player.speed,
+        inv: { ...player.inv },
+      }),
+
+      /** Direct gear purchase for simulation */
+      buyGear: (slot, tier, cost) => {
+        if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+        if (player.gold < cost) return { ok: false, reason: 'insufficient gold' };
+        if ((player.gear[slot] ?? 0) >= tier) return { ok: false, reason: 'already owned' };
+        player.gold -= cost;
+        player.gear[slot] = tier;
+        applyGearStats();
+        return { ok: true };
+      },
+
       getPlayerPos: () => ({ x: player.x, y: player.y }),
 
       /** Check if player is currently inside a city (returns city id or null) */
