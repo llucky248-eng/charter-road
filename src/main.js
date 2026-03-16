@@ -927,7 +927,9 @@ ${line4}`;
     autoNav.active = true;
     autoNav.destCityId = cityId;
     autoNav.path = path;
-    autoNav.pathIdx = 0;
+    // If player is already inside the origin city, skip the first waypoint
+    // (city center tile — blocked by walls). Start from the road junction outside.
+    autoNav.pathIdx = fromCity ? 1 : 0;
     autoNav.destMarkerT = stateTime;
     clickMove.active = false; // cancel any manual click-move
     const dest = getCityById(cityId);
@@ -2188,7 +2190,7 @@ const NPC_INTERACT_RADIUS = 18;
     pressure: {},
     lastSync: 0,
     SYNC_INTERVAL_MS: 60_000, // fetch global state every 60s
-    enabled: true,
+    enabled: !__QA.enabled, // disable in QA mode to prevent noisy 4xx errors in tests
   };
 
   function economyHeaders() {
@@ -2247,6 +2249,7 @@ const NPC_INTERACT_RADIUS = 18;
   // Trigger economy aggregation on server (called hourly via stateTime)
   let _lastEconomyAggregate = 0;
   function maybeAggregateEconomy() {
+    if (!ECONOMY.enabled) return;
     const now = Date.now();
     if (now - _lastEconomyAggregate < 3_600_000) return; // once per hour
     _lastEconomyAggregate = now;
@@ -8338,7 +8341,119 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         }
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking');
+      // ══════════════════════════════════════════════════════════════════
+      // NAVIGATION UNIT TESTS (auto-nav between cities)
+      // ══════════════════════════════════════════════════════════════════
+
+      // --- Nav Test 1: Auto-nav Valdenmere → Ashport — player leaves city
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        clickMove.active = false;
+        __QA.api.teleportToCity('valdenmere');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        assert(__QA.api.getPlayerCity() === 'valdenmere', 'nav1: should start in valdenmere');
+        const before = __QA.api.getPlayerPos();
+        const started = __QA.api.startAutoNav('ashport');
+        assert(started === true, 'nav1: startAutoNav should succeed');
+        const nav = __QA.api.getAutoNav();
+        assert(nav.active === true, 'nav1: autoNav should be active');
+        assert(nav.destCityId === 'ashport', 'nav1: dest should be ashport');
+        assert(nav.pathLen >= 2, 'nav1: path should have multiple waypoints');
+        // pathIdx should skip first waypoint (city center) since player is inside city
+        assert(nav.pathIdx >= 1, 'nav1: pathIdx should skip origin city waypoint');
+        // Run enough frames to leave city
+        __QA.api.walkSteps(600);
+        const after = __QA.api.getPlayerPos();
+        const moved = Math.hypot(after.x - before.x, after.y - before.y);
+        assert(moved > TILE * 3, `nav1: player should move significantly (moved ${moved.toFixed(1)}px)`);
+      }
+
+      // --- Nav Test 2: All city-to-city routes produce valid paths
+      {
+        const cities = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+        for (const from of cities) {
+          for (const to of cities) {
+            if (from === to) continue;
+            __QA.api.closeUI();
+            autoNav.active = false;
+            clickMove.active = false;
+            __QA.api.teleportToCity(from);
+            for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+            const started = __QA.api.startAutoNav(to);
+            assert(started === true, `nav2: ${from}→${to} should start`);
+            const nav = __QA.api.getAutoNav();
+            assert(nav.active === true, `nav2: ${from}→${to} should be active`);
+            assert(nav.pathLen >= 2, `nav2: ${from}→${to} should have ≥2 waypoints (got ${nav.pathLen})`);
+          }
+        }
+      }
+
+      // --- Nav Test 3: Auto-nav advances pathIdx over time
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        clickMove.active = false;
+        __QA.api.teleportToCity('ironholt');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        __QA.api.startAutoNav('crosshaven');
+        const nav0 = __QA.api.getAutoNav();
+        const idx0 = nav0.pathIdx;
+        // Walk a lot — should advance at least one waypoint
+        __QA.api.walkSteps(1200);
+        const nav1 = __QA.api.getAutoNav();
+        assert(nav1.pathIdx > idx0 || !nav1.active, `nav3: pathIdx should advance or nav should complete (was ${idx0}, now ${nav1.pathIdx}, active=${nav1.active})`);
+      }
+
+      // --- Nav Test 4: "Already there" — starting nav to current city returns false
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        __QA.api.teleportToCity('ashport');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        const started = __QA.api.startAutoNav('ashport');
+        assert(started === false, 'nav4: navigating to current city should fail');
+        assert(autoNav.active === false, 'nav4: autoNav should not be active');
+      }
+
+      // --- Nav Test 5: Manual input cancels auto-nav
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        clickMove.active = false;
+        __QA.api.teleportToCity('valdenmere');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        __QA.api.startAutoNav('ironholt');
+        assert(autoNav.active === true, 'nav5: autoNav should be active');
+        // Simulate arrow key press — should cancel
+        vkeys.add('ArrowRight');
+        __QA.api.step(1/60);
+        vkeys.delete('ArrowRight');
+        assert(autoNav.active === false, 'nav5: arrow key should cancel autoNav');
+      }
+
+      // --- Nav Test 6: Full journey — nav makes significant progress along path
+      {
+        __QA.api.closeUI();
+        autoNav.active = false;
+        clickMove.active = false;
+        __QA.api.teleportToCity('crosshaven');
+        for (let i = 0; i < 3; i++) __QA.api.step(1/60);
+        const before = __QA.api.getPlayerPos();
+        __QA.api.startAutoNav('ironholt');
+        const nav0 = __QA.api.getAutoNav();
+        // Walk for ~40s of travel
+        __QA.api.walkSteps(2400);
+        const nav1 = __QA.api.getAutoNav();
+        const after = __QA.api.getPlayerPos();
+        const moved = Math.hypot(after.x - before.x, after.y - before.y);
+        // Should have advanced multiple waypoints and moved significantly
+        assert(nav1.pathIdx > nav0.pathIdx || !nav1.active,
+          `nav6: should advance waypoints (was ${nav0.pathIdx}, now ${nav1.pathIdx}, active=${nav1.active})`);
+        assert(moved > TILE * 10, `nav6: should move significantly (moved ${moved.toFixed(1)}px)`);
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
