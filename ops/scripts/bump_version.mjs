@@ -39,7 +39,8 @@ let js = mainJs;
 idx = idx.replace(/(\.\/src\/main\.js\?v=)(\d+\.\d+\.\d+)/g, `$1${next}`);
 
 // Update the dynamic loader fallback that hardcodes a default version: ('?v=0.0.81')
-idx = idx.replace(/\('\?v=\d+\.\d+\.\d+'\)/g, `('?v=${next}')`);
+// Matches both ('?v=0.3.3') and ('?v=0.3.3&t=' + Date.now())
+idx = idx.replace(/'\?v=\d+\.\d+\.\d+([^']*?)'/g, `'?v=${next}$1'`);
 
 idx = idx.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${next}`);
 js = js.replace(/NPC_DIAG_BUILD\s*=\s*'v\d+\.\d+\.\d+'/m, `NPC_DIAG_BUILD = 'v${next}'`);
