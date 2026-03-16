@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.3'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.4'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4538,7 +4538,7 @@ function drawNpcBubble() {
     r: 8,
     vx: 0,
     vy: 0,
-    speed: 48,
+    speed: 90,
 
     // Movement-derived facing/anim
     facing: { x: 0, y: 1 },
