@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.12'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.13'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1019,8 +1019,8 @@ ${line4}`;
     const dy = wp.y - player.y;
     const dist = Math.hypot(dx, dy);
 
-    // Arrival threshold — large enough to handle gate offsets
-    if (dist < TILE * 1.5) {
+    // Arrival threshold — generous so player flows smoothly between waypoints
+    if (dist < TILE * 2) {
       autoNav.pathIdx++;
       return;
     }
@@ -2652,20 +2652,21 @@ function buildTraderPath(fromId, toId) {
       { x: toExit.tx * T + T/2,   y: toExit.ty * T + T/2 },
     ];
   } else {
-    // Use the raw A* path (no smoothing — smoothing creates diagonal shortcuts through walls)
-    // Subsample to max 60 waypoints to keep memory reasonable but preserve corners
-    const step = Math.max(1, Math.floor(tilePath.length / 60));
-    result = [];
-    for (let i = 0; i < tilePath.length; i += step) {
-      const t = tilePath[i];
-      result.push({ x: t.x * T + T/2, y: t.y * T + T/2 });
+    // Reduce waypoints: keep only direction-change corners (collinear points removed).
+    // This avoids micro-stuttering at every tile while still following the correct path.
+    const corners = [tilePath[0]];
+    for (let i = 1; i < tilePath.length - 1; i++) {
+      const prev = tilePath[i - 1], cur = tilePath[i], next = tilePath[i + 1];
+      const dx1 = cur.x - prev.x, dy1 = cur.y - prev.y;
+      const dx2 = next.x - cur.x,  dy2 = next.y - cur.y;
+      // Keep if direction changes (not collinear)
+      if (dx1 !== dx2 || dy1 !== dy2) corners.push(cur);
     }
-    // Always include final gate exit tile
-    const last = tilePath[tilePath.length - 1];
-    const lastPx = { x: last.x * T + T/2, y: last.y * T + T/2 };
-    if (result.length === 0 || result[result.length - 1].x !== lastPx.x || result[result.length - 1].y !== lastPx.y) {
-      result.push(lastPx);
-    }
+    corners.push(tilePath[tilePath.length - 1]);
+
+    // Convert tile coords to world pixel centers
+    result = corners.map(t => ({ x: t.x * T + T/2, y: t.y * T + T/2 }));
+
     // Add city center as final destination so player walks fully into the city
     const destCity = world.cities.find(c => c.id === toId);
     if (destCity) {
