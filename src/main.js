@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.8'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.9'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2180,6 +2180,86 @@ const NPC_INTERACT_RADIUS = 18;
     },
   };
 
+  // ── GLOBAL ECONOMY (Supabase) ────────────────────────────────────────────
+  const ECONOMY = {
+    url:    'https://ycjhcsxxtinipwailbjb.supabase.co',
+    key:    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY',
+    // Local cache: cityId → itemId → pressure (-0.5..+0.5)
+    pressure: {},
+    lastSync: 0,
+    SYNC_INTERVAL_MS: 60_000, // fetch global state every 60s
+    enabled: true,
+  };
+
+  function economyHeaders() {
+    return {
+      'apikey': ECONOMY.key,
+      'Authorization': `Bearer ${ECONOMY.key}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  // Fetch latest market pressure from Supabase (called on city entry + periodic)
+  async function economySync() {
+    if (!ECONOMY.enabled) return;
+    const now = Date.now();
+    if (now - ECONOMY.lastSync < ECONOMY.SYNC_INTERVAL_MS) return;
+    ECONOMY.lastSync = now;
+    try {
+      const res = await fetch(`${ECONOMY.url}/rest/v1/market_economy?select=city_id,item_id,pressure`, {
+        headers: economyHeaders(),
+      });
+      if (!res.ok) return;
+      const rows = await res.json();
+      for (const row of rows) {
+        if (!ECONOMY.pressure[row.city_id]) ECONOMY.pressure[row.city_id] = {};
+        ECONOMY.pressure[row.city_id][row.item_id] = row.pressure || 0;
+      }
+    } catch (e) {
+      // Network fail — degrade gracefully, local drift still works
+    }
+  }
+
+  // Post a trade event to Supabase (fire-and-forget)
+  function economyPostTrade(cityId, itemId, direction, qty) {
+    if (!ECONOMY.enabled) return;
+    // Optimistically update local cache immediately
+    if (!ECONOMY.pressure[cityId]) ECONOMY.pressure[cityId] = {};
+    const delta = (direction === 'buy' ? qty : -qty) * 0.02;
+    ECONOMY.pressure[cityId][itemId] = Math.max(-0.5, Math.min(0.5,
+      (ECONOMY.pressure[cityId][itemId] || 0) + delta
+    ));
+    // Push to server async
+    fetch(`${ECONOMY.url}/rest/v1/trade_events`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ city_id: cityId, item_id: itemId, direction, qty }),
+    }).catch(() => {});
+  }
+
+  // Get economy price modifier for a city/item (1.0 = no effect)
+  function economyModifier(cityId, itemId) {
+    const p = ECONOMY.pressure[cityId]?.[itemId] || 0;
+    // pressure +0.5 → price ×1.5, pressure -0.5 → price ×0.67
+    return 1 + p;
+  }
+
+  // Trigger economy aggregation on server (called hourly via stateTime)
+  let _lastEconomyAggregate = 0;
+  function maybeAggregateEconomy() {
+    const now = Date.now();
+    if (now - _lastEconomyAggregate < 3_600_000) return; // once per hour
+    _lastEconomyAggregate = now;
+    fetch(`${ECONOMY.url}/rest/v1/rpc/aggregate_economy`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'return=minimal' },
+      body: '{}',
+    }).catch(() => {});
+  }
+
+  // Initial sync on load
+  economySync();
+
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
     // 1..1e9-ish.
@@ -4067,6 +4147,7 @@ function drawNpcBubble() {
       if (player.gold < 0) { player.gold += cost; toast('Trade blocked (gold would go negative).', 2); return; }
       player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
+      economyPostTrade(c.id, it.id, 'buy', buyN);
       scheduleAutoSave();
 
       return;
@@ -4086,6 +4167,7 @@ function drawNpcBubble() {
     player.gold += gain;
     if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
+    economyPostTrade(c.id, it.id, 'sell', sellN);
     scheduleAutoSave();
   }
 
@@ -4136,7 +4218,7 @@ function drawNpcBubble() {
     }
     if (kind === 'market') {
       const c = currentCity();
-      key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}|g${player.gear?.pack??0}${player.gear?.boots??0}${player.gear?.tool??0}`;
+      key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}|g${player.gear?.pack??0}${player.gear?.boots??0}${player.gear?.tool??0}|e${ECONOMY.lastSync}`;
       for (const it of ITEMS) key += `|${player.inv[it.id] || 0}`;
     } else if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
@@ -4278,6 +4360,26 @@ function drawNpcBubble() {
         </div>
       ` : '';
 
+      // Global economy pulse: show items with notable price pressure
+      const econPressures = ECONOMY.pressure[c.id] || {};
+      const hotItems = Object.entries(econPressures)
+        .filter(([, p]) => Math.abs(p) >= 0.05)
+        .sort(([,a],[,b]) => Math.abs(b) - Math.abs(a))
+        .slice(0, 3);
+      const econHtml = hotItems.length ? `
+        <div class="cr-rumors" aria-label="Market pulse" style="border-color:#4a3a10">
+          <div class="cr-rumors-title" style="color:#f0d080">🌍 Global Market</div>
+          ${hotItems.map(([itemId, p]) => {
+            const it = ITEMS.find(x => x.id === itemId);
+            const name = it ? it.name : itemId;
+            const pct = Math.round(Math.abs(p) * 100);
+            const dir = p > 0 ? '📈 High demand' : '📉 Oversupplied';
+            const col = p > 0 ? '#f87171' : '#34d399';
+            return `<div class="cr-rumor" style="color:${col}">• ${name}: ${dir} (+${pct}% pressure)</div>`;
+          }).join('')}
+        </div>
+      ` : '';
+
       uiRoot.innerHTML = `
         ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
@@ -4296,6 +4398,7 @@ function drawNpcBubble() {
             </div>
 ` : ''}            <div class="cr-body">
               <div class="cr-list" aria-label="Items">
+                ${econHtml}
                 ${ui.mode === 'gear' ? (() => {
                   const slots = ['pack','boots','tool'];
                   const slotLabels = { pack: '🎒 Pack', boots: '👟 Boots', tool: '📜 Tool' };
@@ -4962,7 +5065,9 @@ function drawNpcBubble() {
     // tiny wobble so it feels alive
     const wob = 0.95 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.04;
     const drift = (marketDrift[cityId] && marketDrift[cityId][item.id]) ? marketDrift[cityId][item.id] : 1;
-    return Math.max(1, Math.round(item.base * mult * wob * drift));
+    // Global economy: player collective pressure shifts prices
+    const econ = economyModifier(cityId, item.id);
+    return Math.max(1, Math.round(item.base * mult * wob * drift * econ));
   }
 
   function isSolidAt(px, py) {
@@ -7485,6 +7590,10 @@ function drawEvent() {
         }
       }
       player.lastCityId = nowId;
+      // Sync global economy on city entry
+      if (nowId) { ECONOMY.lastSync = 0; economySync(); }
+      // Trigger server aggregation (hourly, no-op if too soon)
+      maybeAggregateEconomy();
     }
 
     // Virtual (touch) button actions
