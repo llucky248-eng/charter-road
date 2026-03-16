@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.10'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.11'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -524,6 +524,7 @@ ${line4}`;
         destCityId: autoNav.destCityId,
         pathIdx: autoNav.pathIdx,
         pathLen: autoNav.path.length,
+        path: autoNav.path.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
       }),
 
       /** Get player world position */
@@ -924,13 +925,25 @@ ${line4}`;
       toast('No route found.', 1.5);
       return;
     }
+
+    // If player is inside the origin city, snap them to the gate exit tile.
+    // Cities have internal obstacles that block straight-south navigation.
+    // The gate exit (path[0]) is just outside the south wall — safe to warp to.
+    if (fromCity) {
+      const gateExit = path[0];
+      if (gateExit) {
+        player.x = gateExit.x;
+        player.y = gateExit.y;
+      }
+    }
+
     autoNav.active = true;
     autoNav.destCityId = cityId;
     autoNav.path = path;
-    // If player is already inside the origin city, skip the first waypoint
-    // (city center tile — blocked by walls). Start from the road junction outside.
-    autoNav.pathIdx = fromCity ? 1 : 0;
+    autoNav.pathIdx = 1; // skip gate exit (already there after snap)
     autoNav.destMarkerT = stateTime;
+    autoNav._blockedFrames = 0;
+    autoNav._minTravelPx = 80; // must travel at least 80px before arrival check fires
     clickMove.active = false; // cancel any manual click-move
     const dest = getCityById(cityId);
     toast(`Navigating to ${dest?.name || cityId}…`, 2);
@@ -958,12 +971,25 @@ ${line4}`;
       return;
     }
 
+    // Track distance traveled so we don't fire arrival check before leaving origin
+    if (!autoNav._startX) { autoNav._startX = player.x; autoNav._startY = player.y; }
+    const traveledPx = Math.hypot(player.x - autoNav._startX, player.y - autoNav._startY);
+    const minTravelMet = traveledPx >= (autoNav._minTravelPx || 80);
+
     // Check if already inside the destination city — done!
     const destC = getCityById(autoNav.destCityId);
-    if (destC) {
+    if (destC && minTravelMet) {
       const px = player.x / TILE, py = player.y / TILE;
-      if (px >= destC.x && px < destC.x + destC.w &&
-          py >= destC.y && py < destC.y + destC.h) {
+      // Inside city bounds OR within 2 tiles of gate (south side)
+      const gx = destC.x + Math.floor(destC.w / 2);
+      const nearGate = Math.abs(px - gx) <= 3 && py >= destC.y + destC.h - 1 && py <= destC.y + destC.h + 3;
+      const insideCity = px >= destC.x && px < destC.x + destC.w && py >= destC.y && py < destC.y + destC.h;
+      if (insideCity || nearGate) {
+        // Snap to city center if not already inside
+        if (!insideCity) {
+          player.x = (destC.x + destC.w / 2) * TILE;
+          player.y = (destC.y + destC.h / 2) * TILE;
+        }
         autoNav.active = false;
         toast(`Arrived at ${destC.name}.`, 2);
         return;
@@ -971,8 +997,13 @@ ${line4}`;
     }
 
     if (autoNav.pathIdx >= autoNav.path.length) {
+      // Path exhausted — snap player into destination city
+      if (destC) {
+        player.x = (destC.x + destC.w / 2) * TILE;
+        player.y = (destC.y + destC.h / 2) * TILE;
+        toast(`Arrived at ${destC.name}.`, 2);
+      }
       autoNav.active = false;
-      if (destC) toast(`Arrived at ${destC.name}.`, 2);
       return;
     }
 
@@ -2570,56 +2601,73 @@ const TRADER_DEFS = [
 
 // Road waypoint paths between cities (pixel coords)
 // Each path is an array of {x,y} checkpoints the trader follows in order
+// Cache so we only compute each route once per session
+const _traderPathCache = {};
+
 function buildTraderPath(fromId, toId) {
+  const cacheKey = `${fromId}→${toId}`;
+  if (_traderPathCache[cacheKey]) return _traderPathCache[cacheKey];
+
   const T = TILE;
-  const g = {};
-  for (const c of world.cities) {
-    g[c.id] = { x: (c.x + Math.floor(c.w/2)) * T, y: (c.y + c.h) * T };
+
+  // Gate exit points: gx = x+floor(w/2), gy = y+h (wall row), road starts at gy+1
+  // City layouts: valdenmere {x:8,y:8,w:28,h:20}, ashport {x:96,y:55,w:24,h:16},
+  //               crosshaven {x:55,y:65,w:14,h:10}, ironholt {x:105,y:14,w:20,h:14}
+  // Use A* to find a walkable tile path between city gate exits, then convert to world pixels.
+  const getGateExit = (cityId) => {
+    const c = world.cities.find(c => c.id === cityId);
+    if (!c) return null;
+    const gx = c.x + Math.floor(c.w / 2);
+    const gy = c.y + c.h + 1; // 1 tile below gate wall, on the road
+    return { tx: gx, ty: gy };
+  };
+
+  const fromExit = getGateExit(fromId);
+  const toExit   = getGateExit(toId);
+  if (!fromExit || !toExit) {
+    // Fallback: straight line
+    const result = [
+      { x: fromExit ? fromExit.tx * T + T/2 : 0, y: fromExit ? fromExit.ty * T + T/2 : 0 },
+      { x: toExit   ? toExit.tx * T + T/2   : 0, y: toExit   ? toExit.ty * T + T/2   : 0 },
+    ];
+    _traderPathCache[cacheKey] = result;
+    return result;
   }
-  // Key road junctions (from carveRoad network)
-  const J = {
-    vjunc:  { x: 30*T, y: 30*T },    // Valdenmere south junction
-    bridge: { x: 68*T, y: 8*T  },    // North river bridge
-    ironN:  { x: 115*T, y: 8*T },    // North road east of bridge
-    ironE:  { x: 130*T, y: 28*T },   // Ironholt east loop
-    ironSE: { x: 130*T, y: 55*T },   // Ironholt SE loop
-    crossN: { x: 48*T, y: 55*T },    // Crosshaven north approach
-    crossS: { x: 62*T, y: 82*T },    // Crosshaven south exit
-    ashW:   { x: 80*T, y: 72*T },    // Ashport west approach
-  };
 
-  const paths = {
-    'valdenmere→ironholt': [g.valdenmere, J.vjunc, {x:68*T,y:30*T}, {x:68*T,y:14*T}, J.bridge, J.ironN, {x:115*T,y:14*T}, g.ironholt],
-    'ironholt→valdenmere': [g.ironholt, {x:115*T,y:14*T}, J.ironN, J.bridge, {x:68*T,y:14*T}, {x:68*T,y:30*T}, J.vjunc, g.valdenmere],
-    'valdenmere→crosshaven': [g.valdenmere, J.vjunc, {x:30*T,y:55*T}, J.crossN, {x:48*T,y:70*T}, g.crosshaven],
-    'crosshaven→valdenmere': [g.crosshaven, {x:48*T,y:70*T}, J.crossN, {x:30*T,y:55*T}, J.vjunc, g.valdenmere],
-    'crosshaven→ashport': [g.crosshaven, J.crossS, {x:80*T,y:82*T}, J.ashW, g.ashport],
-    'ashport→crosshaven': [g.ashport, J.ashW, {x:80*T,y:82*T}, J.crossS, g.crosshaven],
-    'ironholt→ashport': [g.ironholt, J.ironE, J.ironSE, {x:112*T,y:55*T}, g.ashport],
-    'ashport→ironholt': [g.ashport, {x:112*T,y:55*T}, J.ironSE, J.ironE, g.ironholt],
-  };
+  // Run A* between gate exits (high node limit for long routes)
+  const tilePath = astar(fromExit.tx, fromExit.ty, toExit.tx, toExit.ty, 20000);
 
-  const key = `${fromId}→${toId}`;
-  if (paths[key]) return paths[key];
-
-  // Indirect: via intermediate city
-  const via = {
-    'valdenmere→ashport': ['valdenmere→crosshaven', 'crosshaven→ashport'],
-    'ashport→valdenmere': ['ashport→crosshaven', 'crosshaven→valdenmere'],
-    'crosshaven→ironholt': ['crosshaven→ashport', 'ashport→ironholt'],
-    'ironholt→crosshaven': ['ironholt→ashport', 'ashport→crosshaven'],
-  };
-  if (via[key]) {
-    const combined = [];
-    for (const seg of via[key]) {
-      const pts = paths[seg] || [];
-      if (combined.length) combined.push(...pts.slice(1)); // skip duplicate junction
-      else combined.push(...pts);
+  let result;
+  if (!tilePath || tilePath.length === 0) {
+    // No path found — fallback straight line
+    result = [
+      { x: fromExit.tx * T + T/2, y: fromExit.ty * T + T/2 },
+      { x: toExit.tx * T + T/2,   y: toExit.ty * T + T/2 },
+    ];
+  } else {
+    // Use the raw A* path (no smoothing — smoothing creates diagonal shortcuts through walls)
+    // Subsample to max 60 waypoints to keep memory reasonable but preserve corners
+    const step = Math.max(1, Math.floor(tilePath.length / 60));
+    result = [];
+    for (let i = 0; i < tilePath.length; i += step) {
+      const t = tilePath[i];
+      result.push({ x: t.x * T + T/2, y: t.y * T + T/2 });
     }
-    return combined;
+    // Always include final gate exit tile
+    const last = tilePath[tilePath.length - 1];
+    const lastPx = { x: last.x * T + T/2, y: last.y * T + T/2 };
+    if (result.length === 0 || result[result.length - 1].x !== lastPx.x || result[result.length - 1].y !== lastPx.y) {
+      result.push(lastPx);
+    }
+    // Add city center as final destination so player walks fully into the city
+    const destCity = world.cities.find(c => c.id === toId);
+    if (destCity) {
+      result.push({ x: (destCity.x + destCity.w / 2) * T, y: (destCity.y + destCity.h / 2) * T });
+    }
   }
-  // Fallback: straight line
-  return [g[fromId] || g.valdenmere, g[toId] || g.ashport];
+
+  _traderPathCache[cacheKey] = result;
+  return result;
 }
 
 /**
