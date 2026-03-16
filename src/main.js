@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.5'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.6'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4878,7 +4878,7 @@ function drawNpcBubble() {
 
       // Stuck recovery: if player hasn't moved for 45+ frames at this waypoint,
       // skip to the next one rather than stopping dead.
-      if (dist > TILE * 1.4) {
+      if (dist > TILE * 0.6) {
         const stuckKey = `${clickMove.pathIdx}`;
         if (clickMove._stuckKey !== stuckKey) {
           clickMove._stuckKey = stuckKey;
@@ -4907,25 +4907,25 @@ function drawNpcBubble() {
         }
       }
 
-      const arrivedAtWp = dist < TILE * 1.4;
+      const arrivedAtWp = dist < TILE * 0.6;
       const arrivedAtFinal = clickMove.path.length === 0
-        ? dist < TILE * 1.4
+        ? dist < TILE * 0.6
         : clickMove.pathIdx >= clickMove.path.length - 1 && arrivedAtWp;
 
       if (arrivedAtWp && clickMove.path.length > 0 && !arrivedAtFinal) {
-        // Snap player to waypoint center to prevent float drift from clipping
-        // into adjacent wall tiles (e.g. 535.97 instead of 536.0).
+        // Micro-nudge player to waypoint center (max 2px) to correct float drift
+        // without adding free teleport distance.
         const wp = clickMove.path[clickMove.pathIdx];
         if (wp) {
-          const snappedX = wp.x;
-          const snappedY = wp.y;
-          // Only snap if the snapped position is collision-free
-          if (!isSolidAt(snappedX - player.r, snappedY - player.r) &&
-              !isSolidAt(snappedX + player.r, snappedY - player.r) &&
-              !isSolidAt(snappedX - player.r, snappedY + player.r) &&
-              !isSolidAt(snappedX + player.r, snappedY + player.r)) {
-            player.x = snappedX;
-            player.y = snappedY;
+          const MAX_NUDGE = 2;
+          const nx = clamp(wp.x, player.x - MAX_NUDGE, player.x + MAX_NUDGE);
+          const ny = clamp(wp.y, player.y - MAX_NUDGE, player.y + MAX_NUDGE);
+          if (!isSolidAt(nx - player.r, ny - player.r) &&
+              !isSolidAt(nx + player.r, ny - player.r) &&
+              !isSolidAt(nx - player.r, ny + player.r) &&
+              !isSolidAt(nx + player.r, ny + player.r)) {
+            player.x = nx;
+            player.y = ny;
           }
         }
         // Advance to next waypoint and immediately recalculate direction
@@ -4938,7 +4938,7 @@ function drawNpcBubble() {
         }
       }
 
-      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 1.4)) {
+      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 0.6)) {
         // Arrived at destination — trigger tap action if any
         clickMove.active = false;
         ax = 0; ay = 0;
