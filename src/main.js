@@ -926,6 +926,10 @@ ${line4}`;
       return;
     }
 
+    // Cancel any existing nav cleanly before starting new one
+    autoNav.active = false;
+    clickMove.active = false;
+
     // If player is inside the origin city, snap them to the gate exit tile.
     // Cities have internal obstacles that block straight-south navigation.
     // The gate exit (path[0]) is just outside the south wall — safe to warp to.
@@ -942,7 +946,10 @@ ${line4}`;
     autoNav.path = path;
     autoNav.pathIdx = 1; // skip gate exit (already there after snap)
     autoNav.destMarkerT = stateTime;
+    // Reset ALL per-trip state so a re-navigate never resumes old tracking
     autoNav._blockedFrames = 0;
+    autoNav._startX = player.x;
+    autoNav._startY = player.y;
     autoNav._minTravelPx = 80; // must travel at least 80px before arrival check fires
     clickMove.active = false; // cancel any manual click-move
     const dest = getCityById(cityId);
