@@ -11,8 +11,9 @@ const MAIN='src/main.js';
 const indexHtml = fs.readFileSync(INDEX,'utf8');
 const mainJs = fs.readFileSync(MAIN,'utf8');
 
-const m = mainJs.match(/version\s*:\s*'v(\d+\.\d+\.\d+)'/);
-if (!m) die('Could not find ITERATION.version in src/main.js');
+const m = mainJs.match(/NPC_DIAG_BUILD\s*=\s*'v(\d+\.\d+\.\d+)'/) ||
+           mainJs.match(/version\s*:\s*'v(\d+\.\d+\.\d+)'/);
+if (!m) die('Could not find NPC_DIAG_BUILD or ITERATION.version in src/main.js');
 const cur = m[1];
 
 function parse(v){ const mm=String(v).match(/^(\d+)\.(\d+)\.(\d+)$/); return mm?{a:+mm[1],b:+mm[2],c:+mm[3]}:null; }
@@ -41,9 +42,11 @@ idx = idx.replace(/(\.\/src\/main\.js\?v=)(\d+\.\d+\.\d+)/g, `$1${next}`);
 idx = idx.replace(/\('\?v=\d+\.\d+\.\d+'\)/g, `('?v=${next}')`);
 
 idx = idx.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${next}`);
+js = js.replace(/NPC_DIAG_BUILD\s*=\s*'v\d+\.\d+\.\d+'/m, `NPC_DIAG_BUILD = 'v${next}'`);
 js = js.replace(/version\s*:\s*'v\d+\.\d+\.\d+'/m, `version: 'v${next}'`);
 
 if (idx===indexHtml) die('index.html not updated (no matches)');
+// main.js may have one or both patterns — just verify something changed
 if (js===mainJs) die('src/main.js not updated (no matches)');
 
 fs.writeFileSync(INDEX, idx);
