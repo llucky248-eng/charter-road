@@ -429,6 +429,14 @@
         }
       }
 
+      // QA / dev: skip login if ?qa=1 is in the URL
+      if (new URLSearchParams(location.search).get('qa') === '1') {
+        window.__PLAYER_ID = '0';
+        document.getElementById('login-overlay').classList.add('hidden');
+        // game script loaded by crash-guard block below
+        return;
+      }
+
       const overlay = document.getElementById('login-overlay');
       const inputEl = document.getElementById('login-id-input');
       const errorEl = document.getElementById('login-error');
