@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.15'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.16'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6453,13 +6453,9 @@ function drawEntities() {
     ctx.restore();
   }
 
-  // Returns true when the player is on a road tile (outside any city)
+  // Returns true when the player is outside any city (show carriage)
   function playerOnRoad() {
-    if (currentCity()) return false; // inside a city — walking
-    const tx = Math.floor(player.x / TILE);
-    const ty = Math.floor(player.y / TILE);
-    const t = tileAt(tx, ty);
-    return t === 1 || t === 5; // road or gate tile
+    return !currentCity();
   }
 
   // Draw a medieval carriage with horse for player on the road
