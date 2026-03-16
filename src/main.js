@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.13'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.14'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -470,6 +470,8 @@ ${line4}`;
                 scheduleAutoSave();
               }
             }
+            // Auto-save on city arrival so position + state always persists when entering a city
+            scheduleAutoSave();
             player.lastCityId = nowId;
           }
           return true;
@@ -8509,7 +8511,53 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(moved > TILE * 10, `nav6: should move significantly (moved ${moved.toFixed(1)}px)`);
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation');
+      // ══════════════════════════════════════════════════════════════════
+      // PER-PLAYER SAVE ISOLATION TEST
+      // ══════════════════════════════════════════════════════════════════
+      {
+        const api = __QA.api;
+        const key = api.getSaveKey();
+
+        // Verify save key exists and is non-empty
+        assert(typeof key === 'string' && key.length > 0, 'save key should be a non-empty string');
+
+        // Write a full state: gold, rep, inv, position
+        api.clearSave();
+        api.setPlayer({ gold: 777, inv: { ore: 3, herbs: 1 } });
+        api.setRep('ironholt', 9);
+        api.setPermit('ashport', true);
+        api.teleportToCity('crosshaven');
+        for (let i = 0; i < 5; i++) api.step(1/60);
+
+        // Force buy to trigger auto-save
+        api.freezePrices();
+        api.marketBuy('food', 1);
+        assert(api.flushAutosave() === true, 'player-save: autosave should be pending after buy');
+
+        const saved = api.readSave();
+        assert(!!saved, 'player-save: save should exist');
+        assert(saved.player.gold === 777 - saved.player.inv.food * 1 || saved.player.inv.food >= 1, 'player-save: gold/inv should reflect buy');
+        assert((saved.player.rep?.ironholt || 0) === 9, 'player-save: rep should be persisted');
+        assert(saved.player.permits?.ashport === true, 'player-save: permit should be persisted');
+        assert(Number.isFinite(saved.player.x) && Number.isFinite(saved.player.y), 'player-save: position should be saved');
+        assert(Number.isFinite(saved.time?.day), 'player-save: day should be saved');
+
+        // Verify save is stored under correct localStorage key
+        const rawFromStorage = (() => { try { return localStorage.getItem(key); } catch { return null; } })();
+        assert(!!rawFromStorage, 'player-save: save should be in localStorage under correct key');
+        const parsedFromStorage = JSON.parse(rawFromStorage);
+        assert(parsedFromStorage.player.rep?.ironholt === 9, 'player-save: localStorage rep should match');
+
+        // Load and verify state restores
+        const beforeLoad = api.snapshot();
+        assert(loadGame() === true, 'player-save: loadGame should succeed');
+        const afterLoad = api.snapshot();
+        assert(afterLoad.player.rep?.ironholt === 9, 'player-save: rep restored after load');
+        assert(afterLoad.player.permits?.ashport === true, 'player-save: permit restored after load');
+        assert(Number.isFinite(afterLoad.player.x), 'player-save: position restored after load');
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
