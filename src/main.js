@@ -4538,7 +4538,7 @@ function drawNpcBubble() {
     r: 8,
     vx: 0,
     vy: 0,
-    speed: 72,
+    speed: 48,
 
     // Movement-derived facing/anim
     facing: { x: 0, y: 1 },
