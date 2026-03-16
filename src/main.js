@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.6'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.7'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1855,6 +1855,40 @@ function handleGlobalHudTap(clientX, clientY, e) {
   rebuildMiniMap();
 
   const PERMIT_PRICE = 45;
+
+  // ── GEAR SYSTEM ─────────────────────────────────────────────────────────────
+  // Three upgrade slots: pack (capacity), boots (speed), tool (trade bonus)
+  const GEAR = {
+    pack: [
+      { id: 'satchel',       name: 'Satchel',        icon: '🎒', desc: 'Basic pack',              cost: 0,   capacity: 18 },
+      { id: 'traders_pack',  name: "Trader's Pack",  icon: '🗃️', desc: 'More room for goods',    cost: 120, capacity: 30 },
+      { id: 'merchant_cart', name: 'Merchant Cart',  icon: '🛒', desc: 'Haul serious bulk',       cost: 350, capacity: 50 },
+    ],
+    boots: [
+      { id: 'worn_boots',  name: 'Worn Boots',  icon: '👞', desc: 'Your tired feet',           cost: 0,   speed: 90  },
+      { id: 'road_boots',  name: 'Road Boots',  icon: '👟', desc: 'Built for long routes',     cost: 150, speed: 115 },
+      { id: 'swift_horse', name: 'Swift Horse', icon: '🐴', desc: 'Faster than any trader',   cost: 500, speed: 160 },
+    ],
+    tool: [
+      { id: 'bare_hands',      name: 'Bare Hands',      icon: '✋', desc: 'No trade advantage',      cost: 0,   sellBonus: 0    },
+      { id: 'merchant_ledger', name: 'Merchant Ledger', icon: '📒', desc: '+8% on all sell prices', cost: 200, sellBonus: 0.08 },
+      { id: 'guild_seal',      name: 'Guild Seal',      icon: '🔖', desc: '+15% on all sell prices',cost: 600, sellBonus: 0.15 },
+    ],
+  };
+
+  // Returns current gear item for a slot
+  function currentGear(slot) {
+    const tier = player.gear?.[slot] ?? 0;
+    return GEAR[slot][Math.min(tier, GEAR[slot].length - 1)];
+  }
+
+  // Apply gear effects to player stats (called after purchase + on load)
+  function applyGearStats() {
+    const pack  = currentGear('pack');
+    const boots = currentGear('boots');
+    player.capacity = pack.capacity;
+    player.speed    = boots.speed;
+  }
 
   const CITY_RULES = {
     valdenmere: {
@@ -4021,7 +4055,8 @@ function drawNpcBubble() {
     if (have <= 0) { toast('You have none to sell.', 2); return; }
     const sellN = Math.min(q, have);
     if (sellN <= 0) { toast('Invalid quantity.', 2); return; }
-    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate)));
+    const toolBonus = currentGear('tool').sellBonus || 0;
+    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + toolBonus)));
     const gain = sellN * netEach;
 
     player.inv[it.id] = have - sellN;
@@ -4079,7 +4114,7 @@ function drawNpcBubble() {
     }
     if (kind === 'market') {
       const c = currentCity();
-      key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}`;
+      key += `|${c ? c.id : 'none'}|${ui.mode}|${ui.selection}|${ui.marketScroll}|${player.gold}|${invWeight()}|${player.permits[c?.id] ? 1 : 0}|g${player.gear?.pack??0}${player.gear?.boots??0}${player.gear?.tool??0}`;
       for (const it of ITEMS) key += `|${player.inv[it.id] || 0}`;
     } else if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
@@ -4111,9 +4146,11 @@ function drawNpcBubble() {
       const isMobile = IS_MOBILE;
       const sellHasItems = ITEMS.some(it => (player.inv[it.id] || 0) > 0);
       const buyHasItems = true;
-      if (buyHasItems && !sellHasItems) ui.mode = 'buy';
-      if (sellHasItems && !buyHasItems) ui.mode = 'sell';
-      const showTabs = buyHasItems && sellHasItems;
+      if (ui.mode !== 'gear') {
+        if (buyHasItems && !sellHasItems) ui.mode = 'buy';
+        if (sellHasItems && !buyHasItems) ui.mode = 'sell';
+      }
+      const showTabs = true; // always show — gear tab always visible
       const hasPermit = !!player.permits[c.id];
 
       const totalN = ITEMS.length + 1;
@@ -4233,15 +4270,48 @@ function drawNpcBubble() {
             <div class="cr-tabs" role="tablist" aria-label="Buy or sell">
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
+              <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'gear'}" data-action="mode" data-mode="gear">⚙ GEAR</button>
             </div>
 ` : ''}            <div class="cr-body">
               <div class="cr-list" aria-label="Items">
-                ${rumorsHtml}
-                ${rows.join('')}
+                ${ui.mode === 'gear' ? (() => {
+                  const slots = ['pack','boots','tool'];
+                  const slotLabels = { pack: '🎒 Pack', boots: '👟 Boots', tool: '📜 Tool' };
+                  return slots.map(slot => {
+                    const tiers = GEAR[slot];
+                    const cur = player.gear[slot] ?? 0;
+                    return `<div style="margin-bottom:12px">
+                      <div style="font-weight:700;color:#f0d080;margin-bottom:6px">${slotLabels[slot]}</div>
+                      ${tiers.map((g, i) => {
+                        const owned = i <= cur;
+                        const isCurrent = i === cur;
+                        const canBuy = i === cur + 1 && player.gold >= g.cost;
+                        const tooExpensive = i === cur + 1 && player.gold < g.cost;
+                        const locked = i > cur + 1;
+                        const badge = isCurrent ? '<span style="color:#4ade80;font-size:11px">✓ EQUIPPED</span>' : '';
+                        const cost = g.cost === 0 ? 'Default' : `${g.cost}g`;
+                        const btnStyle = canBuy
+                          ? 'background:#4a3a10;border:1px solid #f0d080;color:#f0d080;cursor:pointer;'
+                          : 'background:#1a1408;border:1px solid #444;color:#666;cursor:default;';
+                        const btn = locked ? `<span style="color:#444;font-size:11px">🔒 Locked</span>`
+                          : owned ? badge
+                          : `<button style="${btnStyle}padding:4px 10px;border-radius:4px;font-size:12px;" data-action="buy-gear" data-slot="${slot}" data-tier="${i}" ${tooExpensive ? 'disabled' : ''}>${tooExpensive ? `Need ${g.cost}g` : `Buy ${g.cost}g`}</button>`;
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:4px;border-radius:6px;background:${isCurrent ? '#1a2010' : '#0e0c08'};border:1px solid ${isCurrent ? '#4ade80' : '#2a2010'};">
+                          <div>
+                            <span style="font-size:15px">${g.icon}</span>
+                            <span style="color:${isCurrent ? '#e0cfa0' : locked ? '#555' : '#b0a070'};margin-left:6px;font-weight:${isCurrent ? '700' : '400'}">${g.name}</span>
+                            <div style="font-size:11px;color:#666;margin-left:22px">${g.desc}</div>
+                          </div>
+                          <div style="text-align:right">${btn}</div>
+                        </div>`;
+                      }).join('')}
+                    </div>`;
+                  }).join('');
+                })() : `${rumorsHtml}${rows.join('')}`}
               </div>
             </div>
             <div class="cr-foot">
-              <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity}</div>
+              <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity} &nbsp; ${currentGear('boots').icon} ${currentGear('boots').name} &nbsp; ${currentGear('tool').icon} ${currentGear('tool').name}</div>
               <div class="cr-hint">Esc close · Tab switch · Enter trade</div>
             </div>
           </div>
@@ -4273,6 +4343,23 @@ function drawNpcBubble() {
         if (Number.isFinite(idx)) { ui.selection = idx; marketTryTrade(idx, qty); }
       }));
 
+      // Gear purchase buttons
+      uiRoot.querySelectorAll('[data-action="buy-gear"]').forEach(el => el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const slot = el.getAttribute('data-slot');
+        const tier = Number(el.getAttribute('data-tier'));
+        const g = GEAR[slot]?.[tier];
+        if (!g) return;
+        if (player.gold < g.cost) { toast(`Need ${g.cost}g to buy ${g.name}.`, 2); return; }
+        if (tier !== (player.gear[slot] ?? 0) + 1) { toast('Buy upgrades in order.', 2); return; }
+        player.gold -= g.cost;
+        player.gear[slot] = tier;
+        applyGearStats();
+        scheduleAutoSave();
+        showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped — ${g.desc}`);
+        toast(`${g.icon} ${g.name} equipped!`, 2.5);
+        dom.key = ''; // force re-render
+      }));
 
       return;
     }
@@ -4559,6 +4646,9 @@ function drawNpcBubble() {
     // Intelligence Market: purchased intel cards
     intelLedger: [], // [{id, item, cityId, predictedPrice, direction, boughtDay, expiryDay, reliable, sold, verified}]
     intelSells: 0,   // total intel sold (for rep/scoring)
+
+    // Gear slots: tier index (0=default, 1=tier2, 2=tier3)
+    gear: { pack: 0, boots: 0, tool: 0 },
   };
 
   // --- Save/Load (localStorage)
@@ -4595,6 +4685,7 @@ function drawNpcBubble() {
         facing: { ...player.facing },
         intelLedger: player.intelLedger ? [...player.intelLedger] : [],
         intelSells: player.intelSells || 0,
+        gear: { ...player.gear },
       },
       time: { ...time },
       marketDrift: Object.fromEntries(
@@ -4759,6 +4850,10 @@ function drawNpcBubble() {
 
       // Restore player
       Object.assign(player, state.player);
+      // Ensure gear object exists (old saves won't have it)
+      if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+      // Apply gear stats after load
+      applyGearStats();
       // Restore time
       Object.assign(time, state.time);
       // Restore market drift
@@ -7840,7 +7935,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
     if (USE_DOM_MODALS) {
       domRender();
-      assert(!uiRoot.querySelector('.cr-tabs'), 'mobile market should hide tabs when sell empty');
+      assert(uiRoot.querySelector('.cr-tabs'), 'market should always show tabs (gear tab always visible)');
       assert(ui.mode === 'buy', 'mobile market should force buy mode when sell empty');
       assert(uiRoot.querySelector('.cr-action'), 'mobile market should render single action button');
 
@@ -8102,6 +8197,9 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       qaFail(String(e && (e.stack || e.message) || e));
     }
   }
+
+  // Apply gear stats on fresh start (load already calls applyGearStats)
+  applyGearStats();
 
   tick();
 })();

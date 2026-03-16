@@ -274,7 +274,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.3.6</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.3.7</div>
     </div>
   </div>
 
@@ -340,7 +340,7 @@
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.6&t=' + Date.now())));
+      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.7&t=' + Date.now())));
       s.async = false;
       s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
       document.body.appendChild(s);
