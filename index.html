@@ -231,6 +231,108 @@
       to{ transform: translateY(-10px); opacity: 0; }
     }
 
+    /* ── Player Login Overlay ── */
+    #login-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(8, 11, 16, 0.97);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    #login-overlay.hidden { display: none; }
+    .login-box {
+      width: min(400px, 96vw);
+      border: 1px solid rgba(120, 92, 60, 0.55);
+      border-radius: 20px;
+      background: rgba(18, 24, 32, 0.98);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.65);
+      padding: 28px 24px 22px;
+      text-align: center;
+    }
+    .login-box h2 {
+      font-size: 22px; font-weight: 900; color: #e8d5b0; margin: 0 0 6px;
+      letter-spacing: 0.02em;
+    }
+    .login-box .login-sub {
+      color: #8aa0b3; font-size: 13px; margin-bottom: 22px;
+    }
+    .login-divider {
+      display: flex; align-items: center; gap: 10px;
+      color: #4a5a6a; font-size: 12px; margin: 18px 0;
+    }
+    .login-divider::before, .login-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(120, 92, 60, 0.25);
+    }
+    .login-input-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .login-input {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(120, 92, 60, 0.40);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #e8edf2;
+      font-size: 15px; font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.08em;
+      outline: none;
+      width: 100%; box-sizing: border-box;
+    }
+    .login-input:focus { border-color: rgba(120, 92, 60, 0.80); }
+    .login-input::placeholder { color: #4a5a6a; font-weight: 400; letter-spacing: 0; }
+    .login-btn {
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(120, 92, 60, 0.55);
+      background: rgba(120, 92, 60, 0.22);
+      color: #e8d5b0;
+      font-size: 14px; font-weight: 900;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s;
+    }
+    .login-btn:hover { background: rgba(120, 92, 60, 0.38); }
+    .login-btn:active { transform: scale(0.97); }
+    .login-btn-primary {
+      width: 100%;
+      padding: 13px;
+      border-radius: 12px;
+      border: 1px solid rgba(251, 191, 36, 0.55);
+      background: rgba(251, 191, 36, 0.14);
+      color: #f0d080;
+      font-size: 15px; font-weight: 900;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 0.12s;
+    }
+    .login-btn-primary:hover { background: rgba(251, 191, 36, 0.24); }
+    .login-btn-primary:active { transform: scale(0.97); }
+    .login-btn-guest {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      color: #8aa0b3;
+      font-size: 13px; font-weight: 700;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .login-btn-guest:hover { background: rgba(255,255,255,0.06); }
+    .login-error {
+      color: #f87171; font-size: 12px; margin-top: 8px; min-height: 16px;
+    }
+    .login-id-display {
+      margin-top: 16px; padding: 10px 14px;
+      background: rgba(251,191,36,0.08);
+      border: 1px solid rgba(251,191,36,0.25);
+      border-radius: 10px;
+      font-size: 12px; color: #8aa0b3;
+      display: none;
+    }
+    .login-id-display span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #f0d080; font-weight: 900; letter-spacing: 0.08em; }
+
     /* Legacy touch-ui (hidden, kept for reference) */
     #touch-ui { display: none !important; }
     #touch-ui .pad {
@@ -259,6 +361,30 @@
     <h1>The Amber Road</h1>
     <div class="meta">Top-down fantasy trading — roam, trade, survive the road</div>
   </header>
+  <!-- Player Login Overlay -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>⚔️ The Amber Road</h2>
+      <p class="login-sub">A medieval trading journey</p>
+
+      <button class="login-btn-primary" id="login-new-btn">🌟 New Journey</button>
+      <button class="login-btn-guest" id="login-guest-btn">Play as Guest (ID: 0)</button>
+
+      <div class="login-divider">or sign in with Player ID</div>
+
+      <div class="login-input-row">
+        <input class="login-input" id="login-id-input" type="text"
+          placeholder="e.g. A3F2" maxlength="8" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <button class="login-btn" id="login-signin-btn">Sign In</button>
+      </div>
+      <div class="login-error" id="login-error"></div>
+
+      <div class="login-id-display" id="login-id-display">
+        Your Player ID: <span id="login-id-val"></span> — write this down to continue your journey later!
+      </div>
+    </div>
+  </div>
+
   <div id="wrap">
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Amber Road game canvas"></canvas>
@@ -279,6 +405,70 @@
   </div>
 
   <div id="fatal" style="display:none; margin:16px auto; max-width:900px; padding:12px 14px; border:1px solid rgba(255,255,255,0.15); border-radius:12px; background:rgba(80,10,10,0.35); color:#fecaca; font:14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space:pre-wrap;"></div>
+
+  <script>
+    // ── Player ID / Login System ──────────────────────────────────────────────
+    (function(){
+      const ID_KEY = 'charter-road-player-id';
+      const VALID_RE = /^[A-Z0-9]{1,8}$/;
+
+      function genId() {
+        // 4-char alphanumeric, uppercase, avoid ambiguous chars (0/O, 1/I)
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let id = '';
+        for (let i = 0; i < 4; i++) id += chars[Math.floor(Math.random() * chars.length)];
+        return id;
+      }
+
+      function launch(playerId) {
+        window.__PLAYER_ID = String(playerId).toUpperCase();
+        document.getElementById('login-overlay').classList.add('hidden');
+        if (typeof window.__launchGame === 'function') {
+          window.__launchGame();
+          window.__launchGame = null;
+        }
+      }
+
+      const overlay = document.getElementById('login-overlay');
+      const inputEl = document.getElementById('login-id-input');
+      const errorEl = document.getElementById('login-error');
+      const idDisplayEl = document.getElementById('login-id-display');
+      const idValEl = document.getElementById('login-id-val');
+
+      // New Journey
+      document.getElementById('login-new-btn').addEventListener('click', function(){
+        const newId = genId();
+        try { localStorage.setItem(ID_KEY, newId); } catch(e){}
+        idValEl.textContent = newId;
+        idDisplayEl.style.display = 'block';
+        errorEl.textContent = '';
+        // Disable buttons while showing ID
+        document.getElementById('login-new-btn').disabled = true;
+        document.getElementById('login-guest-btn').disabled = true;
+        document.getElementById('login-signin-btn').disabled = true;
+        // launch after short delay so player can read their ID
+        setTimeout(function(){ launch(newId); }, 2400);
+      });
+
+      // Guest (ID 0)
+      document.getElementById('login-guest-btn').addEventListener('click', function(){
+        launch('0');
+      });
+
+      // Sign In
+      function trySignIn() {
+        const raw = (inputEl.value || '').trim().toUpperCase();
+        if (!raw) { errorEl.textContent = 'Enter your Player ID.'; return; }
+        if (!VALID_RE.test(raw)) { errorEl.textContent = 'Invalid ID — use letters and numbers only.'; return; }
+        errorEl.textContent = '';
+        try { localStorage.setItem(ID_KEY, raw); } catch(e){}
+        launch(raw);
+      }
+
+      document.getElementById('login-signin-btn').addEventListener('click', trySignIn);
+      inputEl.addEventListener('keydown', function(e){ if (e.key === 'Enter') trySignIn(); });
+    })();
+  </script>
 
   <script>
     // Early crash guard: catches parse/load/runtime errors even if main.js never starts.
@@ -334,23 +524,47 @@
         showFatal(err && (err.stack || err.message) || err);
       });
 
-      var s = document.createElement('script');
-      // Allow QA harness to run against the working tree without requiring a version bump.
-      // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
       var qp = new URLSearchParams(location.search);
       var v = qp.get('v');
       var qa = qp.get('qa');
-      s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.9&t=' + Date.now())));
-      s.async = false;
-      s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
-      document.body.appendChild(s);
 
-      // BOOT_WATCHDOG: if game doesn't signal boot within 1.5s, show a helpful message.
-      setTimeout(function(){
-        if (!window.__BOOT_OK) {
-          showFatal('Boot watchdog: main.js loaded but did not start the game loop.\nTry: hard refresh / clear site data. If persists, screenshot this page.');
-        }
-      }, 1500);
+      function loadGameScript() {
+        if (typeof window.__startBootWatchdog === 'function') window.__startBootWatchdog();
+        var s = document.createElement('script');
+        // Allow QA harness to run against the working tree without requiring a version bump.
+        // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.9&t=' + Date.now())));
+        s.async = false;
+        s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
+        document.body.appendChild(s);
+      }
+
+      // QA mode: skip login, use player ID '0'
+      if (qa) {
+        window.__PLAYER_ID = '0';
+        loadGameScript();
+      } else {
+        // Wait for login overlay to set window.__PLAYER_ID before starting game
+        window.__launchGame = loadGameScript;
+      }
+
+      // BOOT_WATCHDOG: only fires after game script is loaded (not during login wait).
+      // QA mode sets __PLAYER_ID early so game loads immediately; non-QA waits for login.
+      if (qa) {
+        setTimeout(function(){
+          if (!window.__BOOT_OK) {
+            showFatal('Boot watchdog: main.js loaded but did not start the game loop.\nTry: hard refresh / clear site data. If persists, screenshot this page.');
+          }
+        }, 1500);
+      }
+      // Non-QA: boot watchdog fires 1.5s after game script actually loads (deferred).
+      window.__startBootWatchdog = function() {
+        setTimeout(function(){
+          if (!window.__BOOT_OK) {
+            showFatal('Boot watchdog: main.js loaded but did not start the game loop.\nTry: hard refresh / clear site data. If persists, screenshot this page.');
+          }
+        }, 1500);
+      };
 
     })();
   </script>

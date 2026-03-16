@@ -4777,7 +4777,10 @@ function drawNpcBubble() {
   };
 
   // --- Save/Load (localStorage)
-  const SAVE_KEY = 'charter-road-save-v1';
+  // Save slot is scoped to the current player ID (set by login overlay).
+  // QA mode and guest (ID 0) use the legacy key for backward compat.
+  const _playerId = (typeof window.__PLAYER_ID === 'string' && window.__PLAYER_ID) ? window.__PLAYER_ID : '0';
+  const SAVE_KEY = _playerId === '0' ? 'charter-road-save-v1' : `charter-road-save-v1-${_playerId}`;
   const SAVE_SCHEMA_VERSION = 1; // bump when save format changes
 
   // Wire QA API save key now that SAVE_KEY exists.
@@ -6664,6 +6667,10 @@ if (IS_MOBILE) {
   ctx.fillStyle = '#cfe6ff';
   ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
   ctx.fillText(`${player.gold}g · ${w}/${player.capacity}`, VIEW_W - padX, y1);
+  // Player ID (mobile, small, bottom-right of top bar)
+  ctx.fillStyle = 'rgba(251,191,36,0.55)';
+  ctx.font = `700 ${Math.round(8 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+  ctx.fillText(`ID:${_playerId}`, VIEW_W - padX, Math.round(34 * UI_SCALE));
   ctx.textAlign = 'left';
 
   ui._hudExpandedVisible = false;
@@ -6813,6 +6820,14 @@ if (ui._hudTapDebug) {
       ctx.fillText('📂', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnLoad = { x: btnLoadX, y: btnSaveY - btnH, w: btnW, h: btnH };
       
+      // Player ID badge (desktop HUD, top-right corner)
+      if (_playerId) {
+        ctx.fillStyle = 'rgba(251,191,36,0.50)';
+        ctx.font = `700 ${Math.round(9 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`ID: ${_playerId}`, rightX, Math.round(10 * UI_SCALE));
+      }
+
       // Save toast + last-saved indicator
       const nowMs = performance.now();
       if (ui._saveToastUntilMs && nowMs < ui._saveToastUntilMs && ui._saveToastText) {
