@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.14'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.15'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2958,56 +2958,109 @@ function drawAiTrader(t) {
   ctx.translate(sx, sy);
   const r = t.radius;
 
-  // Wagon shadow
-  ctx.globalAlpha = 0.3;
+  const moving = t.state === 'traveling';
+  const facing = t.facing || { x: 1, y: 0 };
+  const angle = Math.atan2(facing.y, facing.x);
+
+  // Rotate toward movement direction
+  ctx.rotate(angle - Math.PI / 2);
+
+  const W = r * 1.4;
+  const H = W * 1.5;
+
+  // Shadow
+  ctx.globalAlpha = 0.22;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(0, r+4, r+2, 4, 0, 0, Math.PI*2);
+  ctx.ellipse(0, H * 0.6, W * 1.2, 5, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Wagon body (small rectangle)
-  ctx.fillStyle = t.color || '#d97706';
-  ctx.fillRect(-r-2, -r*0.5, r*2+4, r*1.4);
-  // Wagon cover/canvas
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(-r, -r*0.5, r*2, r*0.7);
-  // Wagon wheels
-  ctx.fillStyle = '#4a3010';
-  ctx.beginPath(); ctx.arc(-r, r*0.6, 3, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(r, r*0.6, 3, 0, Math.PI*2); ctx.fill();
-  // Spokes
-  ctx.strokeStyle = '#6b4a20'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(-r-1, r*0.6-2); ctx.lineTo(-r+1, r*0.6+2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-r-2, r*0.6); ctx.lineTo(-r+2, r*0.6); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(r-1, r*0.6-2); ctx.lineTo(r+1, r*0.6+2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(r-2, r*0.6); ctx.lineTo(r+2, r*0.6); ctx.stroke();
+  // ── Horse ──────────────────────────────────────────────────────────
+  const horseY = -(H * 0.45 + W * 0.7);
+  const horseColor = t.color ? t.color : '#7a5c3a';
+  ctx.fillStyle = '#7a5c3a';
+  ctx.fillRect(-W * 0.3, horseY - W * 0.35, W * 0.6, W * 0.75);
+  ctx.fillStyle = '#6b4e2e';
+  ctx.fillRect(-W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.45);
+  ctx.fillStyle = '#4a3020';
+  ctx.fillRect(-W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
+  const legSwing = moving ? Math.sin(stateTime * 0.015 + hashStr(t.id) * 0.5) * 2 : 0;
+  ctx.fillStyle = '#5a4025';
+  ctx.fillRect(-W * 0.22, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
+  ctx.fillRect(-W * 0.06, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
+  ctx.fillRect(W * 0.06, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
+  // Harness
+  ctx.strokeStyle = '#3a2510'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-W * 0.2, horseY + W * 0.15);
+  ctx.lineTo(-W * 0.35, -H * 0.3);
+  ctx.moveTo(W * 0.2, horseY + W * 0.15);
+  ctx.lineTo(W * 0.35, -H * 0.3);
+  ctx.stroke();
 
-  // Name tag (always visible when state is traveling)
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  ctx.fillRect(-24, -r*1.8-10, 48, 12);
+  // ── Carriage body ──────────────────────────────────────────────────
+  const bodyColor = t.color || '#8b5e2a';
+  ctx.fillStyle = bodyColor;
+  ctx.fillRect(-W * 0.75, -H * 0.45, W * 1.5, H * 0.72);
+  // Roof
+  ctx.fillStyle = 'rgba(30,20,10,0.6)';
+  ctx.fillRect(-W * 0.7, -H * 0.45, W * 1.4, H * 0.18);
+  // Canvas cover (personality-colored)
+  ctx.fillStyle = `${t.color || '#d97706'}44`;
+  ctx.fillRect(-W * 0.62, -H * 0.45, W * 1.24, H * 0.2);
+  // Trim
+  ctx.strokeStyle = 'rgba(255,200,80,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(-W * 0.75, -H * 0.45, W * 1.5, H * 0.72);
+  // Cargo bump (if carrying goods)
+  const hasGoods = Object.values(t.inv || {}).some(q => q > 0);
+  if (hasGoods) {
+    ctx.fillStyle = 'rgba(180,140,60,0.6)';
+    ctx.fillRect(-W * 0.5, -H * 0.5, W, H * 0.08);
+  }
+
+  // ── Wheels ─────────────────────────────────────────────────────────
+  const wheelAngle = moving ? (stateTime * 0.01) : 0;
+  const drawWheel = (wx, wy, wr) => {
+    ctx.fillStyle = '#2a1808';
+    ctx.beginPath(); ctx.arc(wx, wy, wr, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#5a3a15';
+    ctx.beginPath(); ctx.arc(wx, wy, wr * 0.6, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#3a2008'; ctx.lineWidth = 1.5;
+    for (let s = 0; s < 4; s++) {
+      const sa = wheelAngle + s * Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(wx + Math.cos(sa) * wr * 0.55, wy + Math.sin(sa) * wr * 0.55);
+      ctx.lineTo(wx - Math.cos(sa) * wr * 0.55, wy - Math.sin(sa) * wr * 0.55);
+      ctx.stroke();
+    }
+    ctx.fillStyle = t.color || '#d97706';
+    ctx.beginPath(); ctx.arc(wx, wy, wr * 0.16, 0, Math.PI*2); ctx.fill();
+  };
+  drawWheel(-W * 0.65, H * 0.24, W * 0.42);
+  drawWheel(W * 0.65, H * 0.24, W * 0.42);
+
+  // ── Name label ─────────────────────────────────────────────────────
+  // Undo rotation for text so it's always readable
+  ctx.restore();
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(-22, -r*2.2-10, 44, 12);
   ctx.fillStyle = t.color || '#f0d080';
   ctx.font = `bold ${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(t.name.split(' ')[0], 0, -r*1.8);
+  ctx.fillText(t.name.split(' ')[0], 0, -r*2.2);
   ctx.textAlign = 'left';
 
-  // Cargo indicator dot
-  const hasGoods = Object.values(t.inv).some(q => q > 0);
-  if (hasGoods) {
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.arc(r+1, -r*0.5, 3, 0, Math.PI*2);
-    ctx.fill();
-  }
-
-  // "Interact" hint when nearby
+  // Interact hint
   const dist = Math.hypot(t.x - player.x, t.y - player.y);
   if (dist < TRADER_INTERACT_RADIUS) {
     ctx.fillStyle = 'rgba(251,191,36,0.9)';
     ctx.font = `${Math.round(9*UI_SCALE)}px system-ui,sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText('[T] Trade', 0, -r*2.4);
+    ctx.fillText('[T] Trade', 0, -r*2.8);
     ctx.textAlign = 'left';
   }
 
@@ -6400,9 +6453,126 @@ function drawEntities() {
     ctx.restore();
   }
 
+  // Returns true when the player is on a road tile (outside any city)
+  function playerOnRoad() {
+    if (currentCity()) return false; // inside a city — walking
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    const t = tileAt(tx, ty);
+    return t === 1 || t === 5; // road or gate tile
+  }
+
+  // Draw a medieval carriage with horse for player on the road
+  function drawPlayerCarriage(x, y) {
+    const facing = player.facing || { x: 0, y: 1 };
+    const angle = Math.atan2(facing.y, facing.x);
+    const moving = autoNav.active || clickMove.active ||
+      Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Shadow
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 18, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Rotate entire carriage toward facing direction
+    ctx.rotate(angle - Math.PI / 2);
+
+    const W = TILE >= 16 ? 14 : 10;
+    const H = W * 1.5;
+
+    // ── Horse ──────────────────────────────────────────────────────────
+    const horseY = -(H * 0.5 + W * 0.8);
+    // Horse body
+    ctx.fillStyle = '#7a5c3a';
+    ctx.fillRect(-W * 0.35, horseY - W * 0.4, W * 0.7, W * 0.85);
+    // Horse head
+    ctx.fillStyle = '#6b4e2e';
+    ctx.fillRect(-W * 0.15, horseY - W * 0.9, W * 0.3, W * 0.5);
+    // Horse mane
+    ctx.fillStyle = '#4a3020';
+    ctx.fillRect(-W * 0.05, horseY - W * 0.95, W * 0.15, W * 0.35);
+    // Legs (animated when moving)
+    const legSwing = moving ? Math.sin(stateTime * 0.015) * 2 : 0;
+    ctx.fillStyle = '#5a4025';
+    ctx.fillRect(-W * 0.28, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
+    ctx.fillRect(-W * 0.08, horseY + W * 0.3 - legSwing, W * 0.12, W * 0.45);
+    ctx.fillRect(W * 0.08, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
+
+    // Harness rope
+    ctx.strokeStyle = '#3a2510';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-W * 0.25, horseY + W * 0.2);
+    ctx.lineTo(-W * 0.4, -H * 0.3);
+    ctx.moveTo(W * 0.25, horseY + W * 0.2);
+    ctx.lineTo(W * 0.4, -H * 0.3);
+    ctx.stroke();
+
+    // ── Carriage body ──────────────────────────────────────────────────
+    // Main wooden body
+    ctx.fillStyle = '#8b5e2a';
+    ctx.fillRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
+    // Roof/top
+    ctx.fillStyle = '#7a4f20';
+    ctx.fillRect(-W * 0.75, -H * 0.5, W * 1.5, H * 0.2);
+    // Canvas cover
+    ctx.fillStyle = 'rgba(220,200,160,0.85)';
+    ctx.fillRect(-W * 0.65, -H * 0.5, W * 1.3, H * 0.22);
+    // Window (dark interior)
+    ctx.fillStyle = 'rgba(20,12,5,0.7)';
+    ctx.fillRect(-W * 0.35, -H * 0.3, W * 0.3, W * 0.35);
+    ctx.fillRect(W * 0.05, -H * 0.3, W * 0.3, W * 0.35);
+    // Gold trim
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
+
+    // Player color marker on carriage roof
+    ctx.fillStyle = '#7c3aed';
+    ctx.fillRect(-W * 0.2, -H * 0.55, W * 0.4, W * 0.18);
+
+    // ── Wheels ─────────────────────────────────────────────────────────
+    const wheelAngle = moving ? (stateTime * 0.012) : 0;
+    const drawWheel = (wx, wy) => {
+      const wr = W * 0.5;
+      ctx.fillStyle = '#3a2510';
+      ctx.beginPath(); ctx.arc(wx, wy, wr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#6b4a20';
+      ctx.beginPath(); ctx.arc(wx, wy, wr * 0.65, 0, Math.PI * 2); ctx.fill();
+      // Spokes
+      ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 1.5;
+      for (let s = 0; s < 4; s++) {
+        const sa = wheelAngle + s * Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(wx + Math.cos(sa) * wr * 0.6, wy + Math.sin(sa) * wr * 0.6);
+        ctx.lineTo(wx - Math.cos(sa) * wr * 0.6, wy - Math.sin(sa) * wr * 0.6);
+        ctx.stroke();
+      }
+      // Hub
+      ctx.fillStyle = '#d97706';
+      ctx.beginPath(); ctx.arc(wx, wy, wr * 0.18, 0, Math.PI * 2); ctx.fill();
+    };
+    drawWheel(-W * 0.7, H * 0.22);
+    drawWheel(W * 0.7, H * 0.22);
+
+    ctx.restore();
+  }
+
   function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
+
+    // Draw carriage when on the road (outside city)
+    if (playerOnRoad()) {
+      drawPlayerCarriage(x, y);
+      return;
+    }
 
     // shadow
     ctx.globalAlpha = 0.25;
