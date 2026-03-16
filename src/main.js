@@ -6318,7 +6318,7 @@ function drawEntities() {
     const age = stateTime - clickMove.markerT;
     if (age > 600) return;
     const alpha = Math.max(0, 1 - age / 600);
-    const r = 6 + age * 0.03;
+    const r = Math.max(0, 6 + age * 0.03);
     const sx = clickMove.markerX;
     const sy = clickMove.markerY;
     ctx.save();
