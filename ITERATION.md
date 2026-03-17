@@ -242,3 +242,7 @@
 - Fix: active market tab (BUY/SELL/GEAR) now clearly highlighted — dark brown fill, light text, subtle shadow.
 - Fix: selected item card border + shadow ring for clear focus.
 - Fix: building glow rings now only appear when player is within discovery range (not on all visible tiles).
+
+## v0.3.24 — 2026-03-17
+- Fix: building glow rings now draw outside the tile boundary (sx-0.5, TILE+1) — building art fully visible underneath.
+- Glow is purely an outer halo, not an overlay on the art.
