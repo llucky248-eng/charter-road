@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.28'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.29'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6704,25 +6704,35 @@ function drawEntities() {
     };
 
     const drawWagon = (wx, wy) => {
-      // Body
       if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 5; }
+      // Body
       ctx.fillStyle = bc.body;
       ctx.fillRect(wx, wy, wW, wH);
-      // Canvas top (T1+)
+      // T1+: canvas cover strip across top of wagon (cream/tan)
       if (packTier >= 1) {
-        ctx.fillStyle = packTier >= 3 ? 'rgba(180,150,80,0.85)' : 'rgba(210,190,140,0.75)';
-        ctx.fillRect(wx + 1, wy + 1, wW - 2, wH - 2);
-        ctx.fillStyle = bc.body;
-        ctx.fillRect(wx + 2, wy + 2, wW - 4, wH - 4);
+        ctx.fillStyle = packTier >= 3 ? '#c8a84a' : '#d4c08a';
+        ctx.fillRect(wx, wy, wW, 3);
       }
-      // Gold trim (T3+)
+      // T2+: window dot each side
+      if (packTier >= 2) {
+        ctx.fillStyle = 'rgba(20,10,5,0.7)';
+        ctx.fillRect(wx + 2, wy + 3, 3, 3);
+        ctx.fillRect(wx + wW - 5, wy + 3, 3, 3);
+      }
+      // T4: gilded side panels
+      if (packTier === 4) {
+        ctx.fillStyle = 'rgba(255,215,0,0.35)';
+        ctx.fillRect(wx, wy + 3, 2, wH - 3);
+        ctx.fillRect(wx + wW - 2, wy + 3, 2, wH - 3);
+      }
+      // Trim outline
       ctx.shadowBlur = 0;
       ctx.strokeStyle = bc.trim;
       ctx.lineWidth = packTier >= 3 ? 1.5 : 1;
       ctx.strokeRect(wx, wy, wW, wH);
-      // Player identity stripe
+      // Player identity stripe (purple)
       ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(wx + wW/2 - 2, wy, 4, 3);
+      ctx.fillRect(wx + wW/2 - 2, wy + wH - 3, 4, 3);
     };
 
     // Harness line from wagon to horse

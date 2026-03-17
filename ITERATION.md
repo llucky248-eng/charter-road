@@ -265,3 +265,9 @@
 
 ## v0.3.28 — 2026-03-17
 - Removed "Tap" / "E" hint pill that appeared above building labels when standing next to a building.
+
+## v0.3.29 — 2026-03-17
+- Fix: wagon tier upgrades now visually distinct at 16px scale.
+  T0: plain dark cart. T1+: tan/cream roof strip. T2+: window dots. T3+: gold trim + golden roof. T4: gilded side panels + glow.
+- Player identity stripe moved to wagon bottom for better visibility.
+- Note: saves are localStorage-only (per-browser); gear doesn't sync between Mac and mobile — that's by design (player ID system).
