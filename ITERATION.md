@@ -237,3 +237,8 @@
 - Fix: notification banner now renders inside the panel (not as a fixed-viewport overlay blocking the game).
 - Fix: PEOPLE panel (NPC chatter) now starts below the HUD instead of overlapping it.
 - Tweak: market list max-height increased 56vh → 62vh on desktop; card padding tightened for denser layout.
+
+## v0.3.23 — 2026-03-17
+- Fix: active market tab (BUY/SELL/GEAR) now clearly highlighted — dark brown fill, light text, subtle shadow.
+- Fix: selected item card border + shadow ring for clear focus.
+- Fix: building glow rings now only appear when player is within discovery range (not on all visible tiles).

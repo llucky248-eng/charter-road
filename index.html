@@ -97,7 +97,7 @@
       font-weight: 900;
       letter-spacing: 0.04em;
     }
-    .cr-tab[aria-selected="true"] { background: rgba(120, 92, 60, 0.16); border-color: rgba(120, 92, 60, 0.70); }
+    .cr-tab[aria-selected="true"] { background: rgba(90, 62, 30, 0.85); border-color: rgba(90, 62, 30, 0.95); color: #f5e8c8; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
     .cr-action {
       border: 1px solid rgba(120, 92, 60, 0.35);
       background: rgba(0,0,0,0.04);
@@ -143,7 +143,7 @@
       align-items:center;
       justify-content:space-between;
     }
-    .cr-card[aria-current="true"] { border-color: rgba(120, 92, 60, 0.72); background: rgba(120, 92, 60, 0.12); }
+    .cr-card[aria-current="true"] { border-color: rgba(90, 62, 30, 0.85); background: rgba(90, 62, 30, 0.12); box-shadow: 0 0 0 2px rgba(90,62,30,0.25); }
     .cr-card-left { flex: 1; min-width: 0; }
     .cr-card-title { font-weight: 900; font-size: 13px; line-height: 1.2; }
     .cr-card-sub { margin-top: 2px; font-size: 11px; color: rgba(74, 59, 42, 0.80); }
@@ -396,7 +396,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Iteration Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.3.22</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.3.23</div>
     </div>
   </div>
 
@@ -537,7 +537,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.22&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.3.23&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);

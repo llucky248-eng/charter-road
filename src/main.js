@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.22'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.23'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6460,17 +6460,21 @@ function drawBuildingLabels() {
       const distTiles = Math.max(Math.abs(tx - px / TILE), Math.abs(ty - py / TILE));
       const isNear = distTiles <= info.nearDist + 1;
 
-      // ── Pulsing glow ring (always visible) ─────────────────────────
-      const pulse = 0.45 + 0.2 * Math.sin(stateTime * 0.003 + tx * 1.7 + ty * 2.3);
-      ctx.save();
-      ctx.globalAlpha = pulse * (isNear ? 1.0 : 0.5);
-      ctx.strokeStyle = info.color;
-      ctx.lineWidth = isNear ? 2 : 1;
-      ctx.shadowColor = info.color;
-      ctx.shadowBlur = isNear ? 6 : 3;
-      ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
-      ctx.shadowBlur = 0;
-      ctx.restore();
+      // ── Pulsing glow ring (only when near enough to discover) ──────
+      const iconDist0 = info.nearDist + 3;
+      if (distTiles <= iconDist0) {
+        const pulse = 0.35 + 0.18 * Math.sin(stateTime * 0.003 + tx * 1.7 + ty * 2.3);
+        const fadeIn = Math.min(1, (iconDist0 - distTiles + 1) / 3);
+        ctx.save();
+        ctx.globalAlpha = pulse * fadeIn * (isNear ? 1.0 : 0.55);
+        ctx.strokeStyle = info.color;
+        ctx.lineWidth = isNear ? 2 : 1;
+        ctx.shadowColor = info.color;
+        ctx.shadowBlur = isNear ? 5 : 2;
+        ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
 
       // ── Icon above tile (visible from ~5 tiles away) ────────────────
       const iconDist = info.nearDist + 3;
