@@ -276,3 +276,9 @@
 - Fix: player character in city is now a proper top-down merchant figure.
   Purple cloak, brown hat, skin-toned face, walking legs — 4-directional, facing-aware.
 - Disabled broken sprite sheet (was a palette catalog, not animation sheet — caused invisible white dot fallback).
+
+## v0.3.31 — 2026-03-17
+- Fix: carriage gear tiers now dramatically more distinct.
+  Wagon grows larger per tier (10→22px width). Roof strip colors: cream→orange→gold→bright gold.
+  Horse colors: pale donkey → dark bay → bright chestnut → jet black → phantom blue-white.
+  Warhorse (T3) is now jet black, immediately obvious vs lower tiers.

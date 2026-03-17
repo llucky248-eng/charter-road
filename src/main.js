@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.30'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.31'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6634,18 +6634,18 @@ function drawEntities() {
 
     // Gear color palettes
     const HORSE_PAL = [
-      { body:'#8a7050', dark:'#5a3a20', mane:'#3a2010', glow:false  }, // T0 donkey
-      { body:'#7a5c3a', dark:'#5a3c20', mane:'#2a1808', glow:false  }, // T1 road horse
-      { body:'#8b4513', dark:'#6b3010', mane:'#3a1808', glow:false  }, // T2 chestnut
-      { body:'#1a1a2e', dark:'#0a0a1a', mane:'#c8a820', glow:false  }, // T3 warhorse
-      { body:'#d0e8f8', dark:'#a0c0e0', mane:'#ffffff', glow:true   }, // T4 phantom
+      { body:'#a08860', dark:'#7a5a30', mane:'#5a3a18', glow:false  }, // T0 pale donkey
+      { body:'#6b4c2a', dark:'#4a3018', mane:'#2a1808', glow:false  }, // T1 dark bay
+      { body:'#b05010', dark:'#803010', mane:'#200800', glow:false  }, // T2 bright chestnut
+      { body:'#111122', dark:'#080812', mane:'#e8c820', glow:false  }, // T3 jet black warhorse
+      { body:'#c8e8ff', dark:'#80b8e8', mane:'#ffffff', glow:true   }, // T4 phantom (glowing white-blue)
     ];
     const WAGON_PAL = [
-      { body:'#5a3c18', trim:'#3a2510' }, // T0 rough cart
-      { body:'#7a5030', trim:'#8b6914' }, // T1 covered wagon
-      { body:'#8b5e2a', trim:'#d97706' }, // T2 covered wagon
-      { body:'#7a4f18', trim:'#d4af37' }, // T3 noble carriage
-      { body:'#6a3c12', trim:'#ffd700' }, // T4 royal gilded
+      { body:'#5a3c18', trim:'#8a6040' }, // T0 rough planks
+      { body:'#6a4828', trim:'#c09050' }, // T1 reinforced cart
+      { body:'#7a3010', trim:'#e07820' }, // T2 painted orange
+      { body:'#4a3010', trim:'#d4af37' }, // T3 dark noble (gold trim)
+      { body:'#3a2408', trim:'#ffd700' }, // T4 royal black-gold
     ];
     const hc = HORSE_PAL[Math.min(bootsTier, 4)];
     const bc = WAGON_PAL[Math.min(packTier, 4)];
@@ -6657,10 +6657,11 @@ function drawEntities() {
     if (hc.glow) { ctx.shadowColor = '#80c8ff'; ctx.shadowBlur = 6; }
 
     // Wagon size: T0 small, grows with tier
-    const wW = 10 + packTier * 2;   // wagon width  ~10–18px
-    const wH = 8  + packTier * 1.5; // wagon height ~8–14px
-    // Horse body size
-    const hW = 6; const hH = 9;
+    const wW = 10 + packTier * 3;   // wagon width  10→22px
+    const wH = 8  + packTier * 2;   // wagon height 8→16px
+    // Horse body size grows with boots tier
+    const hW = 6 + Math.floor(bootsTier * 0.5);
+    const hH = 9 + bootsTier;
 
     // Helper: draw horse body at (hx,hy) top-left, legs direction = legDir ('v'=vertical,'h'=horizontal)
     // frontLegs offset: +legSwing, backLegs: -legSwing
@@ -6708,10 +6709,12 @@ function drawEntities() {
       // Body
       ctx.fillStyle = bc.body;
       ctx.fillRect(wx, wy, wW, wH);
-      // T1+: canvas cover strip across top of wagon (cream/tan)
+      // T1+: canvas cover strip across top of wagon
       if (packTier >= 1) {
-        ctx.fillStyle = packTier >= 3 ? '#c8a84a' : '#d4c08a';
-        ctx.fillRect(wx, wy, wW, 3);
+        // T1=cream, T2=orange, T3=gold, T4=bright gold
+        const roofColors = ['', '#d4c08a', '#e07820', '#d4af37', '#ffd700'];
+        ctx.fillStyle = roofColors[Math.min(packTier, 4)];
+        ctx.fillRect(wx, wy, wW, Math.max(3, Math.round(wH * 0.3)));
       }
       // T2+: window dot each side
       if (packTier >= 2) {
