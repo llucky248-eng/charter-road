@@ -253,3 +253,8 @@
 - Horse visibly in front of wagon relative to travel direction; harness line connects them.
 - Tier visuals preserved: donkey → road horse → chestnut → warhorse → phantom mare.
 - Leg animation, shadow, player identity stripe on wagon roof.
+
+## v0.3.26 — 2026-03-17
+- Fix: building label pills are now color-tinted (matching building accent color) instead of opaque black.
+- Text shadow keeps labels readable over any background.
+- "E/Tap" hint pill also color-tinted, no longer a black box.

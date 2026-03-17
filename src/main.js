@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.25'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.26'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6506,27 +6506,45 @@ function drawBuildingLabels() {
         const lh = Math.round(12 * UI_SCALE);
         const lx = cx - lw / 2;
         const ly = labelY - lh;
-        ctx.fillStyle = 'rgba(10,14,20,0.82)';
+        // Pill: colored tint, not black — blends with scene
+        const pillR = parseInt(info.color.slice(1,3),16);
+        const pillG = parseInt(info.color.slice(3,5),16);
+        const pillB = parseInt(info.color.slice(5,7),16);
+        ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.22)`;
         if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
         else ctx.fillRect(lx, ly, lw, lh);
         ctx.fill();
+        // Subtle outline
+        ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.55)`;
+        ctx.lineWidth = 1;
+        if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
+        else ctx.strokeRect(lx, ly, lw, lh);
+        ctx.stroke();
 
-        // Label text
+        // Label text with shadow for readability
+        ctx.shadowColor = 'rgba(0,0,0,0.9)';
+        ctx.shadowBlur = 3;
         ctx.fillStyle = info.color;
         ctx.fillText(info.label, cx, ly + lh - Math.round(3 * UI_SCALE));
+        ctx.shadowBlur = 0;
 
         // E / tap hint when very close
         if (distTiles <= info.nearDist) {
           const hint = IS_MOBILE ? 'Tap' : 'E';
           ctx.font = `${Math.round(8 * UI_SCALE)}px system-ui, sans-serif`;
-          ctx.fillStyle = 'rgba(200,200,200,0.8)';
           const hw = ctx.measureText(hint).width + Math.round(8 * UI_SCALE);
           const hx = cx - hw / 2;
           const hy = ly - Math.round(14 * UI_SCALE);
-          ctx.fillStyle = 'rgba(10,14,20,0.75)';
+          ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.18)`;
+          ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.45)`;
+          ctx.lineWidth = 1;
           if (ctx.roundRect) ctx.roundRect(hx, hy, hw, Math.round(11 * UI_SCALE), 3);
           else ctx.fillRect(hx, hy, hw, Math.round(11 * UI_SCALE));
           ctx.fill();
+          if (ctx.roundRect) ctx.roundRect(hx, hy, hw, Math.round(11 * UI_SCALE), 3);
+          else ctx.strokeRect(hx, hy, hw, Math.round(11 * UI_SCALE));
+          ctx.stroke();
+          ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
           ctx.fillStyle = '#e8edf2';
           ctx.fillText(hint, cx, hy + Math.round(8 * UI_SCALE));
         }
