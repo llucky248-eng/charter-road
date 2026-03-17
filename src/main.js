@@ -6598,7 +6598,15 @@ function drawEntities() {
   // Visual appearance scales with gear tier.
   function drawPlayerCarriage(x, y) {
     const facing = player.facing || { x: 0, y: 1 };
-    const angle = Math.atan2(facing.y, facing.x);
+    const vx = facing.x || 0;
+    const vy = facing.y || 0;
+    // Classify into 4 cardinal directions
+    let dir;
+    if (Math.abs(vy) >= Math.abs(vx)) {
+      dir = vy >= 0 ? 'DOWN' : 'UP';
+    } else {
+      dir = vx >= 0 ? 'RIGHT' : 'LEFT';
+    }
     const moving = autoNav.active || clickMove.active ||
       Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
 
@@ -6610,241 +6618,158 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y);
 
-    // Shadow grows with pack tier
+    // Shadow
     ctx.globalAlpha = 0.22;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(0, 6, 12 + packTier * 4, 4 + packTier * 1.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 4, 12 + packTier * 2, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    ctx.rotate(angle - Math.PI / 2);
+    // NO ctx.rotate — draw explicitly for each direction
 
-    const base = TILE >= 16 ? 13 : 9;
-    const W = base + packTier * 2.5;  // wagon grows with pack tier
-    const H = W * 1.5;
-
-    // ── Horse — 5 tiers ────────────────────────────────────────────────
-    // T0 donkey, T1 road horse, T2 swift chestnut, T3 black warhorse, T4 phantom/glowing
-    const horseY = -(H * 0.5 + W * (0.75 + bootsTier * 0.05));
-    const HORSE = [
-      { body:'#8a7050', dark:'#6a5030', mane:'#3a2010', barding:false, glow:false }, // T0 donkey
-      { body:'#7a5c3a', dark:'#5a3c20', mane:'#2a1808', barding:false, glow:false }, // T1 road horse
-      { body:'#8b4513', dark:'#6b3010', mane:'#3a1808', barding:false, glow:false }, // T2 chestnut
-      { body:'#1a1a2e', dark:'#0a0a1a', mane:'#c8a820', barding:true,  glow:false }, // T3 warhorse
-      { body:'#d0e8f8', dark:'#a0c0e0', mane:'#ffffff', barding:true,  glow:true  }, // T4 phantom mare
+    // Gear color palettes
+    const HORSE_PAL = [
+      { body:'#8a7050', dark:'#5a3a20', mane:'#3a2010', glow:false  }, // T0 donkey
+      { body:'#7a5c3a', dark:'#5a3c20', mane:'#2a1808', glow:false  }, // T1 road horse
+      { body:'#8b4513', dark:'#6b3010', mane:'#3a1808', glow:false  }, // T2 chestnut
+      { body:'#1a1a2e', dark:'#0a0a1a', mane:'#c8a820', glow:false  }, // T3 warhorse
+      { body:'#d0e8f8', dark:'#a0c0e0', mane:'#ffffff', glow:true   }, // T4 phantom
     ];
-    const hc = HORSE[Math.min(bootsTier, 4)];
+    const WAGON_PAL = [
+      { body:'#5a3c18', trim:'#3a2510' }, // T0 rough cart
+      { body:'#7a5030', trim:'#8b6914' }, // T1 covered wagon
+      { body:'#8b5e2a', trim:'#d97706' }, // T2 covered wagon
+      { body:'#7a4f18', trim:'#d4af37' }, // T3 noble carriage
+      { body:'#6a3c12', trim:'#ffd700' }, // T4 royal gilded
+    ];
+    const hc = HORSE_PAL[Math.min(bootsTier, 4)];
+    const bc = WAGON_PAL[Math.min(packTier, 4)];
+
+    // Leg animation
+    const legSwing = moving ? Math.sin(stateTime * 0.012) * 2 : 0;
 
     // Phantom glow
-    if (hc.glow) {
-      ctx.shadowColor = '#80c8ff'; ctx.shadowBlur = 8;
-    }
+    if (hc.glow) { ctx.shadowColor = '#80c8ff'; ctx.shadowBlur = 6; }
 
-    // T3+ has two horses side by side
-    const numHorses = bootsTier >= 3 ? 2 : 1;
-    for (let hi = 0; hi < numHorses; hi++) {
-      const hox = numHorses === 2 ? (hi === 0 ? -W * 0.4 : W * 0.4) : 0;
+    // Wagon size: T0 small, grows with tier
+    const wW = 10 + packTier * 2;   // wagon width  ~10–18px
+    const wH = 8  + packTier * 1.5; // wagon height ~8–14px
+    // Horse body size
+    const hW = 6; const hH = 9;
+
+    // Helper: draw horse body at (hx,hy) top-left, legs direction = legDir ('v'=vertical,'h'=horizontal)
+    // frontLegs offset: +legSwing, backLegs: -legSwing
+    // headDir: 'up','down','left','right' — where the head sticks out
+    const drawHorse = (hx, hy, headDir) => {
+      // Body
       ctx.fillStyle = hc.body;
-      ctx.fillRect(hox - W * 0.28, horseY - W * 0.35, W * 0.56, W * 0.75);
+      ctx.fillRect(hx, hy, hW, hH);
+      // Head
       ctx.fillStyle = hc.dark;
-      ctx.fillRect(hox - W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.46);
+      let hcx, hcy;
+      if (headDir === 'up')    { hcx = hx + hW/2; hcy = hy - 3; }
+      else if (headDir === 'down') { hcx = hx + hW/2; hcy = hy + hH + 3; }
+      else if (headDir === 'left') { hcx = hx - 3;    hcy = hy + hH/2; }
+      else                         { hcx = hx + hW + 3; hcy = hy + hH/2; }
+      ctx.beginPath(); ctx.arc(hcx, hcy, 3, 0, Math.PI * 2); ctx.fill();
+      // Legs (4 legs)
+      ctx.fillStyle = hc.dark;
+      if (headDir === 'up' || headDir === 'down') {
+        // Vertical travel — legs hang left/right
+        const ly = hy + hH - 2;
+        ctx.fillRect(hx,        ly + legSwing,  2, 4);
+        ctx.fillRect(hx + 2,    ly - legSwing,  2, 4);
+        ctx.fillRect(hx + hW-4, ly - legSwing,  2, 4);
+        ctx.fillRect(hx + hW-2, ly + legSwing,  2, 4);
+      } else {
+        // Horizontal travel — legs dangle above/below
+        const lx = hx + 1;
+        ctx.fillRect(lx,        hy + hH,  2, 4 + legSwing);
+        ctx.fillRect(lx + 2,    hy + hH,  2, 4 - legSwing);
+        ctx.fillRect(lx + hW-4, hy + hH,  2, 4 + legSwing);
+        ctx.fillRect(lx + hW-2, hy + hH,  2, 4 - legSwing);
+      }
+      // Mane strip
       ctx.fillStyle = hc.mane;
-      ctx.fillRect(hox - W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
-      // Barding armor for T3+
-      if (hc.barding) {
-        ctx.fillStyle = bootsTier === 4 ? 'rgba(200,220,255,0.5)' : 'rgba(160,140,80,0.7)';
-        ctx.fillRect(hox - W * 0.28, horseY - W * 0.1, W * 0.56, W * 0.28);
-        ctx.strokeStyle = bootsTier === 4 ? '#a0c8ff' : '#d4af37';
-        ctx.lineWidth = 1; ctx.strokeRect(hox - W * 0.28, horseY - W * 0.1, W * 0.56, W * 0.28);
+      if (headDir === 'up' || headDir === 'down') {
+        ctx.fillRect(hx + 1, hy, 2, hH);
+      } else {
+        ctx.fillRect(hx, hy + 1, hW, 2);
       }
-    }
-    ctx.shadowBlur = 0;
-
-    // Leg animation (speed scales with tier)
-    const legSpeed = 0.010 + bootsTier * 0.005;
-    const legAmp = 1.5 + bootsTier * 0.6;
-    const legSwing = moving ? Math.sin(stateTime * legSpeed) * legAmp : 0;
-    const hox0 = numHorses === 2 ? -W * 0.4 : 0;
-    const hox1 = numHorses === 2 ?  W * 0.4 : 0;
-    ctx.fillStyle = HORSE[Math.min(bootsTier,4)].dark;
-    // Front horse legs
-    ctx.fillRect(hox0 - W*0.22, horseY+W*0.28+legSwing, W*0.1, W*0.4);
-    ctx.fillRect(hox0 - W*0.06, horseY+W*0.28-legSwing, W*0.1, W*0.4);
-    if (numHorses === 2) {
-      ctx.fillRect(hox1 - W*0.22, horseY+W*0.28-legSwing, W*0.1, W*0.4);
-      ctx.fillRect(hox1 - W*0.06, horseY+W*0.28+legSwing, W*0.1, W*0.4);
-    } else {
-      ctx.fillRect(W*0.06, horseY+W*0.28+legSwing, W*0.1, W*0.4);
-      if (bootsTier >= 1) ctx.fillRect(W*0.2, horseY+W*0.28-legSwing, W*0.1, W*0.38);
-    }
-
-    // Harness
-    const harnessColor = bootsTier >= 3 ? '#d4af37' : bootsTier >= 1 ? '#8b6914' : '#3a2510';
-    ctx.strokeStyle = harnessColor;
-    ctx.lineWidth = bootsTier >= 3 ? 1.8 : 1;
-    ctx.beginPath();
-    if (numHorses === 2) {
-      ctx.moveTo(-W*0.6, horseY+W*0.15); ctx.lineTo(-W*0.5, -H*0.3);
-      ctx.moveTo(W*0.6,  horseY+W*0.15); ctx.lineTo(W*0.5,  -H*0.3);
-    } else {
-      ctx.moveTo(-W*0.22, horseY+W*0.15); ctx.lineTo(-W*0.38, -H*0.3);
-      ctx.moveTo(W*0.22,  horseY+W*0.15); ctx.lineTo(W*0.38,  -H*0.3);
-    }
-    ctx.stroke();
-
-    // ── Carriage body — 5 pack tiers ───────────────────────────────────
-    // T0: rough wooden cart, T1: box cart, T2: covered carriage, T3: noble carriage, T4: royal gilded
-    const BODY = [
-      { body:'#5a3c18', trim:'#3a2510', roof:null,      canvas:null },
-      { body:'#7a5030', trim:'#8b6914', roof:'#4a3010',  canvas:'rgba(200,180,140,0.6)' },
-      { body:'#8b5e2a', trim:'#d97706', roof:'#6b4520',  canvas:'rgba(210,190,140,0.7)' },
-      { body:'#7a4f18', trim:'#d4af37', roof:'#5a3a10',  canvas:'rgba(180,150,80,0.8)'  },
-      { body:'#6a3c12', trim:'#ffd700', roof:'#4a2c08',  canvas:'rgba(255,215,0,0.25)'  },
-    ];
-    const bc = BODY[Math.min(packTier, 4)];
-
-    // T4: royal glow
-    if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
-
-    ctx.fillStyle = bc.body;
-    ctx.fillRect(-W*0.82, -H*0.5, W*1.64, H*0.76);
-
-    // Roof (T1+)
-    if (bc.roof) {
-      ctx.fillStyle = bc.roof;
-      ctx.fillRect(-W*0.76, -H*0.5, W*1.52, H*0.2);
-    }
-    // Canvas (T1+)
-    if (bc.canvas) {
-      ctx.fillStyle = bc.canvas;
-      ctx.fillRect(-W*0.66, -H*0.5, W*1.32, H*0.22);
-    }
-
-    // Windows (T2+)
-    if (packTier >= 2) {
-      ctx.fillStyle = 'rgba(20,12,5,0.7)';
-      ctx.fillRect(-W*0.38, -H*0.3, W*0.3, W*0.3);
-      ctx.fillRect(W*0.08,  -H*0.3, W*0.3, W*0.3);
-      // Window frames
-      ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
-      ctx.strokeRect(-W*0.38, -H*0.3, W*0.3, W*0.3);
-      ctx.strokeRect(W*0.08,  -H*0.3, W*0.3, W*0.3);
-    }
-
-    // Cargo area (T3+)
-    if (packTier >= 3) {
-      ctx.fillStyle = '#5a3c12';
-      ctx.fillRect(-W*0.65, H*0.22, W*1.3, H*0.16);
-      ctx.fillStyle = 'rgba(140,100,50,0.8)';
-      ctx.fillRect(-W*0.55, H*0.24, W*0.38, W*0.28);
-      ctx.fillRect(W*0.16,  H*0.24, W*0.38, W*0.28);
-    }
-
-    // T4: ornate side panels + gilded crest
-    if (packTier === 4) {
-      ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1.5;
-      ctx.strokeRect(-W*0.72, -H*0.4, W*0.22, H*0.52);
-      ctx.strokeRect(W*0.5,   -H*0.4, W*0.22, H*0.52);
-      // Crown crest on front
-      ctx.fillStyle = '#ffd700';
-      ctx.fillRect(-W*0.12, -H*0.58, W*0.24, W*0.1);
-      ctx.fillRect(-W*0.06, -H*0.64, W*0.05, W*0.08);
-      ctx.fillRect(-W*0.02, -H*0.68, W*0.04, W*0.08);
-      ctx.fillRect(W*0.01,  -H*0.64, W*0.05, W*0.08);
-    }
-    ctx.shadowBlur = 0;
-
-    // Main trim outline
-    ctx.strokeStyle = bc.trim;
-    ctx.lineWidth = packTier >= 3 ? 2 : 1.5;
-    ctx.strokeRect(-W*0.82, -H*0.5, W*1.64, H*0.76);
-
-    // ── Tool tier decoration ────────────────────────────────────────────
-    // T1: ledger strapped to side
-    // T2: guild pennant
-    // T3: trade charter scroll + seal
-    // T4: golden abacus + twin flags
-    if (toolTier >= 1) {
-      ctx.fillStyle = '#7a3a10';
-      ctx.fillRect(W*0.84, -H*0.38, W*0.38, W*0.3);
-      ctx.fillStyle = '#c8a870';
-      ctx.fillRect(W*0.86, -H*0.36, W*0.34, W*0.26);
-      ctx.strokeStyle = '#8b7a5a'; ctx.lineWidth = 0.5;
-      for (let li = 0; li < 3; li++) {
-        ctx.beginPath(); ctx.moveTo(W*0.88, -H*0.33+li*W*0.07); ctx.lineTo(W*1.16, -H*0.33+li*W*0.07); ctx.stroke();
-      }
-    }
-
-    const drawFlag = (ox, flagColor, emblemColor) => {
-      ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(ox, -H*0.5); ctx.lineTo(ox, -H*0.5 - W*0.9); ctx.stroke();
-      const wave = Math.sin(stateTime * 0.008 + ox) * 2;
-      ctx.fillStyle = flagColor;
-      ctx.beginPath();
-      ctx.moveTo(ox, -H*0.5 - W*0.9);
-      ctx.lineTo(ox + W*0.55, -H*0.5 - W*0.76 + wave);
-      ctx.lineTo(ox + W*0.5,  -H*0.5 - W*0.6  + wave*0.5);
-      ctx.lineTo(ox, -H*0.5 - W*0.72);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = emblemColor;
-      ctx.beginPath(); ctx.arc(ox + W*0.28, -H*0.5 - W*0.73 + wave*0.7, W*0.11, 0, Math.PI*2); ctx.fill();
     };
 
-    if (toolTier === 2) drawFlag(0, '#d4af37', '#8b6914');
-    if (toolTier === 3) {
-      drawFlag(0, '#8b0000', '#ffd700');
-      // Scroll tube on side
-      ctx.fillStyle = '#d4c4a0';
-      ctx.fillRect(-W*1.3, -H*0.2, W*0.3, W*0.55);
-      ctx.fillStyle = '#a08060';
-      ctx.fillRect(-W*1.3, -H*0.2, W*0.3, W*0.08);
-      ctx.fillRect(-W*1.3, H*0.27,  W*0.3, W*0.08);
-    }
-    if (toolTier === 4) {
-      drawFlag(-W*0.25, '#ffd700', '#ff8c00');
-      drawFlag( W*0.25, '#ffd700', '#ff8c00');
-      // Golden abacus glint
-      ctx.fillStyle = '#ffd700';
-      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 4;
-      ctx.fillRect(W*0.84, -H*0.38, W*0.38, W*0.3);
+    const drawWagon = (wx, wy) => {
+      // Body
+      if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 5; }
+      ctx.fillStyle = bc.body;
+      ctx.fillRect(wx, wy, wW, wH);
+      // Canvas top (T1+)
+      if (packTier >= 1) {
+        ctx.fillStyle = packTier >= 3 ? 'rgba(180,150,80,0.85)' : 'rgba(210,190,140,0.75)';
+        ctx.fillRect(wx + 1, wy + 1, wW - 2, wH - 2);
+        ctx.fillStyle = bc.body;
+        ctx.fillRect(wx + 2, wy + 2, wW - 4, wH - 4);
+      }
+      // Gold trim (T3+)
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#8b4513';
-      for (let ai = 0; ai < 4; ai++) {
-        ctx.beginPath(); ctx.arc(W*0.88 + ai*W*0.1, -H*0.28, W*0.06, 0, Math.PI*2); ctx.fill();
-      }
+      ctx.strokeStyle = bc.trim;
+      ctx.lineWidth = packTier >= 3 ? 1.5 : 1;
+      ctx.strokeRect(wx, wy, wW, wH);
+      // Player identity stripe
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(wx + wW/2 - 2, wy, 4, 3);
+    };
+
+    // Harness line from wagon to horse
+    const drawHarness = (x1, y1, x2, y2) => {
+      ctx.strokeStyle = bootsTier >= 3 ? '#d4af37' : '#5a3010';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    };
+
+    // Layout depends on direction
+    // CENTER of sprite at (0,0); horse in travel direction, wagon behind
+    const gap = 2; // gap between horse and wagon
+    if (dir === 'DOWN') {
+      // Horse above (y negative), wagon below
+      const hx = -hW/2;
+      const hy = -hH - gap - wH/2;
+      const wx = -wW/2;
+      const wy = -wH/2;
+      drawWagon(wx, wy);
+      drawHarness(0, wy, 0, hy + hH);
+      drawHorse(hx, hy, 'down');
+    } else if (dir === 'UP') {
+      // Wagon above, horse below (facing up)
+      const wx = -wW/2;
+      const wy = -wH/2;
+      const hx = -hW/2;
+      const hy = wH/2 + gap;
+      drawWagon(wx, wy);
+      drawHarness(0, wy + wH, 0, hy);
+      drawHorse(hx, hy, 'up');
+    } else if (dir === 'RIGHT') {
+      // Horse to the right, wagon to the left
+      const wy = -wH/2;
+      const wx = -wW/2 - gap/2 - hW/2;
+      const hx = wW/2 + gap/2;
+      const hy = -hH/2;
+      drawWagon(wx - wW/2, wy);
+      drawHarness(wx, 0, hx, hy + hH/2);
+      drawHorse(hx, hy, 'right');
+    } else { // LEFT
+      // Horse to the left, wagon to the right
+      const wy = -wH/2;
+      const wx = hW/2 + gap/2;
+      const hx = -hW/2 - gap/2 - wW/2;
+      const hy = -hH/2;
+      drawWagon(wx, wy);
+      drawHarness(wx, 0, hx + hW, hy + hH/2);
+      drawHorse(hx, hy, 'left');
     }
 
-    // Player identity stripe on carriage roof
-    ctx.fillStyle = '#7c3aed';
-    ctx.fillRect(-W*0.2, -H*0.55, W*0.4, W*0.15);
-
-    // ── Wheels — spokes and size scale with tiers ──────────────────────
-    const wheelSpeed = 0.009 + bootsTier * 0.004;
-    const wheelAngle = moving ? stateTime * wheelSpeed : 0;
-    const wheelR = W * (0.42 + packTier * 0.05);
-    const spokes   = 4 + Math.floor(packTier * 0.5) * 2; // 4,4,6,6,8 spokes
-    const hubColor = packTier >= 3 ? '#ffd700' : bc.trim;
-    const rimColor = packTier >= 4 ? '#ffd700' : '#2a1808';
-    const drawWheel = (wx, wy) => {
-      ctx.fillStyle = rimColor;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#5a3a15';
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.62, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = '#3a2008'; ctx.lineWidth = 1.5;
-      for (let s = 0; s < spokes; s++) {
-        const sa = wheelAngle + s * (Math.PI*2/spokes);
-        ctx.beginPath();
-        ctx.moveTo(wx+Math.cos(sa)*wheelR*0.56, wy+Math.sin(sa)*wheelR*0.56);
-        ctx.lineTo(wx-Math.cos(sa)*wheelR*0.56, wy-Math.sin(sa)*wheelR*0.56);
-        ctx.stroke();
-      }
-      ctx.fillStyle = hubColor;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.17, 0, Math.PI*2); ctx.fill();
-    };
-    drawWheel(-W*0.7, H*0.22);
-    drawWheel( W*0.7, H*0.22);
-
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
