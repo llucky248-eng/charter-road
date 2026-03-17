@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.17'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.18'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6474,51 +6474,68 @@ function drawEntities() {
     return !currentCity();
   }
 
-  // Draw a medieval carriage with horse for player on the road
+  // Draw a medieval carriage with horse for player on the road.
+  // Visual appearance scales with gear tier.
   function drawPlayerCarriage(x, y) {
     const facing = player.facing || { x: 0, y: 1 };
     const angle = Math.atan2(facing.y, facing.x);
     const moving = autoNav.active || clickMove.active ||
       Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
 
+    // Gear tiers (0/1/2)
+    const packTier  = player.gear?.pack  ?? 0;
+    const bootsTier = player.gear?.boots ?? 0;
+    const toolTier  = player.gear?.tool  ?? 0;
+
     ctx.save();
     ctx.translate(x, y);
 
-    // Shadow
+    // Shadow grows with pack tier (bigger carriage = bigger shadow)
     ctx.globalAlpha = 0.22;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(0, 6, 18, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 6, 14 + packTier * 5, 5 + packTier * 2, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Rotate entire carriage toward facing direction
     ctx.rotate(angle - Math.PI / 2);
 
-    const W = TILE >= 16 ? 14 : 10;
+    const W = (TILE >= 16 ? 14 : 10) + packTier * 3; // wider with bigger pack
     const H = W * 1.5;
 
-    // ── Horse ──────────────────────────────────────────────────────────
+    // ── Horse — quality upgrades with boots tier ────────────────────────
     const horseY = -(H * 0.5 + W * 0.8);
-    // Horse body
-    ctx.fillStyle = '#7a5c3a';
+    // T0: old brown, T1: chestnut, T2: white/grey (swift horse)
+    const horseBody = bootsTier === 2 ? '#c8c0b8' : bootsTier === 1 ? '#8b5e2a' : '#6b4a2e';
+    const horseDark = bootsTier === 2 ? '#a09890' : bootsTier === 1 ? '#6b4220' : '#4a3018';
+    const horseMane = bootsTier === 2 ? '#e0d8d0' : bootsTier === 1 ? '#3a2010' : '#2a1808';
+
+    ctx.fillStyle = horseBody;
     ctx.fillRect(-W * 0.35, horseY - W * 0.4, W * 0.7, W * 0.85);
-    // Horse head
-    ctx.fillStyle = '#6b4e2e';
+    ctx.fillStyle = horseDark;
     ctx.fillRect(-W * 0.15, horseY - W * 0.9, W * 0.3, W * 0.5);
-    // Horse mane
-    ctx.fillStyle = '#4a3020';
+    ctx.fillStyle = horseMane;
     ctx.fillRect(-W * 0.05, horseY - W * 0.95, W * 0.15, W * 0.35);
-    // Legs (animated when moving)
-    const legSwing = moving ? Math.sin(stateTime * 0.015) * 2 : 0;
-    ctx.fillStyle = '#5a4025';
+    // T2 horse gets armour barding
+    if (bootsTier === 2) {
+      ctx.fillStyle = 'rgba(180,160,100,0.7)';
+      ctx.fillRect(-W * 0.35, horseY - W * 0.15, W * 0.7, W * 0.35);
+      ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 1;
+      ctx.strokeRect(-W * 0.35, horseY - W * 0.15, W * 0.7, W * 0.35);
+    }
+    // Legs (faster animation with higher boots tier)
+    const legSpeed = 0.012 + bootsTier * 0.006;
+    const legSwing = moving ? Math.sin(stateTime * legSpeed) * (2 + bootsTier) : 0;
+    ctx.fillStyle = horseDark;
     ctx.fillRect(-W * 0.28, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
     ctx.fillRect(-W * 0.08, horseY + W * 0.3 - legSwing, W * 0.12, W * 0.45);
     ctx.fillRect(W * 0.08, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
+    // T1+ get extra rear leg
+    if (bootsTier >= 1) ctx.fillRect(W * 0.24, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
 
-    // Harness rope
-    ctx.strokeStyle = '#3a2510';
-    ctx.lineWidth = 1;
+    // Harness — fancier at T1+
+    ctx.strokeStyle = bootsTier >= 1 ? '#8b6914' : '#3a2510';
+    ctx.lineWidth = bootsTier >= 1 ? 1.5 : 1;
     ctx.beginPath();
     ctx.moveTo(-W * 0.25, horseY + W * 0.2);
     ctx.lineTo(-W * 0.4, -H * 0.3);
@@ -6526,49 +6543,115 @@ function drawEntities() {
     ctx.lineTo(W * 0.4, -H * 0.3);
     ctx.stroke();
 
-    // ── Carriage body ──────────────────────────────────────────────────
-    // Main wooden body
-    ctx.fillStyle = '#8b5e2a';
+    // ── Carriage body — upgrades with pack tier ────────────────────────
+    // T0: basic brown cart, T1: proper carriage, T2: large merchant wagon
+    const bodyColor = packTier === 2 ? '#7a4f18' : packTier === 1 ? '#8b5e2a' : '#6b4a22';
+    const trimColor = packTier === 2 ? '#d4af37' : packTier === 1 ? '#d97706' : '#8b6914';
+    const roofColor = packTier === 2 ? '#5a3a10' : packTier === 1 ? '#6b4a18' : '#4a3012';
+
+    ctx.fillStyle = bodyColor;
     ctx.fillRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
-    // Roof/top
-    ctx.fillStyle = '#7a4f20';
-    ctx.fillRect(-W * 0.75, -H * 0.5, W * 1.5, H * 0.2);
-    // Canvas cover
-    ctx.fillStyle = 'rgba(220,200,160,0.85)';
-    ctx.fillRect(-W * 0.65, -H * 0.5, W * 1.3, H * 0.22);
-    // Window (dark interior)
-    ctx.fillStyle = 'rgba(20,12,5,0.7)';
-    ctx.fillRect(-W * 0.35, -H * 0.3, W * 0.3, W * 0.35);
-    ctx.fillRect(W * 0.05, -H * 0.3, W * 0.3, W * 0.35);
-    // Gold trim
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 1.5;
+
+    // T1+ get a proper raised roof
+    if (packTier >= 1) {
+      ctx.fillStyle = roofColor;
+      ctx.fillRect(-W * 0.75, -H * 0.5, W * 1.5, H * 0.2);
+      // Canvas cover
+      const canvasColor = packTier === 2 ? 'rgba(200,170,90,0.8)' : 'rgba(220,200,160,0.7)';
+      ctx.fillStyle = canvasColor;
+      ctx.fillRect(-W * 0.65, -H * 0.5, W * 1.3, H * 0.22);
+    }
+
+    // T1+ windows
+    if (packTier >= 1) {
+      ctx.fillStyle = 'rgba(20,12,5,0.7)';
+      ctx.fillRect(-W * 0.35, -H * 0.3, W * 0.28, W * 0.32);
+      ctx.fillRect(W * 0.07, -H * 0.3, W * 0.28, W * 0.32);
+    }
+
+    // T2: extra cargo area on back
+    if (packTier === 2) {
+      ctx.fillStyle = '#6a4518';
+      ctx.fillRect(-W * 0.6, H * 0.22, W * 1.2, H * 0.15);
+      ctx.strokeStyle = trimColor; ctx.lineWidth = 1;
+      ctx.strokeRect(-W * 0.6, H * 0.22, W * 1.2, H * 0.15);
+      // Cargo bags
+      ctx.fillStyle = 'rgba(150,110,60,0.8)';
+      ctx.fillRect(-W * 0.5, H * 0.24, W * 0.35, W * 0.28);
+      ctx.fillRect(W * 0.15, H * 0.24, W * 0.35, W * 0.28);
+    }
+
+    // Trim (fancier at higher tier)
+    ctx.strokeStyle = trimColor;
+    ctx.lineWidth = packTier === 2 ? 2 : 1.5;
     ctx.strokeRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
 
-    // Player color marker on carriage roof
+    // ── Tool tier — adds ledger/flag visual ────────────────────────────
+    // T1: small ledger book on side
+    if (toolTier === 1) {
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(W * 0.82, -H * 0.35, W * 0.4, W * 0.32);
+      ctx.fillStyle = '#c8a870';
+      ctx.fillRect(W * 0.84, -H * 0.33, W * 0.36, W * 0.28);
+      // Book pages line
+      ctx.strokeStyle = '#8b7a5a'; ctx.lineWidth = 0.5;
+      for (let li = 0; li < 3; li++) {
+        ctx.beginPath();
+        ctx.moveTo(W * 0.86, -H * 0.3 + li * W * 0.08);
+        ctx.lineTo(W * 1.16, -H * 0.3 + li * W * 0.08);
+        ctx.stroke();
+      }
+    }
+    // T2: guild flag/pennant on top
+    if (toolTier === 2) {
+      // Flag pole
+      ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -H * 0.5);
+      ctx.lineTo(0, -H * 0.5 - W * 0.9);
+      ctx.stroke();
+      // Waving flag
+      const wave = Math.sin(stateTime * 0.008) * 2;
+      ctx.fillStyle = '#d4af37';
+      ctx.beginPath();
+      ctx.moveTo(0, -H * 0.5 - W * 0.9);
+      ctx.lineTo(W * 0.6, -H * 0.5 - W * 0.75 + wave);
+      ctx.lineTo(W * 0.55, -H * 0.5 - W * 0.6 + wave * 0.5);
+      ctx.lineTo(0, -H * 0.5 - W * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      // Guild seal emblem on flag
+      ctx.fillStyle = '#8b6914';
+      ctx.beginPath();
+      ctx.arc(W * 0.3, -H * 0.5 - W * 0.73 + wave * 0.7, W * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Player identity color on roof
     ctx.fillStyle = '#7c3aed';
     ctx.fillRect(-W * 0.2, -H * 0.55, W * 0.4, W * 0.18);
 
     // ── Wheels ─────────────────────────────────────────────────────────
-    const wheelAngle = moving ? (stateTime * 0.012) : 0;
+    // Wheel spin speed increases with boots tier
+    const wheelSpeed = 0.010 + bootsTier * 0.004;
+    const wheelAngle = moving ? (stateTime * wheelSpeed) : 0;
+    const wheelR = W * (0.44 + packTier * 0.06); // bigger wheels for bigger wagon
     const drawWheel = (wx, wy) => {
-      const wr = W * 0.5;
-      ctx.fillStyle = '#3a2510';
-      ctx.beginPath(); ctx.arc(wx, wy, wr, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#6b4a20';
-      ctx.beginPath(); ctx.arc(wx, wy, wr * 0.65, 0, Math.PI * 2); ctx.fill();
-      // Spokes
-      ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 1.5;
-      for (let s = 0; s < 4; s++) {
-        const sa = wheelAngle + s * Math.PI / 2;
+      ctx.fillStyle = '#2a1808';
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#5a3a15';
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.62, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#3a2008'; ctx.lineWidth = 1.5;
+      const spokes = packTier === 2 ? 6 : 4;
+      for (let s = 0; s < spokes; s++) {
+        const sa = wheelAngle + s * (Math.PI * 2 / spokes);
         ctx.beginPath();
-        ctx.moveTo(wx + Math.cos(sa) * wr * 0.6, wy + Math.sin(sa) * wr * 0.6);
-        ctx.lineTo(wx - Math.cos(sa) * wr * 0.6, wy - Math.sin(sa) * wr * 0.6);
+        ctx.moveTo(wx + Math.cos(sa) * wheelR * 0.56, wy + Math.sin(sa) * wheelR * 0.56);
+        ctx.lineTo(wx - Math.cos(sa) * wheelR * 0.56, wy - Math.sin(sa) * wheelR * 0.56);
         ctx.stroke();
       }
-      // Hub
-      ctx.fillStyle = '#d97706';
-      ctx.beginPath(); ctx.arc(wx, wy, wr * 0.18, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = trimColor;
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.17, 0, Math.PI*2); ctx.fill();
     };
     drawWheel(-W * 0.7, H * 0.22);
     drawWheel(W * 0.7, H * 0.22);
