@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.27'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.28'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6533,26 +6533,7 @@ function drawBuildingLabels() {
         ctx.fillText(info.label, cx, ly + lh - Math.round(3 * UI_SCALE));
         ctx.shadowBlur = 0;
 
-        // E / tap hint when very close
-        if (distTiles <= info.nearDist) {
-          const hint = IS_MOBILE ? 'Tap' : 'E';
-          ctx.font = `${Math.round(8 * UI_SCALE)}px system-ui, sans-serif`;
-          const hw = ctx.measureText(hint).width + Math.round(8 * UI_SCALE);
-          const hx = cx - hw / 2;
-          const hy = ly - Math.round(14 * UI_SCALE);
-          ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.18)`;
-          ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.45)`;
-          ctx.lineWidth = 1;
-          if (ctx.roundRect) ctx.roundRect(hx, hy, hw, Math.round(11 * UI_SCALE), 3);
-          else ctx.fillRect(hx, hy, hw, Math.round(11 * UI_SCALE));
-          ctx.fill();
-          if (ctx.roundRect) ctx.roundRect(hx, hy, hw, Math.round(11 * UI_SCALE), 3);
-          else ctx.strokeRect(hx, hy, hw, Math.round(11 * UI_SCALE));
-          ctx.stroke();
-          ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
-          ctx.fillStyle = '#e8edf2';
-          ctx.fillText(hint, cx, hy + Math.round(8 * UI_SCALE));
-        }
+
 
         ctx.restore();
       }

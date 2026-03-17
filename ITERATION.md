@@ -262,3 +262,6 @@
 ## v0.3.27 — 2026-03-17
 - Fix: building floating icon was an emoji (🛒/📋 etc.) drawn on canvas — renders as black box on mobile Safari.
   Replaced with a simple colored dot indicator (same color as building accent, with glow).
+
+## v0.3.28 — 2026-03-17
+- Removed "Tap" / "E" hint pill that appeared above building labels when standing next to a building.
