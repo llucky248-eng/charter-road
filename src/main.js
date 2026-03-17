@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.29'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.30'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6805,8 +6805,8 @@ function drawEntities() {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Sprite draw (preferred)
-    if (playerSprite && playerSprite.ready) {
+    // Sprite draw (disabled — sprite sheet is a palette catalog, not animation sheet)
+    if (false && playerSprite && playerSprite.ready) {
       // Map facing vector -> 8-way direction index in the order:
       // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW
       const fx = player.facing?.x ?? 0;
@@ -6850,33 +6850,95 @@ function drawEntities() {
       return;
     }
 
-    // Fallback: old marker
-    // outline
-    ctx.fillStyle = '#111827';
-    ctx.beginPath();
-    ctx.arc(x, y, 9, 0, Math.PI*2);
-    ctx.fill();
+    // Player character: top-down merchant figure
+    const facing = player.facing || { x: 0, y: 1 };
+    const moving = Math.hypot(player.vx, player.vy) > 0.01;
+    const legSwing = moving ? Math.sin(stateTime * 0.015) * 2 : 0;
 
-    // body
-    ctx.fillStyle = '#2a1f14';
-    ctx.beginPath();
-    ctx.arc(x, y, 8, 0, Math.PI*2);
-    ctx.fill();
+    // Dominant direction for facing
+    const facingDown  = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y >= 0;
+    const facingUp    = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y < 0;
+    const facingRight = !facingDown && !facingUp && facing.x > 0;
+    // (facingLeft is default)
 
-    // cloak
-    ctx.fillStyle = '#7c3aed';
-    ctx.beginPath();
-    ctx.arc(x, y+3, 7, 0, Math.PI*2);
-    ctx.fill();
+    ctx.save();
+    ctx.translate(x, y);
 
-    // headband
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(x-6, y-6, 12, 2);
+    // Shadow
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 6, 8, 3, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
 
-    // eyes
-    ctx.fillStyle = '#0b0f14';
-    ctx.fillRect(x-3, y-2, 2, 2);
-    ctx.fillRect(x+1, y-2, 2, 2);
+    if (facingDown) {
+      // Legs
+      ctx.fillStyle = '#3b2a1a';
+      ctx.fillRect(-4, 2 + legSwing, 3, 6);
+      ctx.fillRect(1,  2 - legSwing, 3, 6);
+      // Cloak body
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(-5, -4, 10, 9);
+      // Belt
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-5, 1, 10, 2);
+      // Head
+      ctx.fillStyle = '#c8a87a';
+      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
+      // Hat brim
+      ctx.fillStyle = '#4a2c0a';
+      ctx.fillRect(-6, -11, 12, 2);
+      ctx.fillRect(-4, -15, 8, 5);
+      // Eyes
+      ctx.fillStyle = '#1a0a00';
+      ctx.fillRect(-2, -9, 2, 2);
+      ctx.fillRect(1,  -9, 2, 2);
+    } else if (facingUp) {
+      // Legs
+      ctx.fillStyle = '#3b2a1a';
+      ctx.fillRect(-4, 2 + legSwing, 3, 6);
+      ctx.fillRect(1,  2 - legSwing, 3, 6);
+      // Cloak body (back view)
+      ctx.fillStyle = '#5b26c9';
+      ctx.fillRect(-5, -4, 10, 9);
+      // Hood/back of hat
+      ctx.fillStyle = '#4a2c0a';
+      ctx.fillRect(-6, -11, 12, 2);
+      ctx.fillRect(-4, -15, 8, 5);
+      ctx.fillStyle = '#c8a87a';
+      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#4a2c0a';
+      ctx.fillRect(-4, -15, 8, 5);
+    } else if (facingRight) {
+      // Side profile right
+      ctx.fillStyle = '#3b2a1a';
+      ctx.fillRect(2, 2 + legSwing, 3, 6);
+      ctx.fillRect(2, 2 - legSwing, 3, 6);
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(-3, -4, 8, 9);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-3, 1, 8, 2);
+      ctx.fillStyle = '#c8a87a';
+      ctx.beginPath(); ctx.arc(4, -8, 5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#4a2c0a';
+      ctx.fillRect(-2, -11, 12, 2);
+      ctx.fillRect(1, -15, 8, 5);
+    } else {
+      // Side profile left
+      ctx.fillStyle = '#3b2a1a';
+      ctx.fillRect(-5, 2 + legSwing, 3, 6);
+      ctx.fillRect(-5, 2 - legSwing, 3, 6);
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(-5, -4, 8, 9);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-5, 1, 8, 2);
+      ctx.fillStyle = '#c8a87a';
+      ctx.beginPath(); ctx.arc(-4, -8, 5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#4a2c0a';
+      ctx.fillRect(-10, -11, 12, 2);
+      ctx.fillRect(-9, -15, 8, 5);
+    }
+
+    ctx.restore();
   }
 
 

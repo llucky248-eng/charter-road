@@ -271,3 +271,8 @@
   T0: plain dark cart. T1+: tan/cream roof strip. T2+: window dots. T3+: gold trim + golden roof. T4: gilded side panels + glow.
 - Player identity stripe moved to wagon bottom for better visibility.
 - Note: saves are localStorage-only (per-browser); gear doesn't sync between Mac and mobile — that's by design (player ID system).
+
+## v0.3.30 — 2026-03-17
+- Fix: player character in city is now a proper top-down merchant figure.
+  Purple cloak, brown hat, skin-toned face, walking legs — 4-directional, facing-aware.
+- Disabled broken sprite sheet (was a palette catalog, not animation sheet — caused invisible white dot fallback).
