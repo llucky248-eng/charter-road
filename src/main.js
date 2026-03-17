@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.18'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.19'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1923,20 +1923,29 @@ function handleGlobalHudTap(clientX, clientY, e) {
   // ── GEAR SYSTEM ─────────────────────────────────────────────────────────────
   // Three upgrade slots: pack (capacity), boots (speed), tool (trade bonus)
   const GEAR = {
+    // Pack — cargo capacity, carriage body grows
     pack: [
-      { id: 'satchel',       name: 'Satchel',        icon: '🎒', desc: 'Basic pack',              cost: 0,   capacity: 18 },
-      { id: 'traders_pack',  name: "Trader's Pack",  icon: '🗃️', desc: 'More room for goods',    cost: 120, capacity: 30 },
-      { id: 'merchant_cart', name: 'Merchant Cart',  icon: '🛒', desc: 'Haul serious bulk',       cost: 350, capacity: 50 },
+      { id: 'satchel',        name: 'Satchel',           icon: '🎒', desc: 'A worn cloth bag. Fits barely anything.',         cost: 0,    capacity: 18 },
+      { id: 'traders_pack',   name: "Trader's Pack",     icon: '🗃️', desc: 'Leather-bound. Room to breathe.',                 cost: 120,  capacity: 28 },
+      { id: 'merchant_cart',  name: 'Merchant Cart',     icon: '🛒', desc: 'A proper hand-cart. Serious haul.',               cost: 350,  capacity: 42 },
+      { id: 'cargo_wagon',    name: 'Cargo Wagon',       icon: '🪵', desc: 'Reinforced wagon bed. Double the goods.',         cost: 800,  capacity: 60 },
+      { id: 'royal_carriage', name: 'Royal Carriage',    icon: '👑', desc: 'Gold-trimmed. Built for a merchant lord.',        cost: 2000, capacity: 85 },
     ],
+    // Boots — travel speed, horse quality
     boots: [
-      { id: 'worn_boots',  name: 'Worn Boots',  icon: '👞', desc: 'Your tired feet',           cost: 0,   speed: 90  },
-      { id: 'road_boots',  name: 'Road Boots',  icon: '👟', desc: 'Built for long routes',     cost: 150, speed: 115 },
-      { id: 'swift_horse', name: 'Swift Horse', icon: '🐴', desc: 'Faster than any trader',   cost: 500, speed: 160 },
+      { id: 'worn_boots',   name: 'Worn Boots',       icon: '👞', desc: 'Blistered feet. Gets the job done.',              cost: 0,    speed: 90  },
+      { id: 'road_boots',   name: 'Road Boots',       icon: '👟', desc: 'Sturdy leather. Long-route ready.',              cost: 150,  speed: 115 },
+      { id: 'swift_horse',  name: 'Swift Horse',      icon: '🐴', desc: 'A reliable road horse. Trots all day.',          cost: 500,  speed: 145 },
+      { id: 'war_horse',    name: 'War Horse',        icon: '🏇', desc: 'Trained charger. Blazes any road.',              cost: 1200, speed: 185 },
+      { id: 'phantom_mare', name: 'Phantom Mare',     icon: '⚡', desc: 'A legend on four hooves. Pure speed.',           cost: 3000, speed: 240 },
     ],
+    // Tool — sell price bonus
     tool: [
-      { id: 'bare_hands',      name: 'Bare Hands',      icon: '✋', desc: 'No trade advantage',      cost: 0,   sellBonus: 0    },
-      { id: 'merchant_ledger', name: 'Merchant Ledger', icon: '📒', desc: '+8% on all sell prices', cost: 200, sellBonus: 0.08 },
-      { id: 'guild_seal',      name: 'Guild Seal',      icon: '🔖', desc: '+15% on all sell prices',cost: 600, sellBonus: 0.15 },
+      { id: 'bare_hands',       name: 'Bare Hands',       icon: '✋', desc: 'You bargain with a shrug.',                     cost: 0,    sellBonus: 0    },
+      { id: 'merchant_ledger',  name: 'Merchant Ledger',  icon: '📒', desc: 'Track prices. Sell for more. +8%',             cost: 200,  sellBonus: 0.08 },
+      { id: 'guild_seal',       name: 'Guild Seal',       icon: '🔖', desc: 'Guild-certified. They pay respect. +15%',      cost: 600,  sellBonus: 0.15 },
+      { id: 'trade_charter',    name: 'Trade Charter',    icon: '📜', desc: 'Royal charter. No one lowballs you. +25%',     cost: 1500, sellBonus: 0.25 },
+      { id: 'golden_abacus',    name: 'Golden Abacus',    icon: '🧮', desc: 'Legendary. Every deal tips your way. +40%',    cost: 4000, sellBonus: 0.40 },
     ],
   };
 
@@ -6482,7 +6491,7 @@ function drawEntities() {
     const moving = autoNav.active || clickMove.active ||
       Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
 
-    // Gear tiers (0/1/2)
+    // Gear tiers (0–4)
     const packTier  = player.gear?.pack  ?? 0;
     const bootsTier = player.gear?.boots ?? 0;
     const toolTier  = player.gear?.tool  ?? 0;
@@ -6490,171 +6499,240 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y);
 
-    // Shadow grows with pack tier (bigger carriage = bigger shadow)
+    // Shadow grows with pack tier
     ctx.globalAlpha = 0.22;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(0, 6, 14 + packTier * 5, 5 + packTier * 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 6, 12 + packTier * 4, 4 + packTier * 1.5, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
 
     ctx.rotate(angle - Math.PI / 2);
 
-    const W = (TILE >= 16 ? 14 : 10) + packTier * 3; // wider with bigger pack
+    const base = TILE >= 16 ? 13 : 9;
+    const W = base + packTier * 2.5;  // wagon grows with pack tier
     const H = W * 1.5;
 
-    // ── Horse — quality upgrades with boots tier ────────────────────────
-    const horseY = -(H * 0.5 + W * 0.8);
-    // T0: old brown, T1: chestnut, T2: white/grey (swift horse)
-    const horseBody = bootsTier === 2 ? '#c8c0b8' : bootsTier === 1 ? '#8b5e2a' : '#6b4a2e';
-    const horseDark = bootsTier === 2 ? '#a09890' : bootsTier === 1 ? '#6b4220' : '#4a3018';
-    const horseMane = bootsTier === 2 ? '#e0d8d0' : bootsTier === 1 ? '#3a2010' : '#2a1808';
+    // ── Horse — 5 tiers ────────────────────────────────────────────────
+    // T0 donkey, T1 road horse, T2 swift chestnut, T3 black warhorse, T4 phantom/glowing
+    const horseY = -(H * 0.5 + W * (0.75 + bootsTier * 0.05));
+    const HORSE = [
+      { body:'#8a7050', dark:'#6a5030', mane:'#3a2010', barding:false, glow:false }, // T0 donkey
+      { body:'#7a5c3a', dark:'#5a3c20', mane:'#2a1808', barding:false, glow:false }, // T1 road horse
+      { body:'#8b4513', dark:'#6b3010', mane:'#3a1808', barding:false, glow:false }, // T2 chestnut
+      { body:'#1a1a2e', dark:'#0a0a1a', mane:'#c8a820', barding:true,  glow:false }, // T3 warhorse
+      { body:'#d0e8f8', dark:'#a0c0e0', mane:'#ffffff', barding:true,  glow:true  }, // T4 phantom mare
+    ];
+    const hc = HORSE[Math.min(bootsTier, 4)];
 
-    ctx.fillStyle = horseBody;
-    ctx.fillRect(-W * 0.35, horseY - W * 0.4, W * 0.7, W * 0.85);
-    ctx.fillStyle = horseDark;
-    ctx.fillRect(-W * 0.15, horseY - W * 0.9, W * 0.3, W * 0.5);
-    ctx.fillStyle = horseMane;
-    ctx.fillRect(-W * 0.05, horseY - W * 0.95, W * 0.15, W * 0.35);
-    // T2 horse gets armour barding
-    if (bootsTier === 2) {
-      ctx.fillStyle = 'rgba(180,160,100,0.7)';
-      ctx.fillRect(-W * 0.35, horseY - W * 0.15, W * 0.7, W * 0.35);
-      ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 1;
-      ctx.strokeRect(-W * 0.35, horseY - W * 0.15, W * 0.7, W * 0.35);
+    // Phantom glow
+    if (hc.glow) {
+      ctx.shadowColor = '#80c8ff'; ctx.shadowBlur = 8;
     }
-    // Legs (faster animation with higher boots tier)
-    const legSpeed = 0.012 + bootsTier * 0.006;
-    const legSwing = moving ? Math.sin(stateTime * legSpeed) * (2 + bootsTier) : 0;
-    ctx.fillStyle = horseDark;
-    ctx.fillRect(-W * 0.28, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
-    ctx.fillRect(-W * 0.08, horseY + W * 0.3 - legSwing, W * 0.12, W * 0.45);
-    ctx.fillRect(W * 0.08, horseY + W * 0.3 + legSwing, W * 0.12, W * 0.45);
-    // T1+ get extra rear leg
-    if (bootsTier >= 1) ctx.fillRect(W * 0.24, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
 
-    // Harness — fancier at T1+
-    ctx.strokeStyle = bootsTier >= 1 ? '#8b6914' : '#3a2510';
-    ctx.lineWidth = bootsTier >= 1 ? 1.5 : 1;
+    // T3+ has two horses side by side
+    const numHorses = bootsTier >= 3 ? 2 : 1;
+    for (let hi = 0; hi < numHorses; hi++) {
+      const hox = numHorses === 2 ? (hi === 0 ? -W * 0.4 : W * 0.4) : 0;
+      ctx.fillStyle = hc.body;
+      ctx.fillRect(hox - W * 0.28, horseY - W * 0.35, W * 0.56, W * 0.75);
+      ctx.fillStyle = hc.dark;
+      ctx.fillRect(hox - W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.46);
+      ctx.fillStyle = hc.mane;
+      ctx.fillRect(hox - W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
+      // Barding armor for T3+
+      if (hc.barding) {
+        ctx.fillStyle = bootsTier === 4 ? 'rgba(200,220,255,0.5)' : 'rgba(160,140,80,0.7)';
+        ctx.fillRect(hox - W * 0.28, horseY - W * 0.1, W * 0.56, W * 0.28);
+        ctx.strokeStyle = bootsTier === 4 ? '#a0c8ff' : '#d4af37';
+        ctx.lineWidth = 1; ctx.strokeRect(hox - W * 0.28, horseY - W * 0.1, W * 0.56, W * 0.28);
+      }
+    }
+    ctx.shadowBlur = 0;
+
+    // Leg animation (speed scales with tier)
+    const legSpeed = 0.010 + bootsTier * 0.005;
+    const legAmp = 1.5 + bootsTier * 0.6;
+    const legSwing = moving ? Math.sin(stateTime * legSpeed) * legAmp : 0;
+    const hox0 = numHorses === 2 ? -W * 0.4 : 0;
+    const hox1 = numHorses === 2 ?  W * 0.4 : 0;
+    ctx.fillStyle = HORSE[Math.min(bootsTier,4)].dark;
+    // Front horse legs
+    ctx.fillRect(hox0 - W*0.22, horseY+W*0.28+legSwing, W*0.1, W*0.4);
+    ctx.fillRect(hox0 - W*0.06, horseY+W*0.28-legSwing, W*0.1, W*0.4);
+    if (numHorses === 2) {
+      ctx.fillRect(hox1 - W*0.22, horseY+W*0.28-legSwing, W*0.1, W*0.4);
+      ctx.fillRect(hox1 - W*0.06, horseY+W*0.28+legSwing, W*0.1, W*0.4);
+    } else {
+      ctx.fillRect(W*0.06, horseY+W*0.28+legSwing, W*0.1, W*0.4);
+      if (bootsTier >= 1) ctx.fillRect(W*0.2, horseY+W*0.28-legSwing, W*0.1, W*0.38);
+    }
+
+    // Harness
+    const harnessColor = bootsTier >= 3 ? '#d4af37' : bootsTier >= 1 ? '#8b6914' : '#3a2510';
+    ctx.strokeStyle = harnessColor;
+    ctx.lineWidth = bootsTier >= 3 ? 1.8 : 1;
     ctx.beginPath();
-    ctx.moveTo(-W * 0.25, horseY + W * 0.2);
-    ctx.lineTo(-W * 0.4, -H * 0.3);
-    ctx.moveTo(W * 0.25, horseY + W * 0.2);
-    ctx.lineTo(W * 0.4, -H * 0.3);
+    if (numHorses === 2) {
+      ctx.moveTo(-W*0.6, horseY+W*0.15); ctx.lineTo(-W*0.5, -H*0.3);
+      ctx.moveTo(W*0.6,  horseY+W*0.15); ctx.lineTo(W*0.5,  -H*0.3);
+    } else {
+      ctx.moveTo(-W*0.22, horseY+W*0.15); ctx.lineTo(-W*0.38, -H*0.3);
+      ctx.moveTo(W*0.22,  horseY+W*0.15); ctx.lineTo(W*0.38,  -H*0.3);
+    }
     ctx.stroke();
 
-    // ── Carriage body — upgrades with pack tier ────────────────────────
-    // T0: basic brown cart, T1: proper carriage, T2: large merchant wagon
-    const bodyColor = packTier === 2 ? '#7a4f18' : packTier === 1 ? '#8b5e2a' : '#6b4a22';
-    const trimColor = packTier === 2 ? '#d4af37' : packTier === 1 ? '#d97706' : '#8b6914';
-    const roofColor = packTier === 2 ? '#5a3a10' : packTier === 1 ? '#6b4a18' : '#4a3012';
+    // ── Carriage body — 5 pack tiers ───────────────────────────────────
+    // T0: rough wooden cart, T1: box cart, T2: covered carriage, T3: noble carriage, T4: royal gilded
+    const BODY = [
+      { body:'#5a3c18', trim:'#3a2510', roof:null,      canvas:null },
+      { body:'#7a5030', trim:'#8b6914', roof:'#4a3010',  canvas:'rgba(200,180,140,0.6)' },
+      { body:'#8b5e2a', trim:'#d97706', roof:'#6b4520',  canvas:'rgba(210,190,140,0.7)' },
+      { body:'#7a4f18', trim:'#d4af37', roof:'#5a3a10',  canvas:'rgba(180,150,80,0.8)'  },
+      { body:'#6a3c12', trim:'#ffd700', roof:'#4a2c08',  canvas:'rgba(255,215,0,0.25)'  },
+    ];
+    const bc = BODY[Math.min(packTier, 4)];
 
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
+    // T4: royal glow
+    if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
 
-    // T1+ get a proper raised roof
-    if (packTier >= 1) {
-      ctx.fillStyle = roofColor;
-      ctx.fillRect(-W * 0.75, -H * 0.5, W * 1.5, H * 0.2);
-      // Canvas cover
-      const canvasColor = packTier === 2 ? 'rgba(200,170,90,0.8)' : 'rgba(220,200,160,0.7)';
-      ctx.fillStyle = canvasColor;
-      ctx.fillRect(-W * 0.65, -H * 0.5, W * 1.3, H * 0.22);
+    ctx.fillStyle = bc.body;
+    ctx.fillRect(-W*0.82, -H*0.5, W*1.64, H*0.76);
+
+    // Roof (T1+)
+    if (bc.roof) {
+      ctx.fillStyle = bc.roof;
+      ctx.fillRect(-W*0.76, -H*0.5, W*1.52, H*0.2);
+    }
+    // Canvas (T1+)
+    if (bc.canvas) {
+      ctx.fillStyle = bc.canvas;
+      ctx.fillRect(-W*0.66, -H*0.5, W*1.32, H*0.22);
     }
 
-    // T1+ windows
-    if (packTier >= 1) {
+    // Windows (T2+)
+    if (packTier >= 2) {
       ctx.fillStyle = 'rgba(20,12,5,0.7)';
-      ctx.fillRect(-W * 0.35, -H * 0.3, W * 0.28, W * 0.32);
-      ctx.fillRect(W * 0.07, -H * 0.3, W * 0.28, W * 0.32);
+      ctx.fillRect(-W*0.38, -H*0.3, W*0.3, W*0.3);
+      ctx.fillRect(W*0.08,  -H*0.3, W*0.3, W*0.3);
+      // Window frames
+      ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
+      ctx.strokeRect(-W*0.38, -H*0.3, W*0.3, W*0.3);
+      ctx.strokeRect(W*0.08,  -H*0.3, W*0.3, W*0.3);
     }
 
-    // T2: extra cargo area on back
-    if (packTier === 2) {
-      ctx.fillStyle = '#6a4518';
-      ctx.fillRect(-W * 0.6, H * 0.22, W * 1.2, H * 0.15);
-      ctx.strokeStyle = trimColor; ctx.lineWidth = 1;
-      ctx.strokeRect(-W * 0.6, H * 0.22, W * 1.2, H * 0.15);
-      // Cargo bags
-      ctx.fillStyle = 'rgba(150,110,60,0.8)';
-      ctx.fillRect(-W * 0.5, H * 0.24, W * 0.35, W * 0.28);
-      ctx.fillRect(W * 0.15, H * 0.24, W * 0.35, W * 0.28);
+    // Cargo area (T3+)
+    if (packTier >= 3) {
+      ctx.fillStyle = '#5a3c12';
+      ctx.fillRect(-W*0.65, H*0.22, W*1.3, H*0.16);
+      ctx.fillStyle = 'rgba(140,100,50,0.8)';
+      ctx.fillRect(-W*0.55, H*0.24, W*0.38, W*0.28);
+      ctx.fillRect(W*0.16,  H*0.24, W*0.38, W*0.28);
     }
 
-    // Trim (fancier at higher tier)
-    ctx.strokeStyle = trimColor;
-    ctx.lineWidth = packTier === 2 ? 2 : 1.5;
-    ctx.strokeRect(-W * 0.8, -H * 0.5, W * 1.6, H * 0.75);
+    // T4: ornate side panels + gilded crest
+    if (packTier === 4) {
+      ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(-W*0.72, -H*0.4, W*0.22, H*0.52);
+      ctx.strokeRect(W*0.5,   -H*0.4, W*0.22, H*0.52);
+      // Crown crest on front
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(-W*0.12, -H*0.58, W*0.24, W*0.1);
+      ctx.fillRect(-W*0.06, -H*0.64, W*0.05, W*0.08);
+      ctx.fillRect(-W*0.02, -H*0.68, W*0.04, W*0.08);
+      ctx.fillRect(W*0.01,  -H*0.64, W*0.05, W*0.08);
+    }
+    ctx.shadowBlur = 0;
 
-    // ── Tool tier — adds ledger/flag visual ────────────────────────────
-    // T1: small ledger book on side
-    if (toolTier === 1) {
-      ctx.fillStyle = '#8b4513';
-      ctx.fillRect(W * 0.82, -H * 0.35, W * 0.4, W * 0.32);
+    // Main trim outline
+    ctx.strokeStyle = bc.trim;
+    ctx.lineWidth = packTier >= 3 ? 2 : 1.5;
+    ctx.strokeRect(-W*0.82, -H*0.5, W*1.64, H*0.76);
+
+    // ── Tool tier decoration ────────────────────────────────────────────
+    // T1: ledger strapped to side
+    // T2: guild pennant
+    // T3: trade charter scroll + seal
+    // T4: golden abacus + twin flags
+    if (toolTier >= 1) {
+      ctx.fillStyle = '#7a3a10';
+      ctx.fillRect(W*0.84, -H*0.38, W*0.38, W*0.3);
       ctx.fillStyle = '#c8a870';
-      ctx.fillRect(W * 0.84, -H * 0.33, W * 0.36, W * 0.28);
-      // Book pages line
+      ctx.fillRect(W*0.86, -H*0.36, W*0.34, W*0.26);
       ctx.strokeStyle = '#8b7a5a'; ctx.lineWidth = 0.5;
       for (let li = 0; li < 3; li++) {
-        ctx.beginPath();
-        ctx.moveTo(W * 0.86, -H * 0.3 + li * W * 0.08);
-        ctx.lineTo(W * 1.16, -H * 0.3 + li * W * 0.08);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(W*0.88, -H*0.33+li*W*0.07); ctx.lineTo(W*1.16, -H*0.33+li*W*0.07); ctx.stroke();
       }
     }
-    // T2: guild flag/pennant on top
-    if (toolTier === 2) {
-      // Flag pole
+
+    const drawFlag = (ox, flagColor, emblemColor) => {
       ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(ox, -H*0.5); ctx.lineTo(ox, -H*0.5 - W*0.9); ctx.stroke();
+      const wave = Math.sin(stateTime * 0.008 + ox) * 2;
+      ctx.fillStyle = flagColor;
       ctx.beginPath();
-      ctx.moveTo(0, -H * 0.5);
-      ctx.lineTo(0, -H * 0.5 - W * 0.9);
-      ctx.stroke();
-      // Waving flag
-      const wave = Math.sin(stateTime * 0.008) * 2;
-      ctx.fillStyle = '#d4af37';
-      ctx.beginPath();
-      ctx.moveTo(0, -H * 0.5 - W * 0.9);
-      ctx.lineTo(W * 0.6, -H * 0.5 - W * 0.75 + wave);
-      ctx.lineTo(W * 0.55, -H * 0.5 - W * 0.6 + wave * 0.5);
-      ctx.lineTo(0, -H * 0.5 - W * 0.7);
-      ctx.closePath();
-      ctx.fill();
-      // Guild seal emblem on flag
-      ctx.fillStyle = '#8b6914';
-      ctx.beginPath();
-      ctx.arc(W * 0.3, -H * 0.5 - W * 0.73 + wave * 0.7, W * 0.12, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(ox, -H*0.5 - W*0.9);
+      ctx.lineTo(ox + W*0.55, -H*0.5 - W*0.76 + wave);
+      ctx.lineTo(ox + W*0.5,  -H*0.5 - W*0.6  + wave*0.5);
+      ctx.lineTo(ox, -H*0.5 - W*0.72);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = emblemColor;
+      ctx.beginPath(); ctx.arc(ox + W*0.28, -H*0.5 - W*0.73 + wave*0.7, W*0.11, 0, Math.PI*2); ctx.fill();
+    };
+
+    if (toolTier === 2) drawFlag(0, '#d4af37', '#8b6914');
+    if (toolTier === 3) {
+      drawFlag(0, '#8b0000', '#ffd700');
+      // Scroll tube on side
+      ctx.fillStyle = '#d4c4a0';
+      ctx.fillRect(-W*1.3, -H*0.2, W*0.3, W*0.55);
+      ctx.fillStyle = '#a08060';
+      ctx.fillRect(-W*1.3, -H*0.2, W*0.3, W*0.08);
+      ctx.fillRect(-W*1.3, H*0.27,  W*0.3, W*0.08);
+    }
+    if (toolTier === 4) {
+      drawFlag(-W*0.25, '#ffd700', '#ff8c00');
+      drawFlag( W*0.25, '#ffd700', '#ff8c00');
+      // Golden abacus glint
+      ctx.fillStyle = '#ffd700';
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 4;
+      ctx.fillRect(W*0.84, -H*0.38, W*0.38, W*0.3);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#8b4513';
+      for (let ai = 0; ai < 4; ai++) {
+        ctx.beginPath(); ctx.arc(W*0.88 + ai*W*0.1, -H*0.28, W*0.06, 0, Math.PI*2); ctx.fill();
+      }
     }
 
-    // Player identity color on roof
+    // Player identity stripe on carriage roof
     ctx.fillStyle = '#7c3aed';
-    ctx.fillRect(-W * 0.2, -H * 0.55, W * 0.4, W * 0.18);
+    ctx.fillRect(-W*0.2, -H*0.55, W*0.4, W*0.15);
 
-    // ── Wheels ─────────────────────────────────────────────────────────
-    // Wheel spin speed increases with boots tier
-    const wheelSpeed = 0.010 + bootsTier * 0.004;
-    const wheelAngle = moving ? (stateTime * wheelSpeed) : 0;
-    const wheelR = W * (0.44 + packTier * 0.06); // bigger wheels for bigger wagon
+    // ── Wheels — spokes and size scale with tiers ──────────────────────
+    const wheelSpeed = 0.009 + bootsTier * 0.004;
+    const wheelAngle = moving ? stateTime * wheelSpeed : 0;
+    const wheelR = W * (0.42 + packTier * 0.05);
+    const spokes   = 4 + Math.floor(packTier * 0.5) * 2; // 4,4,6,6,8 spokes
+    const hubColor = packTier >= 3 ? '#ffd700' : bc.trim;
+    const rimColor = packTier >= 4 ? '#ffd700' : '#2a1808';
     const drawWheel = (wx, wy) => {
-      ctx.fillStyle = '#2a1808';
+      ctx.fillStyle = rimColor;
       ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = '#5a3a15';
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.62, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.62, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = '#3a2008'; ctx.lineWidth = 1.5;
-      const spokes = packTier === 2 ? 6 : 4;
       for (let s = 0; s < spokes; s++) {
-        const sa = wheelAngle + s * (Math.PI * 2 / spokes);
+        const sa = wheelAngle + s * (Math.PI*2/spokes);
         ctx.beginPath();
-        ctx.moveTo(wx + Math.cos(sa) * wheelR * 0.56, wy + Math.sin(sa) * wheelR * 0.56);
-        ctx.lineTo(wx - Math.cos(sa) * wheelR * 0.56, wy - Math.sin(sa) * wheelR * 0.56);
+        ctx.moveTo(wx+Math.cos(sa)*wheelR*0.56, wy+Math.sin(sa)*wheelR*0.56);
+        ctx.lineTo(wx-Math.cos(sa)*wheelR*0.56, wy-Math.sin(sa)*wheelR*0.56);
         ctx.stroke();
       }
-      ctx.fillStyle = trimColor;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.17, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = hubColor;
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.17, 0, Math.PI*2); ctx.fill();
     };
-    drawWheel(-W * 0.7, H * 0.22);
-    drawWheel(W * 0.7, H * 0.22);
+    drawWheel(-W*0.7, H*0.22);
+    drawWheel( W*0.7, H*0.22);
 
     ctx.restore();
   }
