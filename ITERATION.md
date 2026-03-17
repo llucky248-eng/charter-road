@@ -246,3 +246,10 @@
 ## v0.3.24 — 2026-03-17
 - Fix: building glow rings now draw outside the tile boundary (sx-0.5, TILE+1) — building art fully visible underneath.
 - Glow is purely an outer halo, not an overlay on the art.
+
+## v0.3.25 — 2026-03-17
+- Fix: player carriage redrawn as clean top-down 4-directional sprite.
+- No more ctx.rotate — each direction (UP/DOWN/LEFT/RIGHT) drawn explicitly.
+- Horse visibly in front of wagon relative to travel direction; harness line connects them.
+- Tier visuals preserved: donkey → road horse → chestnut → warhorse → phantom mare.
+- Leg animation, shadow, player identity stripe on wagon roof.
