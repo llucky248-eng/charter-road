@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Amber Road — Live World Status</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0c0f14;
+      color: #d0dce8;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 900;
+      color: #e8d4a0;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #6a8aa0;
+      margin-bottom: 24px;
+    }
+    .subtitle span { color: #a0b8cc; }
+
+    /* Grid layout */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #6a8aa0;
+      margin-bottom: 12px;
+    }
+
+    /* City card */
+    .city-name {
+      font-size: 17px;
+      font-weight: 900;
+      color: #e8d4a0;
+      margin-bottom: 2px;
+    }
+    .city-vibe {
+      font-size: 12px;
+      color: #6a8aa0;
+      margin-bottom: 12px;
+    }
+
+    /* Price rows */
+    .price-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 13px;
+    }
+    .price-row:last-child { border-bottom: none; }
+    .price-item { color: #c0d0e0; }
+    .price-val { font-weight: 700; color: #e8d4a0; }
+    .delta {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 999px;
+    }
+    .delta-up   { background: rgba(239,68,68,0.15); color: #f87171; }
+    .delta-down { background: rgba(34,197,94,0.15); color: #4ade80; }
+    .delta-flat { background: rgba(100,116,139,0.12); color: #94a3b8; }
+
+    /* Player save card */
+    .stat { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .stat:last-child { border-bottom: none; }
+    .stat-label { color: #6a8aa0; }
+    .stat-val { color: #e8d4a0; font-weight: 700; }
+
+    /* Economy heatmap */
+    .heatmap {
+      display: grid;
+      grid-template-columns: 80px repeat(4, 1fr);
+      gap: 3px;
+      font-size: 11px;
+    }
+    .hm-head { color: #6a8aa0; font-weight: 700; text-align: center; padding: 4px 2px; }
+    .hm-item { color: #94a3b8; display: flex; align-items: center; }
+    .hm-cell {
+      text-align: center;
+      padding: 5px 2px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    /* Status bar */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: #4a6a80;
+      margin-bottom: 20px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 6px #22c55e;
+      animation: pulse 2s infinite;
+      flex-shrink: 0;
+    }
+    .dot.err { background: #ef4444; box-shadow: 0 0 6px #ef4444; animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .refresh-btn {
+      margin-left: auto;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #94a3b8;
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .refresh-btn:hover { background: rgba(255,255,255,0.1); }
+
+    /* No save */
+    .empty { color: #4a6a80; font-size: 13px; }
+
+    /* Rep bars */
+    .rep-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .rep-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); flex: 1; }
+    .rep-fill { height: 100%; border-radius: 3px; background: #60a5fa; transition: width 0.4s; }
+
+    /* Gear badges */
+    .gear-badge {
+      display: inline-block;
+      background: rgba(124,58,237,0.2);
+      border: 1px solid rgba(124,58,237,0.4);
+      color: #c4b5fd;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-right: 4px;
+    }
+
+    /* Section header */
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #94a3b8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 24px 0 12px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🗺 The Amber Road — Live World</h1>
+<div class="subtitle">Global economy + your local save · Auto-refreshes every <span>30s</span></div>
+
+<div class="status-bar">
+  <div class="dot" id="dot"></div>
+  <span id="status-text">Loading…</span>
+  <button class="refresh-btn" onclick="refresh()">↻ Refresh</button>
+</div>
+
+<!-- Player save summary -->
+<div class="section-title">📦 Your Save</div>
+<div class="grid" id="save-grid">
+  <div class="card"><div class="empty">No save found. Play the game to create one.</div></div>
+</div>
+
+<!-- Economy heatmap -->
+<div class="section-title">🌍 Global Price Pressure</div>
+<div class="card" style="overflow-x:auto;margin-bottom:24px">
+  <div class="card-title">Global economy pressure — updated from Supabase · Red = demand up, Green = oversupplied</div>
+  <div class="heatmap" id="heatmap">
+    <div class="empty">Loading…</div>
+  </div>
+</div>
+
+<!-- City market cards -->
+<div class="section-title">🏙 City Markets</div>
+<div class="grid" id="city-grid">
+  <div class="card"><div class="empty">Loading…</div></div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://ycjhcsxxtinipwailbjb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY';
+
+const ITEMS = [
+  { id: 'food',   name: 'Dried Rations', base: 12 },
+  { id: 'ore',    name: 'Iron Ore',       base: 18 },
+  { id: 'herbs',  name: 'Moon Herbs',     base: 16 },
+  { id: 'potion', name: 'Minor Potion',   base: 34 },
+  { id: 'relic',  name: 'Old Relic',      base: 55 },
+  { id: 'ink',    name: 'Demon Ink',      base: 70 },
+];
+
+const CITIES = [
+  { id: 'valdenmere', name: 'Valdenmere', vibe: 'Orderly. Taxed. Prestigious.',   tax: 18, inspect: 65, color: '#60a5fa' },
+  { id: 'ashport',    name: 'Ashport',    vibe: 'Lawless. Profitable. Risky.',     tax:  5, inspect: 15, color: '#f59e0b' },
+  { id: 'crosshaven', name: 'Crosshaven', vibe: 'Quiet. Fair. Unassuming.',       tax:  8, inspect: 25, color: '#34d399' },
+  { id: 'ironholt',   name: 'Ironholt',   vibe: 'Rough. Industrial. No-nonsense.',tax: 12, inspect: 40, color: '#f97316' },
+];
+
+const SPREAD = 0.10;
+const GEAR_NAMES = {
+  pack:  ['Satchel','Trader\'s Pack','Merchant Cart','Cargo Wagon','Royal Carriage'],
+  boots: ['Worn Boots','Road Boots','Swift Horse','War Horse','Phantom Mare'],
+  tool:  ['Bare Hands','Merchant Ledger','Guild Seal','Trade Charter','Golden Abacus'],
+};
+
+// ── Seeded price model (mirrors main.js) ─────────────────────────────────
+function seededRand(seed) {
+  let s = seed;
+  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
+}
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  return h;
+}
+function basePrice(cityId, itemId, itemBase) {
+  const seed = hashStr(cityId + ':' + itemId);
+  const rng = seededRand(seed);
+  const lo = 0.80, hi = 1.20;
+  const mult = lo + rng() * (hi - lo);
+  return Math.round(itemBase * mult);
+}
+function priceWithPressure(cityId, item, pressure) {
+  const p = (pressure[cityId]?.[item.id] || 0);
+  const mid = basePrice(cityId, item.id, item.base) * (1 + p);
+  const buy  = Math.round(mid * (1 + SPREAD / 2));
+  const sell = Math.max(1, Math.round(mid * (1 - SPREAD / 2)));
+  return { buy, sell, pct: Math.round(p * 100) };
+}
+
+// ── Supabase fetch ────────────────────────────────────────────────────────
+async function fetchPressure() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/market_economy?select=city_id,item_id,pressure`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  const rows = await res.json();
+  const out = {};
+  for (const r of rows) {
+    if (!out[r.city_id]) out[r.city_id] = {};
+    out[r.city_id][r.item_id] = r.pressure || 0;
+  }
+  return out;
+}
+
+// ── Save reader ───────────────────────────────────────────────────────────
+function readSave() {
+  // Try known save keys (guest + IDs 1–20)
+  const keys = ['charter-road-save-v1'];
+  for (let i = 1; i <= 20; i++) keys.push(`charter-road-save-v1-${i}`);
+  for (const k of keys) {
+    const raw = localStorage.getItem(k);
+    if (!raw) continue;
+    try { return { key: k, data: JSON.parse(raw) }; } catch {}
+  }
+  return null;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function renderSave(save) {
+  const grid = document.getElementById('save-grid');
+  if (!save) {
+    grid.innerHTML = '<div class="card"><div class="empty">No save found. Play the game to create one.</div></div>';
+    return;
+  }
+  const p = save.data.player;
+  const t = save.data.time || {};
+  const g = p.gear || { pack:0, boots:0, tool:0 };
+  const inv = p.inv || {};
+  const rep = p.rep || {};
+  const contracts = save.data.contracts;
+
+  const invItems = ITEMS.filter(it => (inv[it.id] || 0) > 0)
+    .map(it => `${inv[it.id]}× ${it.name}`).join(', ') || '—';
+
+  const repHtml = Object.entries(rep).map(([cid, v]) => {
+    const city = CITIES.find(c => c.id === cid);
+    const name = city?.name || cid;
+    const pct = Math.min(100, Math.round((v / 20) * 100));
+    return `
+      <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+          <span style="color:#94a3b8">${name}</span><span style="color:#e8d4a0">${v} rep</span>
+        </div>
+        <div class="rep-bar"><div class="rep-fill" style="width:${pct}%;background:${city?.color||'#60a5fa'}"></div></div>
+      </div>`;
+  }).join('');
+
+  const gearHtml = ['pack','boots','tool'].map(slot => {
+    const tier = g[slot] || 0;
+    const name = GEAR_NAMES[slot]?.[tier] || `T${tier}`;
+    return `<span class="gear-badge">${name}</span>`;
+  }).join('');
+
+  const contractHtml = contracts?.active
+    ? `<div style="color:#f59e0b;font-size:12px">📋 Active: deliver ${contracts.active.qty}× ${contracts.active.want} → ${CITIES.find(c=>c.id===contracts.active.toId)?.name || contracts.active.toId} (+${contracts.active.reward}g)</div>`
+    : `<div style="color:#4a6a80;font-size:12px">No active contract</div>`;
+
+  grid.innerHTML = `
+    <div class="card">
+      <div class="card-title">Player</div>
+      <div class="stat"><span class="stat-label">Save key</span><span class="stat-val" style="font-size:11px;color:#6a8aa0">${save.key}</span></div>
+      <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${p.gold}g</span></div>
+      <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${Object.values(inv).reduce((a,b)=>a+b,0)} / ${p.capacity}</span></div>
+      <div class="stat"><span class="stat-label">Day / Time</span><span class="stat-val">Day ${Math.floor(t.day||1)} · ${String(Math.floor((t.hour||8))).padStart(2,'0')}:${String(Math.round(((t.hour||8)%1)*60)).padStart(2,'0')}</span></div>
+      <div class="stat"><span class="stat-label">Speed</span><span class="stat-val">${p.speed||90} px/s</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Gear</div>
+      <div style="margin-bottom:12px">${gearHtml}</div>
+      <div class="card-title">Inventory</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.6">${invItems}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Reputation</div>
+      ${repHtml}
+    </div>
+    <div class="card">
+      <div class="card-title">Contract</div>
+      ${contractHtml}
+      ${p.intelLedger?.length ? `<div style="margin-top:8px;font-size:12px;color:#94a3b8">🕵️ ${p.intelLedger.filter(c=>!c.sold).length} active intel card(s)</div>` : ''}
+    </div>
+  `;
+}
+
+function renderHeatmap(pressure) {
+  const hm = document.getElementById('heatmap');
+  const cityNames = { valdenmere:'Vald.', ashport:'Ash.', crosshaven:'Cross.', ironholt:'Iron.' };
+
+  let html = `<div class="hm-head">Item</div>`;
+  for (const c of CITIES) html += `<div class="hm-head" style="color:${c.color}">${cityNames[c.id]}</div>`;
+
+  for (const item of ITEMS) {
+    html += `<div class="hm-item">${item.name.split(' ')[0]}</div>`;
+    for (const city of CITIES) {
+      const p = pressure[city.id]?.[item.id] || 0;
+      const pct = Math.round(p * 100);
+      const abs = Math.abs(pct);
+      let bg = 'rgba(100,116,139,0.08)';
+      let col = '#64748b';
+      let label = '~';
+      if (pct > 5)  { bg = `rgba(239,68,68,${0.1 + abs*0.006})`; col = '#f87171'; label = `▲${abs}%`; }
+      if (pct < -5) { bg = `rgba(34,197,94,${0.1 + abs*0.006})`; col = '#4ade80'; label = `▼${abs}%`; }
+      html += `<div class="hm-cell" style="background:${bg};color:${col}">${label}</div>`;
+    }
+  }
+  hm.innerHTML = html;
+}
+
+function renderCities(pressure) {
+  const grid = document.getElementById('city-grid');
+  grid.innerHTML = CITIES.map(city => {
+    const pricesHtml = ITEMS.map(item => {
+      const { buy, sell, pct } = priceWithPressure(city.id, item, pressure);
+      const dLabel = pct > 5 ? `▲${pct}%` : pct < -5 ? `▼${Math.abs(pct)}%` : '~';
+      const dClass = pct > 5 ? 'delta-up' : pct < -5 ? 'delta-down' : 'delta-flat';
+      return `
+        <div class="price-row">
+          <span class="price-item">${item.name}</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <span class="delta ${dClass}">${dLabel}</span>
+            <span class="price-val">${buy}g</span>
+            <span style="color:#4a6a80;font-size:11px">/ sell ${sell}g</span>
+          </span>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="card">
+        <div class="card-title">City</div>
+        <div class="city-name" style="color:${city.color}">${city.name}</div>
+        <div class="city-vibe">${city.vibe}</div>
+        <div style="font-size:11px;color:#4a6a80;margin-bottom:10px">Tax ${city.tax}% · Inspect ${city.inspect}%</div>
+        ${pricesHtml}
+      </div>`;
+  }).join('');
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────
+async function refresh() {
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  dot.className = 'dot';
+  statusText.textContent = 'Fetching…';
+
+  // Read local save
+  const save = readSave();
+  renderSave(save);
+
+  try {
+    const pressure = await fetchPressure();
+    renderHeatmap(pressure);
+    renderCities(pressure);
+    const now = new Date().toLocaleTimeString();
+    statusText.textContent = `Last updated ${now} · ${Object.keys(pressure).length} cities · ${save ? 'Save loaded' : 'No local save'}`;
+  } catch (e) {
+    dot.className = 'dot err';
+    statusText.textContent = `Supabase error: ${e.message} — showing base prices`;
+    renderHeatmap({});
+    renderCities({});
+  }
+}
+
+// Auto-refresh every 30s
+refresh();
+setInterval(refresh, 30_000);
+</script>
+</body>
+</html>

@@ -282,3 +282,10 @@
   Wagon grows larger per tier (10→22px width). Roof strip colors: cream→orange→gold→bright gold.
   Horse colors: pale donkey → dark bay → bright chestnut → jet black → phantom blue-white.
   Warhorse (T3) is now jet black, immediately obvious vs lower tiers.
+
+## v0.3.32 — 2026-03-17
+- New: world.html — live world status dashboard.
+  - Reads local save: gold, cargo, speed, gear, inventory, rep bars, active contract.
+  - Fetches Supabase for global economy pressure (heatmap: red=demand, green=oversupply).
+  - City market cards: buy/sell prices for all 6 items, color-coded delta badges.
+  - Auto-refreshes every 30s. Available at /world.html alongside the game.
