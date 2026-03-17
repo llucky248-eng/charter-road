@@ -1970,7 +1970,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
       contraband: ['Demon Ink'],
       fineBase: 18,
       finePerItem: 6,
-      vibe: 'Orderly. Taxed. Prestigious.'
+      vibe: 'Orderly. Taxed. Prestigious.',
+      population: 8000,
+      foodDemand: 0.0010,
     },
     ashport: {
       taxRate: 0.05,
@@ -1978,7 +1980,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
       contraband: ['Blessed Water'],
       fineBase: 8,
       finePerItem: 3,
-      vibe: 'Lawless. Profitable. Risky.'
+      vibe: 'Lawless. Profitable. Risky.',
+      population: 4000,
+      foodDemand: 0.0007,
     },
     crosshaven: {
       taxRate: 0.03,
@@ -1986,7 +1990,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
       contraband: [],
       fineBase: 2,
       finePerItem: 1,
-      vibe: 'Quiet. Dusty. Cheap.'
+      vibe: 'Quiet. Dusty. Cheap.',
+      population: 1500,
+      foodDemand: 0.0005,
     },
     ironholt: {
       taxRate: 0.10,
@@ -1994,7 +2000,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
       contraband: ['Demon Ink'],
       fineBase: 10,
       finePerItem: 4,
-      vibe: 'Rough. Industrial. Busy.'
+      vibe: 'Rough. Industrial. Busy.',
+      population: 2500,
+      foodDemand: 0.0008,
     },
   };
 
@@ -2211,6 +2219,7 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const ITEMS = [
+    { id: 'grain', name: 'Grain', base: 6, weight: 2 },
     { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
     { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
     { id: 'herbs', name: 'Moon Herbs', base: 16, weight: 1 },
@@ -2377,7 +2386,7 @@ const NPC_INTERACT_RADIUS = 18;
   }
 
 
-  const CONTRACT_ITEMS = ['food','ore','herbs','potion','relic'];
+  const CONTRACT_ITEMS = ['grain','food','ore','herbs','potion','relic'];
 
 
   function rewardForContract(want, qty) {
@@ -2449,6 +2458,13 @@ const NPC_INTERACT_RADIUS = 18;
   }
 
   // Simple, slow market drift by day (small per-item per-city multipliers)
+  const cityPop = {
+    valdenmere: { pop: 8000, hunger: 0 },
+    ashport:    { pop: 4000, hunger: 0 },
+    crosshaven: { pop: 1500, hunger: 0 },
+    ironholt:   { pop: 2500, hunger: 0 },
+  };
+
   const marketDrift = {
     valdenmere:  Object.fromEntries(ITEMS.map(it => [it.id, 1])),
     ashport:     Object.fromEntries(ITEMS.map(it => [it.id, 1])),
@@ -4124,6 +4140,25 @@ function drawNpcBubble() {
 }
 
 
+  function populationTick() {
+    for (const [cid, rule] of Object.entries(CITY_RULES)) {
+      const state = cityPop[cid];
+      if (!state) continue;
+      state.hunger = Math.min(1, state.hunger + rule.foodDemand * (state.pop / rule.population));
+      const pressureBoost = state.hunger * 0.4;
+      if (pressureBoost > 0.02) {
+        if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
+        ECONOMY.pressure[cid]['food']  = Math.min(0.5, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
+        ECONOMY.pressure[cid]['grain'] = Math.min(0.5, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
+      }
+      if (state.hunger < 0.2) {
+        state.pop = Math.min(state.pop * 1.002, rule.population * 1.5);
+      } else if (state.hunger > 0.7) {
+        state.pop = Math.max(state.pop * 0.998, rule.population * 0.5);
+      }
+    }
+  }
+
   function advanceDays(days, reason = '') {
     if (!Number.isFinite(days) || days <= 0) return;
     time.frac += days;
@@ -4132,6 +4167,7 @@ function drawNpcBubble() {
       time.frac -= 1;
       time.day += 1;
       advanced += 1;
+      populationTick();
       // tiny drift; mean ~0 over time; clamp to keep prices sane
       for (const cityId of Object.keys(marketDrift)) {
         for (const it of ITEMS) {
@@ -4307,6 +4343,13 @@ function drawNpcBubble() {
     if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
+    // Hunger relief when selling food or grain
+    if (it.id === 'food' || it.id === 'grain') {
+      if (cityPop[c.id]) {
+        const relief = sellN * 0.02;
+        cityPop[c.id].hunger = Math.max(0, cityPop[c.id].hunger - relief);
+      }
+    }
     scheduleAutoSave();
   }
 
@@ -4962,6 +5005,7 @@ function drawNpcBubble() {
         active: contracts.active ? { ...contracts.active } : null,
       },
       openedCaches: Array.from(openedCaches),
+      cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -5129,6 +5173,13 @@ function drawNpcBubble() {
       }
       // Restore contracts
       contracts.active = state.contracts?.active || null;
+
+      // Restore cityPop (with migration fallback)
+      if (state.cityPop) {
+        for (const cid of Object.keys(cityPop)) {
+          if (state.cityPop[cid]) Object.assign(cityPop[cid], state.cityPop[cid]);
+        }
+      }
 
       // Restore opened caches
       openedCaches.clear();
@@ -7423,7 +7474,12 @@ if (ui._hudTapDebug) {
       const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
       const shortHint = IS_MOBILE ? `${hint}` : hint;
       const contraTxt = IS_MOBILE ? rules.contraband.join(', ').slice(0, 18) + (rules.contraband.join(', ').length>18?'…':'') : rules.contraband.join(', ');
-      const ruleLine = IS_MOBILE ? `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · ${shortHint}` : `Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}% · Contraband: ${contraTxt} · ${hint}`;
+      const _cpop = cityPop[c.id];
+      const _popStr = _cpop ? ((_cpop.pop >= 1000 ? (_cpop.pop/1000).toFixed(1)+'k' : Math.round(_cpop.pop).toString()) + ' pop') : '';
+      const _hungerStr = _cpop ? `Hunger: ${Math.round(_cpop.hunger*100)}%` : '';
+      const _popPrefix = _popStr ? `${_popStr} · ` : '';
+      const _hungerSuffix = _hungerStr ? ` · ${_hungerStr}` : '';
+      const ruleLine = IS_MOBILE ? `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · ${shortHint}` : `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · Contraband: ${contraTxt} · ${hint}`;
       ctx.fillText(
         ellipsizeText(ruleLine, maxTextW),
         titleX,

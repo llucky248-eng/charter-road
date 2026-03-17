@@ -205,12 +205,18 @@
   <div class="card"><div class="empty">Loading…</div></div>
 </div>
 
+<div class="section-title">👥 City Populations</div>
+<div class="grid" id="pop-grid">
+  <div class="card"><div class="empty">Loading…</div></div>
+</div>
+
 <script>
 // ── Config ────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://ycjhcsxxtinipwailbjb.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY';
 
 const ITEMS = [
+  { id: 'grain',  name: 'Grain',         base: 6  },
   { id: 'food',   name: 'Dried Rations', base: 12 },
   { id: 'ore',    name: 'Iron Ore',       base: 18 },
   { id: 'herbs',  name: 'Moon Herbs',     base: 16 },
@@ -406,6 +412,33 @@ function renderCities(pressure) {
   }).join('');
 }
 
+function renderPopulations(save) {
+  const grid = document.getElementById('pop-grid');
+  const defaultPops = {
+    valdenmere: { pop: 8000, hunger: 0 },
+    ashport:    { pop: 4000, hunger: 0 },
+    crosshaven: { pop: 1500, hunger: 0 },
+    ironholt:   { pop: 2500, hunger: 0 },
+  };
+  const cityPopData = (save && save.data && save.data.cityPop) ? save.data.cityPop : defaultPops;
+  grid.innerHTML = CITIES.map(city => {
+    const state = cityPopData[city.id] || defaultPops[city.id] || { pop: 0, hunger: 0 };
+    const popStr = state.pop >= 1000 ? (state.pop / 1000).toFixed(1) + 'k' : Math.round(state.pop).toString();
+    const hungerPct = Math.round((state.hunger || 0) * 100);
+    const hungerColor = hungerPct < 20 ? '#34d399' : hungerPct < 50 ? '#f59e0b' : '#ef4444';
+    return `
+      <div class="card">
+        <div class="card-title">Population</div>
+        <div class="city-name" style="color:${city.color}">${city.name}</div>
+        <div style="margin:8px 0;font-size:13px;color:#e8d4a0">👥 ${popStr} residents</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Hunger: ${hungerPct}%</div>
+        <div style="background:#1e293b;border-radius:4px;height:8px;overflow:hidden">
+          <div style="width:${hungerPct}%;height:100%;background:${hungerColor};transition:width 0.3s"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function refresh() {
   const dot = document.getElementById('dot');
@@ -416,6 +449,7 @@ async function refresh() {
   // Read local save
   const save = readSave();
   renderSave(save);
+  renderPopulations(save);
 
   try {
     const pressure = await fetchPressure();
