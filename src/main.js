@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.19'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.20'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6426,6 +6426,112 @@ function drawNpcBubble() {
   }
 
 
+// Building discovery layer: pulsing icons + labels on interactive tiles
+function drawBuildingLabels() {
+  if (!currentCity()) return; // only inside cities
+
+  const INTERACT = {
+    6:  { label: 'Market',    icon: '🛒', color: '#fbbf24', nearDist: 3 },
+    12: { label: 'Contracts', icon: '📋', color: '#60a5fa', nearDist: 3 },
+    7:  { label: 'Tavern',    icon: '🍺', color: '#f97316', nearDist: 2 },
+    8:  { label: 'Warehouse', icon: '📦', color: '#a78bfa', nearDist: 2 },
+  };
+
+  const px = player.x, py = player.y;
+  const camX = camera.x, camY = camera.y;
+
+  // Scan visible tiles
+  const tileX0 = Math.max(0, Math.floor(camX / TILE) - 1);
+  const tileY0 = Math.max(0, Math.floor(camY / TILE) - 1);
+  const tileX1 = Math.min(MAP_W - 1, Math.floor((camX + VIEW_W) / TILE) + 1);
+  const tileY1 = Math.min(MAP_H - 1, Math.floor((camY + VIEW_H) / TILE) + 1);
+
+  for (let ty = tileY0; ty <= tileY1; ty++) {
+    for (let tx = tileX0; tx <= tileX1; tx++) {
+      const id = tileAt(tx, ty);
+      const info = INTERACT[id];
+      if (!info) continue;
+
+      const sx = tx * TILE - camX;
+      const sy = ty * TILE - camY;
+      const cx = sx + TILE / 2;
+      const cy = sy + TILE / 2;
+
+      const distTiles = Math.max(Math.abs(tx - px / TILE), Math.abs(ty - py / TILE));
+      const isNear = distTiles <= info.nearDist + 1;
+
+      // ── Pulsing glow ring (always visible) ─────────────────────────
+      const pulse = 0.45 + 0.2 * Math.sin(stateTime * 0.003 + tx * 1.7 + ty * 2.3);
+      ctx.save();
+      ctx.globalAlpha = pulse * (isNear ? 1.0 : 0.5);
+      ctx.strokeStyle = info.color;
+      ctx.lineWidth = isNear ? 2 : 1;
+      ctx.shadowColor = info.color;
+      ctx.shadowBlur = isNear ? 6 : 3;
+      ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+
+      // ── Icon above tile (visible from ~5 tiles away) ────────────────
+      const iconDist = info.nearDist + 3;
+      if (distTiles <= iconDist) {
+        const iconAlpha = Math.min(1, (iconDist - distTiles + 1) / 2);
+        const bobY = Math.sin(stateTime * 0.004 + tx + ty) * 2;
+        ctx.save();
+        ctx.globalAlpha = iconAlpha;
+        ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.fillText(info.icon, cx, sy - 2 + bobY);
+        ctx.restore();
+      }
+
+      // ── Label + interaction hint when close ─────────────────────────
+      if (isNear) {
+        const labelAlpha = Math.min(1, (info.nearDist + 1 - distTiles + 1));
+        const bobY = Math.sin(stateTime * 0.004 + tx + ty) * 1.5;
+        const labelY = sy - 4 + bobY;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, labelAlpha * 0.92);
+        ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+
+        // Background pill
+        const lw = ctx.measureText(info.label).width + Math.round(10 * UI_SCALE);
+        const lh = Math.round(12 * UI_SCALE);
+        const lx = cx - lw / 2;
+        const ly = labelY - lh;
+        ctx.fillStyle = 'rgba(10,14,20,0.82)';
+        if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
+        else ctx.fillRect(lx, ly, lw, lh);
+        ctx.fill();
+
+        // Label text
+        ctx.fillStyle = info.color;
+        ctx.fillText(info.label, cx, ly + lh - Math.round(3 * UI_SCALE));
+
+        // E / tap hint when very close
+        if (distTiles <= info.nearDist) {
+          const hint = IS_MOBILE ? 'Tap' : 'E';
+          ctx.font = `${Math.round(8 * UI_SCALE)}px system-ui, sans-serif`;
+          ctx.fillStyle = 'rgba(200,200,200,0.8)';
+          const hw = ctx.measureText(hint).width + Math.round(8 * UI_SCALE);
+          const hx = cx - hw / 2;
+          const hy = ly - Math.round(14 * UI_SCALE);
+          ctx.fillStyle = 'rgba(10,14,20,0.75)';
+          if (ctx.roundRect) ctx.roundRect(hx, hy, hw, Math.round(11 * UI_SCALE), 3);
+          else ctx.fillRect(hx, hy, hw, Math.round(11 * UI_SCALE));
+          ctx.fill();
+          ctx.fillStyle = '#e8edf2';
+          ctx.fillText(hint, cx, hy + Math.round(8 * UI_SCALE));
+        }
+
+        ctx.restore();
+      }
+    }
+  }
+}
+
 function drawEntities() {
   if (!entities.length) return;
   for (const e of entities) {
@@ -8180,6 +8286,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     // draw
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
+    drawBuildingLabels();
     drawEntities();
     for (const t of AI_TRADERS) drawAiTrader(t);
     drawNavPath();
