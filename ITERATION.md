@@ -289,3 +289,13 @@
   - Fetches Supabase for global economy pressure (heatmap: red=demand, green=oversupply).
   - City market cards: buy/sell prices for all 6 items, color-coded delta badges.
   - Auto-refreshes every 30s. Available at /world.html alongside the game.
+
+## v0.3.33 — 2026-03-17
+- New: Grain trade item (base 6g, weight 2) — bulk cheap food, available in all cities, included in contracts.
+- New: City populations — Valdenmere 8k, Ashport 4k, Ironholt 2.5k, Crosshaven 1.5k.
+- New: Dynamic hunger system — population eats food/grain daily; hunger builds up and drives prices.
+  Selling food or grain to a city relieves hunger (each unit = -2% hunger).
+- New: Population can grow (well-fed) or shrink (starving) dynamically.
+- HUD shows: Pop: 8.2k · Tax 18% · Inspect 65% · Hunger: 23%
+- Save/Load persists cityPop state.
+- world.html: City Populations section with hunger progress bars.
