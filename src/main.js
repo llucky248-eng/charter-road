@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.16'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.17'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2958,7 +2958,9 @@ function drawAiTrader(t) {
   ctx.translate(sx, sy);
   const r = t.radius;
 
+  // AI traders always appear as carriages (parked or traveling)
   const moving = t.state === 'traveling';
+  const inCity = t.state === 'in_city';
   const facing = t.facing || { x: 1, y: 0 };
   const angle = Math.atan2(facing.y, facing.x);
 
@@ -2976,28 +2978,29 @@ function drawAiTrader(t) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // ── Horse ──────────────────────────────────────────────────────────
-  const horseY = -(H * 0.45 + W * 0.7);
-  const horseColor = t.color ? t.color : '#7a5c3a';
-  ctx.fillStyle = '#7a5c3a';
-  ctx.fillRect(-W * 0.3, horseY - W * 0.35, W * 0.6, W * 0.75);
-  ctx.fillStyle = '#6b4e2e';
-  ctx.fillRect(-W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.45);
-  ctx.fillStyle = '#4a3020';
-  ctx.fillRect(-W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
-  const legSwing = moving ? Math.sin(stateTime * 0.015 + hashStr(t.id) * 0.5) * 2 : 0;
-  ctx.fillStyle = '#5a4025';
-  ctx.fillRect(-W * 0.22, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
-  ctx.fillRect(-W * 0.06, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
-  ctx.fillRect(W * 0.06, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
-  // Harness
-  ctx.strokeStyle = '#3a2510'; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(-W * 0.2, horseY + W * 0.15);
-  ctx.lineTo(-W * 0.35, -H * 0.3);
-  ctx.moveTo(W * 0.2, horseY + W * 0.15);
-  ctx.lineTo(W * 0.35, -H * 0.3);
-  ctx.stroke();
+  // ── Horse (only when traveling, not parked in city) ────────────────
+  if (!inCity) {
+    const horseY = -(H * 0.45 + W * 0.7);
+    ctx.fillStyle = '#7a5c3a';
+    ctx.fillRect(-W * 0.3, horseY - W * 0.35, W * 0.6, W * 0.75);
+    ctx.fillStyle = '#6b4e2e';
+    ctx.fillRect(-W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.45);
+    ctx.fillStyle = '#4a3020';
+    ctx.fillRect(-W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
+    const legSwing = moving ? Math.sin(stateTime * 0.015 + hashStr(t.id) * 0.5) * 2 : 0;
+    ctx.fillStyle = '#5a4025';
+    ctx.fillRect(-W * 0.22, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
+    ctx.fillRect(-W * 0.06, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
+    ctx.fillRect(W * 0.06, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
+    // Harness
+    ctx.strokeStyle = '#3a2510'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-W * 0.2, horseY + W * 0.15);
+    ctx.lineTo(-W * 0.35, -H * 0.3);
+    ctx.moveTo(W * 0.2, horseY + W * 0.15);
+    ctx.lineTo(W * 0.35, -H * 0.3);
+    ctx.stroke();
+  }
 
   // ── Carriage body ──────────────────────────────────────────────────
   const bodyColor = t.color || '#8b5e2a';
@@ -3018,6 +3021,19 @@ function drawAiTrader(t) {
   if (hasGoods) {
     ctx.fillStyle = 'rgba(180,140,60,0.6)';
     ctx.fillRect(-W * 0.5, -H * 0.5, W, H * 0.08);
+  }
+
+  // Parked in city: draw a small merchant figure beside carriage
+  if (inCity) {
+    // Wheel chock (wooden block under wheel)
+    ctx.fillStyle = '#5a3a15';
+    ctx.fillRect(-W * 0.85, H * 0.28, W * 0.22, W * 0.2);
+    ctx.fillRect(W * 0.62, H * 0.28, W * 0.22, W * 0.2);
+    // Merchant standing beside
+    ctx.fillStyle = t.color || '#d97706';
+    ctx.fillRect(W * 0.85, -H * 0.2, W * 0.35, H * 0.5); // body
+    ctx.fillStyle = '#c8a87a';
+    ctx.beginPath(); ctx.arc(W * 1.02, -H * 0.28, W * 0.22, 0, Math.PI * 2); ctx.fill(); // head
   }
 
   // ── Wheels ─────────────────────────────────────────────────────────
