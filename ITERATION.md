@@ -232,3 +232,8 @@
 
 ## v0.0.77 — 2026-02-16
 - Fix: `ellipsizeText` used `max()` (non-existent) instead of `Math.max()`, which could crash HUD text rendering in edge cases.
+
+## v0.3.22 — 2026-03-17
+- Fix: notification banner now renders inside the panel (not as a fixed-viewport overlay blocking the game).
+- Fix: PEOPLE panel (NPC chatter) now starts below the HUD instead of overlapping it.
+- Tweak: market list max-height increased 56vh → 62vh on desktop; card padding tightened for denser layout.

@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.21'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.22'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4520,9 +4520,9 @@ function drawNpcBubble() {
       ` : '';
 
       uiRoot.innerHTML = `
-        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
           <div class="cr-panel">
+            ${bannerHtml}
             <div class="cr-head">
               <div>
                 <div class="cr-title">${htmlEscape(c.name)} Market</div>
@@ -4665,9 +4665,9 @@ function drawNpcBubble() {
         : 'Pick a job. Deliver to the other city for gold + rep.';
 
       uiRoot.innerHTML = `
-        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Contracts">
           <div class="cr-panel">
+            ${bannerHtml}
             <div class="cr-head">
               <div>
                 <div class="cr-title">${htmlEscape(c.name)} Contracts</div>
@@ -4724,9 +4724,9 @@ function drawNpcBubble() {
       });
 
       uiRoot.innerHTML = `
-        ${bannerHtml}
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Event">
           <div class="cr-panel">
+            ${bannerHtml}
             <div class="cr-head">
               <div>
                 <div class="cr-title">${htmlEscape(ui.eventTitle || 'On the road')}</div>
@@ -7434,7 +7434,7 @@ if (!IS_MOBILE && c && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !
     const fontSz = Math.round(12 * UI_SCALE);
     const rowH = Math.round(16 * UI_SCALE);
     const x = titleX;
-    const y0 = line2 + Math.round(18 * UI_SCALE);
+    const y0 = HUD_H + Math.round(18 * UI_SCALE);
     const padX = Math.round(10 * UI_SCALE);
     const padY = Math.round(8 * UI_SCALE);
     const boxW = Math.min(maxTextW, VIEW_W - x - Math.round(12 * UI_SCALE));
