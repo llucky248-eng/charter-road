@@ -258,3 +258,7 @@
 - Fix: building label pills are now color-tinted (matching building accent color) instead of opaque black.
 - Text shadow keeps labels readable over any background.
 - "E/Tap" hint pill also color-tinted, no longer a black box.
+
+## v0.3.27 — 2026-03-17
+- Fix: building floating icon was an emoji (🛒/📋 etc.) drawn on canvas — renders as black box on mobile Safari.
+  Replaced with a simple colored dot indicator (same color as building accent, with glow).

@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.26'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.27'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6477,16 +6477,21 @@ function drawBuildingLabels() {
         ctx.restore();
       }
 
-      // ── Icon above tile (visible from ~5 tiles away) ────────────────
+      // ── Dot indicator above tile (replaces emoji — avoids canvas emoji black-box on mobile Safari) ──
       const iconDist = info.nearDist + 3;
       if (distTiles <= iconDist) {
         const iconAlpha = Math.min(1, (iconDist - distTiles + 1) / 2);
         const bobY = Math.sin(stateTime * 0.004 + tx + ty) * 2;
+        const dotR = Math.round(3 * UI_SCALE);
         ctx.save();
-        ctx.globalAlpha = iconAlpha;
-        ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.fillText(info.icon, cx, sy - 2 + bobY);
+        ctx.globalAlpha = iconAlpha * 0.85;
+        ctx.fillStyle = info.color;
+        ctx.shadowColor = info.color;
+        ctx.shadowBlur = 5;
+        ctx.beginPath();
+        ctx.arc(cx, sy - dotR - 2 + bobY, dotR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
         ctx.restore();
       }
 
