@@ -299,3 +299,12 @@
 - HUD shows: Pop: 8.2k · Tax 18% · Inspect 65% · Hunger: 23%
 - Save/Load persists cityPop state.
 - world.html: City Populations section with hunger progress bars.
+
+## v0.3.34 — 2026-03-17
+- New: Population migration system.
+  - Each day, people flee hungry + high-tax cities toward comfortable ones.
+  - Attractiveness = (1 - hunger) × (1 - taxRate).
+  - Up to 0.06% of a city's pop migrates per day under stress.
+  - Destinations weighted by relative attractiveness.
+  - Cities cap at 2× base population; floor at 30% base.
+  - Toast notification when player is in a city receiving/losing 50+ migrants.

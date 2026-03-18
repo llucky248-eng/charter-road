@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.33'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.34'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4141,6 +4141,9 @@ function drawNpcBubble() {
 
 
   function populationTick() {
+    const cityIds = Object.keys(CITY_RULES);
+
+    // ── 1. Hunger + price pressure ──────────────────────────────────────
     for (const [cid, rule] of Object.entries(CITY_RULES)) {
       const state = cityPop[cid];
       if (!state) continue;
@@ -4151,10 +4154,64 @@ function drawNpcBubble() {
         ECONOMY.pressure[cid]['food']  = Math.min(0.5, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
         ECONOMY.pressure[cid]['grain'] = Math.min(0.5, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
       }
+      // Natural growth/decline
       if (state.hunger < 0.2) {
         state.pop = Math.min(state.pop * 1.002, rule.population * 1.5);
       } else if (state.hunger > 0.7) {
         state.pop = Math.max(state.pop * 0.998, rule.population * 0.5);
+      }
+    }
+
+    // ── 2. Migration: people flee hungry/taxed cities to comfortable ones ─
+    // Attractiveness = (1 - hunger) * (1 - taxRate) — higher = more attractive
+    const attract = {};
+    for (const cid of cityIds) {
+      const rule = CITY_RULES[cid];
+      const hunger = cityPop[cid]?.hunger ?? 0;
+      attract[cid] = (1 - hunger) * (1 - (rule.taxRate ?? 0));
+    }
+    const totalAttract = cityIds.reduce((s, c) => s + attract[c], 0) || 1;
+
+    for (const fromId of cityIds) {
+      const fromState = cityPop[fromId];
+      if (!fromState || fromState.pop < 10) continue;
+      const fromRule = CITY_RULES[fromId];
+
+      // Migration rate: 0.1% of pop per day base, amplified by hunger + tax
+      const pushFactor = (fromState.hunger * 0.6 + (fromRule.taxRate ?? 0) * 0.4);
+      if (pushFactor < 0.05) continue; // happy city barely loses anyone
+
+      const migrantPool = Math.floor(fromState.pop * 0.001 * pushFactor);
+      if (migrantPool < 1) continue;
+
+      // Distribute migrants to other cities proportional to attractiveness
+      for (const toId of cityIds) {
+        if (toId === fromId) continue;
+        const toState = cityPop[toId];
+        if (!toState) continue;
+        const toRule = CITY_RULES[toId];
+        const share = attract[toId] / (totalAttract - attract[fromId] || 1);
+        const movers = Math.round(migrantPool * share);
+        if (movers < 1) continue;
+
+        // Cap destination at 2× its base population
+        const destCap = toRule.population * 2;
+        const actualMovers = Math.min(movers, Math.max(0, destCap - toState.pop));
+        fromState.pop = Math.max(fromState.pop - actualMovers, Math.floor(toRule.population * 0.3));
+        toState.pop   = Math.min(toState.pop + actualMovers, destCap);
+
+        // Migration events: toast if player is in either city and movement is significant
+        if (actualMovers >= 50) {
+          const fromCity = getCityById(fromId);
+          const toCity   = getCityById(toId);
+          const playerCity = currentCity();
+          if (playerCity && (playerCity.id === fromId || playerCity.id === toId)) {
+            const msg = playerCity.id === fromId
+              ? `${actualMovers} residents left for ${toCity?.name || toId}`
+              : `${actualMovers} migrants arrived from ${fromCity?.name || fromId}`;
+            toast(msg, 3);
+          }
+        }
       }
     }
   }
