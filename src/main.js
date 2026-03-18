@@ -1258,7 +1258,7 @@ if (IS_MOBILE && !window.__npcGlobalTapListener) {
 
 function handleMobileHudTap(sx, sy) {
   if (!IS_MOBILE) return false;
-  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return false;
   const T = ui._hudCityTap;
   if (T && sx >= T.x && sx <= T.x + T.w && sy >= T.y && sy <= T.y + T.h) {
     ui.mobileHudExpanded = !ui.mobileHudExpanded;
@@ -1274,7 +1274,7 @@ function handleMobileHudTap(sx, sy) {
 
 function handleGlobalHudTap(clientX, clientY, e) {
   if (!IS_MOBILE) return false;
-  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return false;
   const now = performance.now();
   if (now - (ui._hudTapLastTs || 0) < 280) return false;
   ui._hudTapLastTs = now;
@@ -1642,6 +1642,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[csY*MAP_W + (msX+3)] = 6;   // market E of road
         m[(csY-3)*MAP_W + msX] = 6;   // market N of plaza
         m[(csY-1)*MAP_W + msX] = 12;  // contracts — on plaza itself (guaranteed road tile)
+        // New buildings: Bank, Inn, Guild Hall
+        m[(csY+1)*MAP_W + (msX+4)] = 13;  // bank — near market plaza
+        m[(y0+3)*MAP_W + (x0+2)] = 14;    // inn — NW near tavern
+        m[(csY-2)*MAP_W + (msX-4)] = 15;  // guild hall — west of plaza
 
       } else if (c.id === 'ashport') {
         // Port city: main dock road + market row + warehouse district
@@ -1674,6 +1678,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[upY*MAP_W+(gx-3)] = 6;
         m[upY*MAP_W+(gx+3)] = 6;
         m[upY*MAP_W+gx] = 12;  // contracts on plaza center road
+        // New buildings: Bank, Inn
+        m[(upY+1)*MAP_W+(gx+4)] = 13;  // bank — east of market
+        m[(upY-2)*MAP_W+(gx-4)] = 14;  // inn — west side
 
       } else if (c.id === 'crosshaven') {
         // Small village: one main street, 3 buildings, tiny plaza
@@ -1694,6 +1701,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(gx-1, vY-1, 3, 3);
         m[vY*MAP_W+(gx-2)] = 6;   // market left of road
         m[vY*MAP_W+gx] = 12;      // contracts on road tile
+        // New buildings: Bank, Inn
+        m[(vY+1)*MAP_W+(gx+2)] = 13;  // bank — east of market
+        m[(vY-1)*MAP_W+(gx-2)] = 14;  // inn — near market
 
       } else if (c.id === 'ironholt') {
         // Mining town: industrial yard layout — ore storage + smelter row + foreman HQ
@@ -1723,6 +1733,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(hqX, hqY, 5, 4);
         m[(hqY+1)*MAP_W+gx] = 12;    // contracts on main road
         m[(hqY+2)*MAP_W+(hqX+2)] = 6; // market inside plaza
+        // New buildings: Bank, Inn, Guild Hall
+        m[(hqY+3)*MAP_W+(hqX+4)] = 13;  // bank — near market
+        m[(y0+2)*MAP_W+(eX+2)] = 14;    // inn — NE block (replaces floor near inn building)
+        m[(hqY+1)*MAP_W+(hqX+4)] = 15;  // guild hall — in plaza area
       }
 
       return { gx, gy };
@@ -2473,6 +2487,18 @@ const NPC_INTERACT_RADIUS = 18;
     crosshaven: { gold: 0, investLog: [] },
     ironholt:   { gold: 0, investLog: [] },
   };
+
+  // Bank state — player deposits and loans per city
+  const playerBank = {
+    deposits: {}, // cityId -> { amount, depositDay }
+    loans: {},    // cityId -> { amount, dueDay, interest }
+  };
+
+  // Guild membership state
+  const playerGuild = { joined: false, tier: 0 }; // tier 0=none,1=apprentice,2=journeyman,3=master
+
+  // Warehouse stash — items stored per city
+  const warehouseStash = {}; // cityId -> { itemId: qty, ... }
 
   // City upgrades — multiplicative bonuses unlocked by investment
   const cityBonus = {
@@ -4361,6 +4387,12 @@ function drawNpcBubble() {
 
     contractsSel: 0,
     contractsNavT: 0,
+
+    bankOpen: false,
+    bankTab: 'deposit', // 'deposit'|'withdraw'|'loan'
+    innOpen: false,
+    guildOpen: false,
+    warehouseOpen: false,
   };
 
   // Render iteration notes into the bottom textbox (if present)
@@ -4386,6 +4418,10 @@ function drawNpcBubble() {
     uiRoot.innerHTML = '';
     dom.kind = null;
     dom.key = null;
+    ui.bankOpen = false;
+    ui.innOpen = false;
+    ui.guildOpen = false;
+    ui.warehouseOpen = false;
   }
 
   function domEnsureOpen() {
@@ -4458,7 +4494,9 @@ function drawNpcBubble() {
     const sellN = Math.min(q, have);
     if (sellN <= 0) { toast('Invalid quantity.', 2); return; }
     const toolBonus = currentGear('tool').sellBonus || 0;
-    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + toolBonus)));
+    const guildBonusMap = [0, 0.05, 0.10, 0.18];
+    const guildBonus = playerGuild.joined ? (guildBonusMap[playerGuild.tier] || 0) : 0;
+    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + toolBonus + guildBonus)));
     const gain = sellN * netEach;
 
     player.inv[it.id] = have - sellN;
@@ -4517,7 +4555,7 @@ function drawNpcBubble() {
   function domRender() {
     if (!USE_DOM_MODALS || !uiRoot) return;
 
-    const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : null));
+    const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : (ui.bankOpen ? 'bank' : (ui.innOpen ? 'inn' : (ui.guildOpen ? 'guild' : (ui.warehouseOpen ? 'warehouse' : null))))));
     if (!kind) { domCloseAll(); return; }
 
     // Banner is rendered whenever a modal is open (keeps scope minimal).
@@ -4945,6 +4983,259 @@ function drawNpcBubble() {
 
       return;
     }
+
+    if (kind === 'bank') {
+      const c = currentCity();
+      if (!c) { domCloseAll(); return; }
+      const cid = c.id;
+      const dep = playerBank.deposits[cid];
+      const loan = playerBank.loans[cid];
+      const daysSinceDep = dep ? Math.max(0, Math.floor(time.day) - dep.depositDay) : 0;
+      const interest = dep ? Math.floor(dep.amount * 0.02 * daysSinceDep) : 0;
+      const depTotal = dep ? dep.amount + interest : 0;
+      const tabBtns = ['deposit','withdraw','loan'].map(t =>
+        `<button class="cr-tab${ui.bankTab===t?' cr-tab-active':''}" data-bank-tab="${t}">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`
+      ).join('');
+      let bodyHtml = '';
+      if (ui.bankTab === 'deposit') {
+        bodyHtml = `<div class="cr-sub">Deposits earn 2% interest per day.</div>
+          <div class="cr-sub">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
+          ${dep ? '' : '<div style="display:flex;gap:8px;margin-top:10px;">'}
+          ${dep ? `<div style="margin-top:10px;"><button class="cr-tab" data-action="dep10">Deposit 10g</button> <button class="cr-tab" data-action="dep50">Deposit 50g</button> <button class="cr-tab" data-action="dep100">Deposit 100g</button></div>`
+                : `<button class="cr-tab" data-action="dep10">Deposit 10g</button> <button class="cr-tab" data-action="dep50">Deposit 50g</button> <button class="cr-tab" data-action="dep100">Deposit 100g</button></div>`}`;
+      } else if (ui.bankTab === 'withdraw') {
+        bodyHtml = dep
+          ? `<div class="cr-sub">Deposit: <b>${dep.amount}g</b> + <b>${interest}g</b> interest = <b>${depTotal}g</b></div>
+             <div style="margin-top:10px;"><button class="cr-tab" data-action="withdraw-all">Withdraw All (${depTotal}g)</button></div>`
+          : `<div class="cr-sub">No deposit in this city.</div>`;
+      } else {
+        const hasLoan = !!loan;
+        const overdue = loan ? Math.max(0, Math.floor(time.day) - loan.dueDay) : 0;
+        bodyHtml = hasLoan
+          ? `<div class="cr-sub">Active loan: <b>${loan.amount}g</b> due day ${loan.dueDay}${overdue>0?` (<span style="color:#ef4444">OVERDUE ${overdue}d</span>)`:''}</div>
+             <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay Loan (${loan.amount}g)</button></div>`
+          : `<div class="cr-sub">Borrow up to 200g at 10% interest, due in 7 days.</div>
+             <div style="display:flex;gap:8px;margin-top:10px;">
+               <button class="cr-tab" data-action="loan50">Borrow 50g</button>
+               <button class="cr-tab" data-action="loan100">Borrow 100g</button>
+               <button class="cr-tab" data-action="loan200">Borrow 200g</button>
+             </div>`;
+      }
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Bank">
+          <div class="cr-panel">
+            ${bannerHtml}
+            <div class="cr-head">
+              <div><div class="cr-title">🏦 Bank of ${htmlEscape(c.name)}</div><div class="cr-sub">Gold: ${player.gold}g</div></div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              <div style="display:flex;gap:8px;margin-bottom:12px;">${tabBtns}</div>
+              ${bodyHtml}
+            </div>
+            <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
+          </div>
+        </div>
+      `;
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.bankOpen = false; domCloseAll(); }));
+      uiRoot.querySelectorAll('[data-bank-tab]').forEach(el => el.addEventListener('click', () => { ui.bankTab = el.getAttribute('data-bank-tab'); dom.key = ''; domRender(); }));
+      const bankDeposit = (amt) => {
+        if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
+        player.gold -= amt;
+        if (!playerBank.deposits[cid]) {
+          playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
+        } else {
+          // Merge: settle interest then add
+          const d = playerBank.deposits[cid];
+          const days = Math.max(0, Math.floor(time.day) - d.depositDay);
+          d.amount = d.amount + Math.floor(d.amount * 0.02 * days) + amt;
+          d.depositDay = Math.floor(time.day);
+        }
+        toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+      };
+      uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
+      uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
+      uiRoot.querySelector('[data-action="dep100"]')?.addEventListener('click', () => bankDeposit(100));
+      uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
+        if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
+        const d = playerBank.deposits[cid];
+        const days = Math.max(0, Math.floor(time.day) - d.depositDay);
+        const total = d.amount + Math.floor(d.amount * 0.02 * days);
+        player.gold += total;
+        delete playerBank.deposits[cid];
+        toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      const takeLoan = (amt) => {
+        if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
+        playerBank.loans[cid] = { amount: Math.round(amt * 1.1), dueDay: Math.floor(time.day) + 7, interest: Math.round(amt * 0.1) };
+        player.gold += amt;
+        toast(`Borrowed ${amt}g. Repay ${Math.round(amt*1.1)}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+      };
+      uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
+      uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
+      uiRoot.querySelector('[data-action="loan200"]')?.addEventListener('click', () => takeLoan(200));
+      uiRoot.querySelector('[data-action="repay"]')?.addEventListener('click', () => {
+        const l = playerBank.loans[cid];
+        if (!l) { toast('No loan here.', 2); return; }
+        if (player.gold < l.amount) { toast(`Need ${l.amount}g to repay.`, 2); return; }
+        player.gold -= l.amount;
+        delete playerBank.loans[cid];
+        toast(`Loan repaid (${l.amount}g).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      return;
+    }
+
+    if (kind === 'inn') {
+      const c = currentCity();
+      if (!c) { domCloseAll(); return; }
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Inn">
+          <div class="cr-panel">
+            ${bannerHtml}
+            <div class="cr-head">
+              <div><div class="cr-title">🏨 ${htmlEscape(c.name)} Inn</div><div class="cr-sub">Gold: ${player.gold}g · Day ${Math.floor(time.day)}, Hour ${Math.floor(time.hour)}</div></div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              <div class="cr-card"><div><div class="cr-card-title">Rest (5g)</div><div class="cr-sub">Advance time 8 hours. Rested well.</div></div><div class="cr-right"><button class="cr-tab" data-action="rest">Rest</button></div></div>
+              <div class="cr-card"><div><div class="cr-card-title">Rumors (10g)</div><div class="cr-sub">Hear a price tip about distant goods.</div></div><div class="cr-right"><button class="cr-tab" data-action="rumors">Listen</button></div></div>
+              <div class="cr-card"><div><div class="cr-card-title">Full Night (15g)</div><div class="cr-sub">Sleep till morning (next day, hour 7).</div></div><div class="cr-right"><button class="cr-tab" data-action="fullnight">Sleep</button></div></div>
+            </div>
+            <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
+          </div>
+        </div>
+      `;
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.innOpen = false; domCloseAll(); }));
+      uiRoot.querySelector('[data-action="rest"]')?.addEventListener('click', () => {
+        if (player.gold < 5) { toast('Need 5g to rest.', 2); return; }
+        player.gold -= 5;
+        time.hour = (time.hour + 8);
+        if (time.hour >= 24) { time.day += Math.floor(time.hour / 24); time.hour = time.hour % 24; }
+        toast('You rested well.', 2.5); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      uiRoot.querySelector('[data-action="rumors"]')?.addEventListener('click', () => {
+        if (player.gold < 10) { toast('Need 10g for rumors.', 2); return; }
+        const active = player.intelLedger.filter(cd => !cd.sold && cd.expiryDay >= Math.floor(time.day));
+        if (active.length >= 6) { toast('Intel ledger full!', 2); return; }
+        player.gold -= 10;
+        const card = generateIntel({ id: 'innkeeper_' + c.id }, c.id);
+        player.intelLedger.push(card);
+        toast(`Rumors: "${card.itemName}" in ${card.cityName} — promising!`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      uiRoot.querySelector('[data-action="fullnight"]')?.addEventListener('click', () => {
+        if (player.gold < 15) { toast('Need 15g for full night.', 2); return; }
+        player.gold -= 15;
+        time.day = Math.floor(time.day) + 1;
+        time.hour = 7;
+        toast('You slept until morning. Feeling refreshed!', 2.5); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      return;
+    }
+
+    if (kind === 'guild') {
+      const c = currentCity();
+      if (!c) { domCloseAll(); return; }
+      const cid = c.id;
+      const rep = player.rep?.[cid] || 0;
+      const tierNames = ['None','Apprentice','Journeyman','Master'];
+      const bonuses = [0, 5, 10, 18];
+      let actionHtml = '';
+      if (!playerGuild.joined) {
+        actionHtml = `<div class="cr-card"><div><div class="cr-card-title">Join Guild (50g)</div><div class="cr-sub">Become Apprentice. +5% sell bonus.</div></div><div class="cr-right"><button class="cr-tab" data-action="join">Join</button></div></div>`;
+      } else if (playerGuild.tier === 1) {
+        actionHtml = rep >= 5
+          ? `<div class="cr-card"><div><div class="cr-card-title">Advance to Journeyman (150g)</div><div class="cr-sub">Rep ✓ · +10% sell bonus total.</div></div><div class="cr-right"><button class="cr-tab" data-action="advance2">Advance</button></div></div>`
+          : `<div class="cr-card"><div><div class="cr-card-title">Journeyman (150g, need Rep 5+)</div><div class="cr-sub">Your rep here: ${rep}. Keep trading!</div></div></div>`;
+      } else if (playerGuild.tier === 2) {
+        actionHtml = rep >= 15
+          ? `<div class="cr-card"><div><div class="cr-card-title">Advance to Master (300g)</div><div class="cr-sub">Rep ✓ · +18% sell bonus, exclusive contracts.</div></div><div class="cr-right"><button class="cr-tab" data-action="advance3">Advance</button></div></div>`
+          : `<div class="cr-card"><div><div class="cr-card-title">Master (300g, need Rep 15+)</div><div class="cr-sub">Your rep here: ${rep}. Keep grinding!</div></div></div>`;
+      } else if (playerGuild.tier === 3) {
+        actionHtml = `<div class="cr-sub" style="color:#a78bfa;font-weight:bold;">⭐ Master Rank — Maximum prestige achieved.</div>`;
+      }
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Guild Hall">
+          <div class="cr-panel">
+            ${bannerHtml}
+            <div class="cr-head">
+              <div><div class="cr-title">🏛 Merchants Guild</div><div class="cr-sub">Rank: <b>${tierNames[playerGuild.tier]}</b> · Sell bonus: +${bonuses[playerGuild.tier]}% · Gold: ${player.gold}g · Rep here: ${rep}</div></div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">${actionHtml}</div>
+            <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
+          </div>
+        </div>
+      `;
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.guildOpen = false; domCloseAll(); }));
+      uiRoot.querySelector('[data-action="join"]')?.addEventListener('click', () => {
+        if (player.gold < 50) { toast('Need 50g to join the guild.', 2); return; }
+        player.gold -= 50; playerGuild.joined = true; playerGuild.tier = 1;
+        toast('Welcome, Apprentice! +5% sell bonus unlocked.', 3); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      uiRoot.querySelector('[data-action="advance2"]')?.addEventListener('click', () => {
+        if (player.gold < 150) { toast('Need 150g.', 2); return; }
+        if ((player.rep?.[cid] || 0) < 5) { toast('Need Rep 5+ here.', 2); return; }
+        player.gold -= 150; playerGuild.tier = 2;
+        toast('Promoted to Journeyman! +10% sell bonus.', 3); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      uiRoot.querySelector('[data-action="advance3"]')?.addEventListener('click', () => {
+        if (player.gold < 300) { toast('Need 300g.', 2); return; }
+        if ((player.rep?.[cid] || 0) < 15) { toast('Need Rep 15+ here.', 2); return; }
+        player.gold -= 300; playerGuild.tier = 3;
+        toast('You are now a Master! +18% sell bonus unlocked.', 3); scheduleAutoSave(); dom.key = ''; domRender();
+      });
+      return;
+    }
+
+    if (kind === 'warehouse') {
+      const c = currentCity();
+      if (!c) { domCloseAll(); return; }
+      const cid = c.id;
+      if (!warehouseStash[cid]) warehouseStash[cid] = {};
+      const stash = warehouseStash[cid];
+      const stashRows = ITEMS.filter(it => (stash[it.id] || 0) > 0).map(it =>
+        `<div class="cr-card"><div><div class="cr-card-title">${htmlEscape(it.name)}</div><div class="cr-sub">Stored: ${stash[it.id]}</div></div><div class="cr-right"><button class="cr-tab" data-action="retrieve" data-item="${it.id}">Retrieve 1</button></div></div>`
+      ).join('');
+      const invRows = ITEMS.filter(it => (player.inv[it.id] || 0) > 0).map(it =>
+        `<div class="cr-card"><div><div class="cr-card-title">${htmlEscape(it.name)}</div><div class="cr-sub">Carrying: ${player.inv[it.id]}</div></div><div class="cr-right"><button class="cr-tab" data-action="store" data-item="${it.id}">Store 1</button></div></div>`
+      ).join('');
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Warehouse">
+          <div class="cr-panel">
+            ${bannerHtml}
+            <div class="cr-head">
+              <div><div class="cr-title">📦 Warehouse — ${htmlEscape(c.name)}</div><div class="cr-sub">Free storage. Items stay in this city.</div></div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              ${stashRows ? `<div class="cr-sub" style="margin-bottom:4px;font-weight:bold;">Stored here:</div>${stashRows}` : '<div class="cr-sub">Nothing stored here.</div>'}
+              ${invRows ? `<div class="cr-sub" style="margin:8px 0 4px;font-weight:bold;">In your pack:</div>${invRows}` : '<div class="cr-sub" style="margin-top:8px;">Pack is empty.</div>'}
+            </div>
+            <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
+          </div>
+        </div>
+      `;
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.warehouseOpen = false; domCloseAll(); }));
+      uiRoot.querySelectorAll('[data-action="store"]').forEach(el => el.addEventListener('click', () => {
+        const itemId = el.getAttribute('data-item');
+        if ((player.inv[itemId] || 0) <= 0) { toast('None to store.', 2); return; }
+        player.inv[itemId]--;
+        stash[itemId] = (stash[itemId] || 0) + 1;
+        toast(`Stored 1 ${ITEMS.find(i=>i.id===itemId)?.name || itemId}.`, 1.5); scheduleAutoSave(); dom.key = ''; domRender();
+      }));
+      uiRoot.querySelectorAll('[data-action="retrieve"]').forEach(el => el.addEventListener('click', () => {
+        const itemId = el.getAttribute('data-item');
+        const it = ITEMS.find(i => i.id === itemId);
+        if ((stash[itemId] || 0) <= 0) { toast('None stored.', 2); return; }
+        const w = invWeight();
+        if (it && w + it.weight > player.capacity) { toast('No pack space.', 2); return; }
+        stash[itemId]--;
+        if (stash[itemId] <= 0) delete stash[itemId];
+        player.inv[itemId] = (player.inv[itemId] || 0) + 1;
+        toast(`Retrieved 1 ${it?.name || itemId}.`, 1.5); scheduleAutoSave(); dom.key = ''; domRender();
+      }));
+      return;
+    }
   }
 
   // --- Player
@@ -5137,6 +5428,9 @@ function drawNpcBubble() {
       cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
       cityTreasury: Object.fromEntries(Object.entries(cityTreasury).map(([k,v]) => [k, { gold: v.gold, investLog: [...v.investLog] }])),
       cityBonus: Object.fromEntries(Object.entries(cityBonus).map(([k,v]) => [k, {...v}])),
+      playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
+      playerGuild: { ...playerGuild },
+      warehouseStash: Object.fromEntries(Object.entries(warehouseStash).map(([k,v]) => [k, {...v}])),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -5321,6 +5615,18 @@ function drawNpcBubble() {
       if (state.cityBonus) {
         for (const cid of Object.keys(cityBonus)) {
           if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
+        }
+      }
+
+      // Restore bank, guild, warehouse
+      if (state.playerBank) {
+        playerBank.deposits = state.playerBank.deposits || {};
+        playerBank.loans = state.playerBank.loans || {};
+      }
+      if (state.playerGuild) Object.assign(playerGuild, state.playerGuild);
+      if (state.warehouseStash) {
+        for (const [k, v] of Object.entries(state.warehouseStash)) {
+          warehouseStash[k] = { ...v };
         }
       }
 
@@ -5667,6 +5973,17 @@ function drawNpcBubble() {
     return false;
   }
 
+
+  function nearTile(tileId) {
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        if (tileAt(tx + ox, ty + oy) === tileId) return true;
+      }
+    }
+    return false;
+  }
 
   function nearPOITile() {
     const tx = Math.floor(player.x / TILE);
@@ -6179,7 +6496,7 @@ function drawNpcBubble() {
 
     if (e.code === 'KeyE') {
       if (intelUI.open) { closeIntelUI(); return; }
-      if (ui.marketOpen || ui.contractsOpen || ui.eventOpen) return;
+      if (ui.marketOpen || ui.contractsOpen || ui.eventOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return;
       const c = currentCity();
       if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
         const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
@@ -6198,6 +6515,22 @@ function drawNpcBubble() {
         ui.contractsSel = 0;
         ui.contractsCityId = c.id;
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
+      } else if (c && nearTile(13)) {
+        ui.bankOpen = true; ui.bankTab = 'deposit';
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast(`Bank of ${c.name} opened.`, 2);
+      } else if (c && nearTile(14)) {
+        ui.innOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast(`${c.name} Inn.`, 2);
+      } else if (c && nearTile(15)) {
+        ui.guildOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast('Merchants Guild.', 2);
+      } else if (c && nearTile(8)) {
+        ui.warehouseOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast('Warehouse opened.', 2);
       } else if (c) {
         const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
         if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
@@ -6205,6 +6538,9 @@ function drawNpcBubble() {
       } else {
         toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
       }
+    }
+    if (e.code === 'Escape' && (ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen)) {
+      domCloseAll(); return;
     }
 
 
@@ -6589,6 +6925,114 @@ function drawNpcBubble() {
       return;
     }
 
+    if (id === 13) {
+      // Bank (in city context) — stone building with coin symbol
+      const isInCity = tileAt(tx-1,ty)===4 || tileAt(tx+1,ty)===4 || tileAt(tx,ty-1)===4 || tileAt(tx,ty+1)===4;
+      if (isInCity) {
+        // Stone bank building with gold coin
+        ctx.fillStyle = '#3a3028';
+        ctx.fillRect(x, y, TILE, TILE);
+        // Stone walls (grey-blue)
+        ctx.fillStyle = '#7a7068';
+        ctx.fillRect(x+1, y+4, TILE-2, TILE-5);
+        // Stone blocks
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        ctx.fillRect(x+1, y+7, TILE-2, 1);
+        ctx.fillRect(x+1, y+11, TILE-2, 1);
+        // Flat stone roof
+        ctx.fillStyle = '#5a5048';
+        ctx.fillRect(x, y+2, TILE, 3);
+        ctx.fillStyle = '#6a6058';
+        ctx.fillRect(x+1, y+3, TILE-2, 1);
+        // Columns (pillars on front)
+        ctx.fillStyle = '#8a8070';
+        ctx.fillRect(x+2, y+4, 2, TILE-5);
+        ctx.fillRect(x+TILE-4, y+4, 2, TILE-5);
+        // Door (arched, dark)
+        ctx.fillStyle = '#1c140a';
+        ctx.fillRect(x+TILE/2-2, y+TILE-7, 5, 6);
+        // Gold coin above door
+        const coinY = y + 4;
+        const coinX = x + TILE/2;
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(coinX, coinY + 1, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(coinX - 1, coinY, 2, 2);
+        return;
+      }
+      // On road: cache tile (existing behavior handled by POI system)
+      ctx.fillStyle = '#4a3820'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#fbbf24'; ctx.fillRect(x+3, y+3, TILE-6, TILE-6);
+      ctx.fillStyle = '#d97706'; ctx.fillRect(x+5, y+5, TILE-10, TILE-10);
+      return;
+    }
+
+    if (id === 14) {
+      // Inn — warm stone building with hanging lantern
+      ctx.fillStyle = '#4a3820';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Warm stone walls
+      ctx.fillStyle = '#a08060';
+      ctx.fillRect(x+1, y+3, TILE-2, TILE-4);
+      // Tiled roof (darker red-brown)
+      ctx.fillStyle = '#7c2d12';
+      ctx.fillRect(x, y, TILE, 5);
+      ctx.fillStyle = '#9a3412';
+      ctx.fillRect(x+1, y+1, TILE-2, 2);
+      // Two windows (warm glow — beds inside)
+      const glow2 = 0.45 + 0.20 * Math.sin(stateTime * 0.0009 + tx * 1.3);
+      ctx.fillStyle = `rgba(255,200,80,${glow2.toFixed(2)})`;
+      ctx.fillRect(x+2, y+5, 4, 4);
+      ctx.fillRect(x+TILE-6, y+5, 4, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(x+3, y+6, 2, 2);
+      ctx.fillRect(x+TILE-5, y+6, 2, 2);
+      // Door (center, arched top)
+      ctx.fillStyle = '#2a1810';
+      ctx.fillRect(x+TILE/2-2, y+TILE-7, 5, 6);
+      ctx.fillStyle = '#5a3010';
+      ctx.fillRect(x+TILE/2-1, y+TILE-6, 3, 4);
+      // Lantern hanging above door
+      const lanternFlicker = 0.6 + 0.2 * Math.sin(stateTime * 0.005 + tx * 2);
+      ctx.fillStyle = `rgba(255,160,20,${lanternFlicker.toFixed(2)})`;
+      ctx.fillRect(x+TILE/2-1, y+2, 2, 3);
+      return;
+    }
+
+    if (id === 15) {
+      // Guild Hall — grand stone building with banner
+      ctx.fillStyle = '#2e2a20';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Stone walls (lighter grey)
+      ctx.fillStyle = '#8a8070';
+      ctx.fillRect(x+1, y+3, TILE-2, TILE-4);
+      // Decorative stone detail
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillRect(x+2, y+6, TILE-4, 1);
+      ctx.fillRect(x+2, y+10, TILE-4, 1);
+      // Peaked roof with battlements
+      ctx.fillStyle = '#5a5048';
+      ctx.fillRect(x, y, TILE, 4);
+      ctx.fillStyle = '#4a4038';
+      ctx.fillRect(x+1, y+1, 3, 3);  // battlement
+      ctx.fillRect(x+TILE-4, y+1, 3, 3);  // battlement
+      ctx.fillRect(x+TILE/2-1, y+1, 3, 3);  // center battlement
+      // Banner (purple — guild color)
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(x+TILE/2-1, y+3, 3, 5);
+      ctx.fillStyle = '#a78bfa';
+      ctx.fillRect(x+TILE/2, y+4, 1, 3);
+      // Grand double door
+      ctx.fillStyle = '#1c140a';
+      ctx.fillRect(x+TILE/2-3, y+TILE-7, 6, 6);
+      ctx.fillStyle = '#7c4a1a';
+      ctx.fillRect(x+TILE/2-2, y+TILE-6, 2, 4);
+      ctx.fillRect(x+TILE/2+1, y+TILE-6, 2, 4);
+      return;
+    }
+
   }
 
   function drawWorld() {
@@ -6625,10 +7069,13 @@ function drawBuildingLabels() {
   if (!currentCity()) return; // only inside cities
 
   const INTERACT = {
-    6:  { label: 'Market',    icon: '🛒', color: '#fbbf24', nearDist: 3 },
-    12: { label: 'Contracts', icon: '📋', color: '#60a5fa', nearDist: 3 },
-    7:  { label: 'Tavern',    icon: '🍺', color: '#f97316', nearDist: 2 },
-    8:  { label: 'Warehouse', icon: '📦', color: '#a78bfa', nearDist: 2 },
+    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 3 },
+    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 3 },
+    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 2 },
+    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 2 },
+    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 3 },
+    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 3 },
+    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 3 },
   };
 
   const px = player.x, py = player.y;
@@ -7354,7 +7801,7 @@ function drawEntities() {
 
 // MOBILE HUD (compact by default)
 if (IS_MOBILE) {
-  const expanded = ui.mobileHudExpanded && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen;
+  const expanded = ui.mobileHudExpanded && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !ui.bankOpen && !ui.innOpen && !ui.guildOpen && !ui.warehouseOpen;
   const topH = Math.round((expanded ? 58 : 38) * UI_SCALE);
   ui._hudTopH = topH;
   const padX = Math.round(10 * UI_SCALE);
@@ -7605,6 +8052,14 @@ if (ui._hudTapDebug) {
         ctx.fillStyle = '#f0d060';
         ctx.font = `700 ${Math.round(12 * UI_SCALE)}px system-ui, sans-serif`;
         ctx.fillText(`🕵️ ${activeIntel.length}`, ibX, line1);
+      }
+      // Guild tier badge (desktop only)
+      if (playerGuild.joined && playerGuild.tier > 0) {
+        const tierBadge = ['','⚒','⚔','★'][playerGuild.tier] || '';
+        const guildBadgeX = bagX + Math.round(100 * UI_SCALE);
+        ctx.fillStyle = '#a78bfa';
+        ctx.font = `700 ${Math.round(11 * UI_SCALE)}px system-ui, sans-serif`;
+        ctx.fillText(`Guild:${tierBadge}`, guildBadgeX, line1);
       }
     }
 
@@ -8325,6 +8780,19 @@ function drawEvent() {
         }
       }
       player.lastCityId = nowId;
+      // Check overdue loans at any bank city
+      if (nowId) {
+        for (const [loanCid, loan] of Object.entries(playerBank.loans)) {
+          const overdue = Math.max(0, Math.floor(time.day) - loan.dueDay);
+          if (overdue > 0) {
+            const penalty = overdue * 20;
+            const paid = Math.min(player.gold, penalty);
+            player.gold -= paid;
+            if (player.gold < 0) player.gold = 0;
+            toast(`Overdue loan in ${loanCid}! Penalty: ${paid}g (${overdue}d overdue).`, 3.5);
+          }
+        }
+      }
       // Sync global economy on city entry
       if (nowId) { ECONOMY.lastSync = 0; economySync(); }
       // Trigger server aggregation (hourly, no-op if too soon)
@@ -8351,6 +8819,22 @@ function drawEvent() {
         ui.contractsSel = 0;
         ui.contractsCityId = c.id;
         toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
+      } else if (c && nearTile(13)) {
+        ui.bankOpen = true; ui.bankTab = 'deposit';
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast(`Bank of ${c.name} opened.`, 2);
+      } else if (c && nearTile(14)) {
+        ui.innOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast(`${c.name} Inn.`, 2);
+      } else if (c && nearTile(15)) {
+        ui.guildOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast('Merchants Guild.', 2);
+      } else if (c && nearTile(8)) {
+        ui.warehouseOpen = true;
+        domEnsureOpen(); dom.key = ''; domRender();
+        toast('Warehouse opened.', 2);
       } else if (c) {
         const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
         if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
