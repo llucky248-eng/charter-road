@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.34'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.35'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2364,7 +2364,8 @@ const NPC_INTERACT_RADIUS = 18;
   function quoteFor(cityId, item) {
     const mid = midPriceFor(cityId, item);
     const half = MARKET.spread / 2;
-    const buy = Math.max(1, Math.round(mid * (1 + half)));
+    const discount = cityBonus[cityId]?.marketDiscount || 0;
+    const buy  = Math.max(1, Math.round(mid * (1 + half) * (1 - discount)));
     const sell = Math.max(1, Math.round(mid * (1 - half)));
     return { mid, buy, sell };
   }
@@ -2463,6 +2464,37 @@ const NPC_INTERACT_RADIUS = 18;
     ashport:    { pop: 4000, hunger: 0 },
     crosshaven: { pop: 1500, hunger: 0 },
     ironholt:   { pop: 2500, hunger: 0 },
+  };
+
+  // City treasury — accumulates from player sell taxes, auto-invests every ~7 days
+  const cityTreasury = {
+    valdenmere: { gold: 0, investLog: [] }, // investLog: [{day, project, effect}]
+    ashport:    { gold: 0, investLog: [] },
+    crosshaven: { gold: 0, investLog: [] },
+    ironholt:   { gold: 0, investLog: [] },
+  };
+
+  // City upgrades — multiplicative bonuses unlocked by investment
+  const cityBonus = {
+    valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
+    ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
+    crosshaven: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
+    ironholt:   { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
+  };
+
+  // Investment projects per city (each city has a bias toward certain projects)
+  const CITY_INVEST_BIAS = {
+    valdenmere: ['market', 'pop'],       // big city: market + immigration
+    ashport:    ['road', 'market'],      // port: trade routes + market
+    crosshaven: ['food', 'pop'],         // small town: food security + people
+    ironholt:   ['food', 'road'],        // mining: food for miners + road for ore
+  };
+
+  const INVEST_PROJECTS = {
+    market: { name: 'Market Expansion',   cost: 80,  effect: 'marketDiscount', gain: 0.04, max: 0.30, desc: 'Goods cost 4% less to buy' },
+    road:   { name: 'Road Improvements',  cost: 60,  effect: 'roadSpeed',      gain: 0.05, max: 0.25, desc: '5% faster travel through city region' },
+    food:   { name: 'Food Subsidy',       cost: 50,  effect: 'foodSubsidy',    gain: 0.10, max: 0.50, desc: 'Slows daily hunger increase by 10%' },
+    pop:    { name: 'Population Incentive',cost:70,  effect: 'popIncentive',   gain: 0.05, max: 0.30, desc: 'Boosts migrant attraction by 5%' },
   };
 
   const marketDrift = {
@@ -4147,7 +4179,8 @@ function drawNpcBubble() {
     for (const [cid, rule] of Object.entries(CITY_RULES)) {
       const state = cityPop[cid];
       if (!state) continue;
-      state.hunger = Math.min(1, state.hunger + rule.foodDemand * (state.pop / rule.population));
+      const subsidyReduction = 1 - (cityBonus[cid]?.foodSubsidy || 0);
+      state.hunger = Math.min(1, state.hunger + rule.foodDemand * (state.pop / rule.population) * subsidyReduction);
       const pressureBoost = state.hunger * 0.4;
       if (pressureBoost > 0.02) {
         if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
@@ -4168,7 +4201,8 @@ function drawNpcBubble() {
     for (const cid of cityIds) {
       const rule = CITY_RULES[cid];
       const hunger = cityPop[cid]?.hunger ?? 0;
-      attract[cid] = (1 - hunger) * (1 - (rule.taxRate ?? 0));
+      const popBonus = 1 + (cityBonus[cid]?.popIncentive || 0);
+      attract[cid] = (1 - hunger) * (1 - (rule.taxRate ?? 0)) * popBonus;
     }
     const totalAttract = cityIds.reduce((s, c) => s + attract[c], 0) || 1;
 
@@ -4216,6 +4250,37 @@ function drawNpcBubble() {
     }
   }
 
+  function cityInvestTick() {
+    for (const [cid, treasury] of Object.entries(cityTreasury)) {
+      const bias = CITY_INVEST_BIAS[cid] || Object.keys(INVEST_PROJECTS);
+      // Find the cheapest project that's not maxed out yet, biased toward city preference
+      const candidates = bias
+        .map(key => ({ key, proj: INVEST_PROJECTS[key] }))
+        .filter(({ key, proj }) => {
+          const current = cityBonus[cid]?.[proj.effect] || 0;
+          return current < proj.max && treasury.gold >= proj.cost;
+        });
+      if (!candidates.length) continue;
+
+      // Pick first affordable candidate
+      const { key, proj } = candidates[0];
+      treasury.gold -= proj.cost;
+      if (!cityBonus[cid]) cityBonus[cid] = {};
+      cityBonus[cid][proj.effect] = Math.min(proj.max, (cityBonus[cid][proj.effect] || 0) + proj.gain);
+
+      // Log the investment
+      treasury.investLog.push({ day: Math.floor(time.day), project: proj.name, effect: proj.desc });
+      if (treasury.investLog.length > 8) treasury.investLog.shift();
+
+      // Notify player if in this city
+      const playerCity = currentCity();
+      const city = getCityById(cid);
+      if (playerCity?.id === cid) {
+        toast(`📢 ${city?.name || cid} invested in ${proj.name}!`, 3.5);
+      }
+    }
+  }
+
   function advanceDays(days, reason = '') {
     if (!Number.isFinite(days) || days <= 0) return;
     time.frac += days;
@@ -4225,6 +4290,8 @@ function drawNpcBubble() {
       time.day += 1;
       advanced += 1;
       populationTick();
+      // City investment every 7 days
+      if (time.day % 7 === 0) cityInvestTick();
       // tiny drift; mean ~0 over time; clamp to keep prices sane
       for (const cityId of Object.keys(marketDrift)) {
         for (const it of ITEMS) {
@@ -4400,6 +4467,11 @@ function drawNpcBubble() {
     if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
+    // City treasury receives the tax portion
+    const taxCollected = Math.round(sellN * p * CITY_RULES[c.id].taxRate);
+    if (taxCollected > 0 && cityTreasury[c.id]) {
+      cityTreasury[c.id].gold += taxCollected;
+    }
     // Hunger relief when selling food or grain
     if (it.id === 'food' || it.id === 'grain') {
       if (cityPop[c.id]) {
@@ -5063,6 +5135,8 @@ function drawNpcBubble() {
       },
       openedCaches: Array.from(openedCaches),
       cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
+      cityTreasury: Object.fromEntries(Object.entries(cityTreasury).map(([k,v]) => [k, { gold: v.gold, investLog: [...v.investLog] }])),
+      cityBonus: Object.fromEntries(Object.entries(cityBonus).map(([k,v]) => [k, {...v}])),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -5235,6 +5309,18 @@ function drawNpcBubble() {
       if (state.cityPop) {
         for (const cid of Object.keys(cityPop)) {
           if (state.cityPop[cid]) Object.assign(cityPop[cid], state.cityPop[cid]);
+        }
+      }
+
+      // Restore city treasury + bonuses
+      if (state.cityTreasury) {
+        for (const cid of Object.keys(cityTreasury)) {
+          if (state.cityTreasury[cid]) Object.assign(cityTreasury[cid], state.cityTreasury[cid]);
+        }
+      }
+      if (state.cityBonus) {
+        for (const cid of Object.keys(cityBonus)) {
+          if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
         }
       }
 
@@ -7534,8 +7620,10 @@ if (ui._hudTapDebug) {
       const _cpop = cityPop[c.id];
       const _popStr = _cpop ? ((_cpop.pop >= 1000 ? (_cpop.pop/1000).toFixed(1)+'k' : Math.round(_cpop.pop).toString()) + ' pop') : '';
       const _hungerStr = _cpop ? `Hunger: ${Math.round(_cpop.hunger*100)}%` : '';
+      const _treasury = cityTreasury[c.id];
+      const _treasuryStr = _treasury && _treasury.gold > 0 ? ` · Treasury: ${_treasury.gold}g` : '';
       const _popPrefix = _popStr ? `${_popStr} · ` : '';
-      const _hungerSuffix = _hungerStr ? ` · ${_hungerStr}` : '';
+      const _hungerSuffix = _hungerStr ? ` · ${_hungerStr}${_treasuryStr}` : '';
       const ruleLine = IS_MOBILE ? `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · ${shortHint}` : `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · Contraband: ${contraTxt} · ${hint}`;
       ctx.fillText(
         ellipsizeText(ruleLine, maxTextW),

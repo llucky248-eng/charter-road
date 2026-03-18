@@ -308,3 +308,15 @@
   - Destinations weighted by relative attractiveness.
   - Cities cap at 2× base population; floor at 30% base.
   - Toast notification when player is in a city receiving/losing 50+ migrants.
+
+## v0.3.35 — 2026-03-17
+- New: City tax treasury system.
+  - Every sell trade deposits tax gold into the city treasury.
+  - Every 7 days, cities auto-invest treasury into upgrades (biased by city type):
+    * Market Expansion (-4% buy prices, max -30%) — Valdenmere/Ashport
+    * Road Improvements (+5% travel speed, max +25%) — Ashport/Ironholt
+    * Food Subsidy (-10% hunger growth, max -50%) — Crosshaven/Ironholt
+    * Population Incentive (+5% migrant attraction, max +30%) — Valdenmere/Crosshaven
+  - Toast notification when player is present during an investment.
+  - HUD shows treasury balance alongside hunger.
+  - world.html: treasury balance, active upgrades, recent investment log per city.

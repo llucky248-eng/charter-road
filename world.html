@@ -412,6 +412,13 @@ function renderCities(pressure) {
   }).join('');
 }
 
+const INVEST_PROJECT_LABELS = {
+  marketDiscount: '🏪 Market Discount',
+  roadSpeed:      '🛤 Road Speed',
+  foodSubsidy:    '🌾 Food Subsidy',
+  popIncentive:   '👥 Pop Incentive',
+};
+
 function renderPopulations(save) {
   const grid = document.getElementById('pop-grid');
   const defaultPops = {
@@ -420,21 +427,46 @@ function renderPopulations(save) {
     crosshaven: { pop: 1500, hunger: 0 },
     ironholt:   { pop: 2500, hunger: 0 },
   };
-  const cityPopData = (save && save.data && save.data.cityPop) ? save.data.cityPop : defaultPops;
+  const cityPopData     = (save?.data?.cityPop)      || defaultPops;
+  const cityTreasuryData= (save?.data?.cityTreasury) || {};
+  const cityBonusData   = (save?.data?.cityBonus)    || {};
+
   grid.innerHTML = CITIES.map(city => {
     const state = cityPopData[city.id] || defaultPops[city.id] || { pop: 0, hunger: 0 };
+    const treasury = cityTreasuryData[city.id] || { gold: 0, investLog: [] };
+    const bonus = cityBonusData[city.id] || {};
     const popStr = state.pop >= 1000 ? (state.pop / 1000).toFixed(1) + 'k' : Math.round(state.pop).toString();
     const hungerPct = Math.round((state.hunger || 0) * 100);
     const hungerColor = hungerPct < 20 ? '#34d399' : hungerPct < 50 ? '#f59e0b' : '#ef4444';
+
+    const bonusHtml = Object.entries(bonus)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <span style="color:#94a3b8">${INVEST_PROJECT_LABELS[k] || k}</span>
+        <span style="color:#4ade80;font-weight:700">+${Math.round(v*100)}%</span>
+      </div>`).join('') || '<div style="font-size:12px;color:#4a6a80">No upgrades yet</div>';
+
+    const logHtml = (treasury.investLog || []).slice(-3).reverse()
+      .map(e => `<div style="font-size:11px;color:#6a8aa0;padding:2px 0">Day ${e.day}: ${e.project}</div>`).join('')
+      || '<div style="font-size:11px;color:#4a6a80">No investments yet</div>';
+
     return `
       <div class="card">
         <div class="card-title">Population</div>
         <div class="city-name" style="color:${city.color}">${city.name}</div>
         <div style="margin:8px 0;font-size:13px;color:#e8d4a0">👥 ${popStr} residents</div>
         <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Hunger: ${hungerPct}%</div>
-        <div style="background:#1e293b;border-radius:4px;height:8px;overflow:hidden">
+        <div style="background:#1e293b;border-radius:4px;height:8px;overflow:hidden;margin-bottom:12px">
           <div style="width:${hungerPct}%;height:100%;background:${hungerColor};transition:width 0.3s"></div>
         </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">
+          <span style="color:#6a8aa0">Treasury</span>
+          <span style="color:#e8d4a0;font-weight:700">💰 ${treasury.gold}g</span>
+        </div>
+        <div class="card-title" style="margin-bottom:6px">Active Upgrades</div>
+        ${bonusHtml}
+        <div class="card-title" style="margin:10px 0 4px">Recent Investments</div>
+        ${logHtml}
       </div>`;
   }).join('');
 }
