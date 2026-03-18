@@ -320,3 +320,10 @@
   - Toast notification when player is present during an investment.
   - HUD shows treasury balance alongside hunger.
   - world.html: treasury balance, active upgrades, recent investment log per city.
+
+## v0.3.36 — 2026-03-18
+- New: Bank (tile 13) — deposit gold (2%/day interest), take loans (200g max, 10% interest, 7-day due, 20g/day overdue penalty).
+- New: Inn (tile 14) — Rest 8h (5g), buy price rumors/intel (10g), sleep till morning (15g).
+- New: Guild Hall (tile 15) — join merchant guild (50g→Apprentice +5% sell, 150g+rep5→Journeyman +10%, 300g+rep15→Master +18%).
+- New: Warehouse (tile 8, now interactive) — stash goods in any city, retrieve on return visit.
+- All 4 buildings placed in all city layouts. All state saved/loaded.
