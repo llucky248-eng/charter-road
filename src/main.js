@@ -5399,7 +5399,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.93',
+      buildVersion: 'v0.0.94',
       player: {
         x: player.x,
         y: player.y,
