@@ -1388,11 +1388,26 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const tapTileY = Math.floor(worldY / TILE);
     const tapTile = tileAt(tapTileX, tapTileY);
 
-    // Building tap-to-interact: walk to tile then open panel on arrival
+    // Building tap-to-interact: open immediately if close enough + in city,
+    // otherwise walk to the tile first then open on arrival.
     const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild' };
     if (TAP_BUILDING_ACTIONS[tapTile] !== undefined) {
-      clickMove.markerX = sx; clickMove.markerY = sy;
-      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, TAP_BUILDING_ACTIONS[tapTile]);
+      const action = TAP_BUILDING_ACTIONS[tapTile];
+      const c = currentCity();
+      const distTiles = Math.max(Math.abs(tapTileX - Math.floor(player.x / TILE)), Math.abs(tapTileY - Math.floor(player.y / TILE)));
+      if (c && distTiles <= 4) {
+        // Close enough — open immediately
+        if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
+        else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
+        else if (action === 'bank') { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
+        else if (action === 'inn') { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
+        else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
+        else if (action === 'warehouse') { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
+      } else {
+        // Walk to building tile, open on arrival
+        clickMove.markerX = sx; clickMove.markerY = sy;
+        planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, action);
+      }
       e.preventDefault(); return;
     }
 
