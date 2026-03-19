@@ -1618,137 +1618,124 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
       // 4. LAYOUT by city identity
       if (c.id === 'valdenmere') {
-        // Capital city: full grid with 4 quarters, central market plaza
-        // Main N-S street (gate → center)
-        const msX = gx;
-        carveStreet(msX, y0, msX, y0+H-1);
-        // E-W cross street (center)
-        const csY = y0 + Math.floor(H/2);
-        carveStreet(x0, csY, x0+W-1, csY);
-        // Second E-W street (lower third)
-        const csY2 = y0 + Math.floor(H*0.75);
-        carveStreet(x0+2, csY2, x0+W-3, csY2);
-        // Second N-S street (left third)
-        const msX2 = x0 + Math.floor(W*0.32);
+        // ── VALDENMERE — Capital city, 28×20 ──────────────────────────
+        // Grid of 3 N-S streets + 3 E-W streets, 6 distinct quarters.
+        const msX  = gx;                           // main N-S (center, from gate)
+        const msX2 = x0 + Math.floor(W * 0.30);   // left N-S street
+        const msX3 = x0 + Math.floor(W * 0.70);   // right N-S street
+        const csY  = y0 + Math.floor(H * 0.45);   // main E-W street
+        const csY2 = y0 + Math.floor(H * 0.72);   // lower E-W street
+
+        carveStreet(msX,  y0,   msX,  y0+H-1);
         carveStreet(msX2, y0+1, msX2, y0+H-1);
-        // Second N-S street (right third)
-        const msX3 = x0 + Math.floor(W*0.68);
         carveStreet(msX3, y0+1, msX3, y0+H-1);
+        carveStreet(x0,   csY,  x0+W-1, csY);
+        carveStreet(x0+2, csY2, x0+W-3, csY2);
 
-        // NW quarter: Inn (2×3 building)
-        placeBuilding(x0+2, y0+2, 4, 4, 7, 'east');
-        // NE quarter: Guard barracks (3×3)
+        // NW quarter: Inn (4×5 — proper building)
+        placeBuilding(x0+2, y0+2, 5, 5, 14, 'east');
+        // NW mid: Guild Hall (5×4)
+        placeBuilding(x0+2, csY+2, 5, 4, 15, 'east');
+        // CENTER-N: Market building (5×4, north of plaza)
+        placeBuilding(msX2+2, y0+2, 5, 4, 6, 'south');
+        // CENTER: Contracts hall (4×3, south of market)
+        placeBuilding(msX2+2, y0+8, 4, 3, 12, 'south');
+        // CENTER-S: Bank (4×4, near main road)
+        placeBuilding(msX+2, csY+2, 4, 4, 13, 'north');
+        // NE quarter: Barracks (5×4)
         placeBuilding(msX3+2, y0+2, 5, 4, 4, 'south');
-        // SW quarter: Warehouse row (3×2 + 3×2)
-        placeBuilding(x0+2, csY+2, 5, 3, 8, 'north');
-        placeBuilding(msX2+2, csY+2, 5, 3, 8, 'north');
-        // SE quarter: Residence blocks (small 3×3)
-        placeBuilding(msX3+2, csY+2, 4, 4, 4, 'west');
-        placeBuilding(msX3+2, csY2+2, 4, 3, 4, 'west');
-        // NE secondary: second Inn
-        placeBuilding(msX+2, y0+2, 4, 4, 7, 'south');
+        // SE: Warehouse row
+        placeBuilding(msX3+2, csY+2, 5, 3, 8, 'north');
+        placeBuilding(msX3+2, csY2+1, 5, 3, 8, 'north');
+        // SW: Warehouse
+        placeBuilding(x0+2, csY2+1, 5, 3, 8, 'north');
 
-        // Central market plaza — placed AFTER buildings so it survives
+        // Central market plaza cobblestones
         paintPlaza(msX-2, csY-2, 5, 5);
-        m[csY*MAP_W + (msX-3)] = 6;   // market W of road
-        m[csY*MAP_W + (msX+3)] = 6;   // market E of road
-        m[(csY-3)*MAP_W + msX] = 6;   // market N of plaza
-        m[(csY-1)*MAP_W + msX] = 12;  // contracts — on plaza itself (guaranteed road tile)
-        // New buildings: Bank, Inn, Guild Hall
-        m[(csY+1)*MAP_W + (msX+4)] = 13;  // bank — near market plaza
-        m[(y0+3)*MAP_W + (x0+2)] = 14;    // inn — NW near tavern
-        m[(csY-2)*MAP_W + (msX-4)] = 15;  // guild hall — west of plaza
 
       } else if (c.id === 'ashport') {
-        // Port city: main dock road + market row + warehouse district
-        // Main E-W dock road (near south)
-        const dockY = y0 + Math.floor(H*0.70);
-        carveStreet(x0, dockY, x0+W-1, dockY);
-        // N-S main road (center)
-        carveStreet(gx, y0, gx, y0+H-1);
-        // N-S secondary (west)
-        const sX = x0 + Math.floor(W*0.30);
-        carveStreet(sX, y0+1, sX, dockY);
-        // Upper cross street
-        const upY = y0 + Math.floor(H*0.35);
-        carveStreet(x0+2, upY, x0+W-3, upY);
+        // ── ASHPORT — Fishing port, 24×16 ────────────────────────────
+        // Dock road at south, market square in center, warehouse district south.
+        const dockY = y0 + Math.floor(H * 0.72);
+        const upY   = y0 + Math.floor(H * 0.38);
+        const sX    = x0 + Math.floor(W * 0.30);
 
-        // Dock-side warehouse row (south of dock road)
-        placeBuilding(x0+2, dockY+1, 5, 3, 8, 'north');
-        placeBuilding(x0+9, dockY+1, 5, 3, 8, 'north');
-        placeBuilding(gx+2, dockY+1, 5, 3, 8, 'north');
+        carveStreet(x0,   dockY, x0+W-1, dockY);
+        carveStreet(gx,   y0,    gx,     y0+H-1);
+        carveStreet(sX,   y0+1,  sX,     dockY);
+        carveStreet(x0+2, upY,   x0+W-3, upY);
 
-        // Inn near gate (west of main road)
-        placeBuilding(sX-5, upY+2, 4, 4, 7, 'east');
-        // Smugglers den near dock corner
-        placeBuilding(x0+2, y0+2, 4, 4, 4, 'south');
-        // NE building block
-        placeBuilding(gx+2, y0+2, 5, 4, 4, 'south');
+        // Dock-side warehouse row (3 buildings)
+        placeBuilding(x0+2,   dockY+1, 5, 3, 8, 'north');
+        placeBuilding(x0+9,   dockY+1, 5, 3, 8, 'north');
+        placeBuilding(gx+2,   dockY+1, 5, 3, 8, 'north');
 
-        // Market square — placed AFTER buildings
-        paintPlaza(gx-2, upY-2, 5, 5);
-        m[upY*MAP_W+(gx-3)] = 6;
-        m[upY*MAP_W+(gx+3)] = 6;
-        m[upY*MAP_W+gx] = 12;  // contracts on plaza center road
-        // New buildings: Bank, Inn
-        m[(upY+1)*MAP_W+(gx+4)] = 13;  // bank — east of market
-        m[(upY-2)*MAP_W+(gx-4)] = 14;  // inn — west side
+        // Inn (NW block, 5×5)
+        placeBuilding(x0+2, y0+2, 5, 5, 14, 'east');
+        // Tavern (west mid, 4×4)
+        placeBuilding(x0+2, upY+2, 4, 4, 7, 'east');
+        // Market building (east of center road, 5×4)
+        placeBuilding(gx+2, y0+2, 5, 4, 6, 'south');
+        // Contracts hall (east, below market, 4×3)
+        placeBuilding(gx+2, y0+7, 4, 3, 12, 'south');
+        // Bank (NE block, 4×4)
+        placeBuilding(gx+2, upY+2, 4, 4, 13, 'west');
+        // Guild Hall (center-north, 4×3)
+        placeBuilding(sX+2, y0+2, 4, 4, 15, 'south');
+
+        // Market plaza
+        paintPlaza(gx-2, upY-2, 5, 4);
 
       } else if (c.id === 'crosshaven') {
-        // Small village: one main street, 3 buildings, tiny plaza
-        // Single main N-S road
-        carveStreet(gx, y0, gx, y0+H-1);
-        // Single cross street (upper half)
-        const vY = y0 + Math.floor(H*0.40);
-        carveStreet(x0+2, vY, x0+W-3, vY);
+        // ── CROSSHAVEN — Small village, 14×10 ────────────────────────
+        // Single cross of roads. Every building is a proper structure.
+        const vY = y0 + Math.floor(H * 0.42);
 
-        // Inn (west side)
-        placeBuilding(x0+2, y0+2, 4, 3, 7, 'east');
-        // Storage shed (east side)
-        placeBuilding(gx+2, y0+2, 3, 3, 8, 'west');
-        // Small house (SW)
-        placeBuilding(x0+2, vY+2, 3, 3, 4, 'north');
+        carveStreet(gx,   y0,   gx,     y0+H-1);
+        carveStreet(x0+2, vY,   x0+W-3, vY);
 
-        // Plaza + POIs — placed AFTER buildings
+        // Market (west, 4×3)
+        placeBuilding(x0+2, y0+2, 4, 3, 6, 'east');
+        // Contracts (east, 4×3)
+        placeBuilding(gx+2,  y0+2, 4, 3, 12, 'west');
+        // Inn (west-south, 4×3)
+        placeBuilding(x0+2, vY+2, 4, 3, 14, 'east');
+        // Bank (east-south, 4×3)
+        placeBuilding(gx+2,  vY+2, 4, 3, 13, 'west');
+        // Warehouse (center-south, 3×3)
+        placeBuilding(gx-1, vY+2, 3, 3, 8, 'north');
+
+        // Tiny plaza at crossroads
         paintPlaza(gx-1, vY-1, 3, 3);
-        m[vY*MAP_W+(gx-2)] = 6;   // market left of road
-        m[vY*MAP_W+gx] = 12;      // contracts on road tile
-        // New buildings: Bank, Inn
-        m[(vY+1)*MAP_W+(gx+2)] = 13;  // bank — east of market
-        m[(vY-1)*MAP_W+(gx-2)] = 14;  // inn — near market
 
       } else if (c.id === 'ironholt') {
-        // Mining town: industrial yard layout — ore storage + smelter row + foreman HQ
-        // Main E-W yard road
-        const yardY = y0 + Math.floor(H*0.55);
-        carveStreet(x0, yardY, x0+W-1, yardY);
-        // N-S access road (center)
-        carveStreet(gx, y0, gx, y0+H-1);
-        // N-S secondary (east)
-        const eX = x0 + Math.floor(W*0.70);
-        carveStreet(eX, y0+1, eX, yardY);
+        // ── IRONHOLT — Mining town, 20×14 ────────────────────────────
+        // Industrial grid: ore yards south, civic buildings north.
+        const yardY = y0 + Math.floor(H * 0.57);
+        const eX    = x0 + Math.floor(W * 0.68);
 
-        // Smelter / warehouse row (south of yard road)
-        placeBuilding(x0+2, yardY+1, 5, 3, 8, 'north');
-        placeBuilding(x0+9, yardY+1, 4, 3, 8, 'north');
-        placeBuilding(eX+2, yardY+1, 4, 3, 8, 'north');
+        carveStreet(x0,  yardY, x0+W-1, yardY);
+        carveStreet(gx,  y0,    gx,     y0+H-1);
+        carveStreet(eX,  y0+1,  eX,     yardY);
 
-        // Foreman building (NW block)
-        const hqX = x0+2, hqY = y0+2;
-        placeBuilding(hqX, hqY, 4, 4, 4, 'south');
-        // Inn / workers lodge (NE block)
-        placeBuilding(eX+2, y0+2, 4, 4, 7, 'south');
-        // Guard post (near gate, east of main road)
-        placeBuilding(gx+2, yardY-5, 3, 3, 4, 'west');
+        // Ore yard warehouses (south row, 3 buildings)
+        placeBuilding(x0+2,  yardY+1, 5, 3, 8, 'north');
+        placeBuilding(x0+9,  yardY+1, 4, 3, 8, 'north');
+        placeBuilding(eX+2,  yardY+1, 4, 3, 8, 'north');
 
-        // POIs — placed AFTER buildings
-        paintPlaza(hqX, hqY, 5, 4);
-        m[(hqY+1)*MAP_W+gx] = 12;    // contracts on main road
-        m[(hqY+2)*MAP_W+(hqX+2)] = 6; // market inside plaza
-        // New buildings: Bank, Inn, Guild Hall
-        m[(hqY+3)*MAP_W+(hqX+4)] = 13;  // bank — near market
-        m[(y0+2)*MAP_W+(eX+2)] = 14;    // inn — NE block (replaces floor near inn building)
-        m[(hqY+1)*MAP_W+(hqX+4)] = 15;  // guild hall — in plaza area
+        // Foreman HQ / Guild (NW, 5×4)
+        placeBuilding(x0+2, y0+2, 5, 4, 15, 'east');
+        // Market (center-N, 5×4)
+        placeBuilding(x0+9, y0+2, 4, 4, 6, 'south');
+        // Contracts (center, 4×3)
+        placeBuilding(x0+9, y0+7, 4, 3, 12, 'south');
+        // Bank (NE, 5×4)
+        placeBuilding(eX+2, y0+2, 5, 4, 13, 'west');
+        // Workers Inn (south-east, 5×4)
+        placeBuilding(eX+2, yardY-6, 5, 4, 14, 'west');
+
+        // Yard plaza
+        paintPlaza(gx-2, yardY-3, 5, 4);
       }
 
       return { gx, gy };
@@ -4348,7 +4335,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.94',
+    version: 'v0.0.95',
     whatsNew: [
       'Market cards: compact horizontal layout — info left, delta + BUY right.',
       'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
@@ -5414,7 +5401,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.94',
+      buildVersion: 'v0.0.95',
       player: {
         x: player.x,
         y: player.y,
@@ -6010,13 +5997,15 @@ function drawNpcBubble() {
   }
 
   function nearPOITile() {
+    // Only trigger cache POI outside city bounds (tile 13 inside cities is the Bank building)
+    const inCity = !!currentCity();
     const tx = Math.floor(player.x / TILE);
     const ty = Math.floor(player.y / TILE);
     for (let oy = -1; oy <= 1; oy++) {
       for (let ox = -1; ox <= 1; ox++) {
         const id = tileAt(tx + ox, ty + oy);
         if (id >= 7 && id <= 9) return id;
-        if (id === 13) return id; // cache
+        if (id === 13 && !inCity) return id; // cache only on road/wilderness
       }
     }
     return null;
@@ -7040,13 +7029,13 @@ function drawBuildingLabels() {
   if (!currentCity()) return; // only inside cities
 
   const INTERACT = {
-    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 3 },
-    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 3 },
-    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 2 },
-    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 2 },
-    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 3 },
-    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 3 },
-    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 3 },
+    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 4 },
+    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 4 },
+    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 3 },
+    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 3 },
+    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 4 },
+    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 4 },
+    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 4 },
   };
 
   const px = player.x, py = player.y;
