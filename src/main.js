@@ -1388,14 +1388,11 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const tapTileY = Math.floor(worldY / TILE);
     const tapTile = tileAt(tapTileX, tapTileY);
 
-    if (tapTile === 6) {
+    // Building tap-to-interact: walk to tile then open panel on arrival
+    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild' };
+    if (TAP_BUILDING_ACTIONS[tapTile] !== undefined) {
       clickMove.markerX = sx; clickMove.markerY = sy;
-      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, 'market');
-      e.preventDefault(); return;
-    }
-    if (tapTile === 12) {
-      clickMove.markerX = sx; clickMove.markerY = sy;
-      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, 'contracts');
+      planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, TAP_BUILDING_ACTIONS[tapTile]);
       e.preventDefault(); return;
     }
 
@@ -4351,7 +4348,7 @@ function drawNpcBubble() {
 
   const ui = {
     marketOpen: false,
-    toast: 'Walk into a city. Find the market tile and press E.',
+    toast: 'Walk into a city. Tap the market tile to trade.',
     toastT: 6,
     selection: 0,
     marketScroll: 0, // first visible item index
@@ -5830,6 +5827,18 @@ function drawNpcBubble() {
               ui.contractsCityId = c.id;
               toast('Contracts board opened', 1.8);
             }
+          } else if (action === 'bank') {
+            const c = currentCity();
+            if (c) { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
+          } else if (action === 'inn') {
+            const c = currentCity();
+            if (c) { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
+          } else if (action === 'guild') {
+            const c = currentCity();
+            if (c) { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
+          } else if (action === 'warehouse') {
+            const c = currentCity();
+            if (c) { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
           }
         }
       } else {
@@ -6485,60 +6494,7 @@ function drawNpcBubble() {
     // Close nav picker on Escape
     if (e.code === 'Escape') { const np = document.getElementById('cr-nav-picker'); if (np) { np.remove(); return; } }
 
-    // [T] — interact with nearby AI trader
-    if (e.code === 'KeyT') {
-      if (document.getElementById('cr-trader-modal')) { closeTraderUI(); return; }
-      const nearby = findNearestTrader(player.x, player.y);
-      if (nearby) { openTraderUI(nearby); return; }
-      toast('No traders nearby.', 1.5);
-      return;
-    }
-
-    if (e.code === 'KeyE') {
-      if (intelUI.open) { closeIntelUI(); return; }
-      if (ui.marketOpen || ui.contractsOpen || ui.eventOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return;
-      const c = currentCity();
-      if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
-        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) { ui.npcDiag.lastAction = 'npc'; return; }
-      }
-      if (c && nearMarketTile()) {
-        ui.contractsOpen = false;
-        ui.marketOpen = !ui.marketOpen;
-        ui.selection = 0;
-        ui.mode = 'buy';
-        if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'market';
-        toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
-      } else if (c && nearContractsTile()) {
-        ui.marketOpen = false;
-        ui.contractsOpen = !ui.contractsOpen;
-        ui.contractsSel = 0;
-        ui.contractsCityId = c.id;
-        toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
-      } else if (c && nearTile(13)) {
-        ui.bankOpen = true; ui.bankTab = 'deposit';
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast(`Bank of ${c.name} opened.`, 2);
-      } else if (c && nearTile(14)) {
-        ui.innOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast(`${c.name} Inn.`, 2);
-      } else if (c && nearTile(15)) {
-        ui.guildOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast('Merchants Guild.', 2);
-      } else if (c && nearTile(8)) {
-        ui.warehouseOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast('Warehouse opened.', 2);
-      } else if (c) {
-        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
-        toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
-      } else {
-        toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
-      }
-    }
+    // [T] and [E] interaction keys removed — tap/click buildings directly to interact
     if (e.code === 'Escape' && (ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen)) {
       domCloseAll(); return;
     }
@@ -8069,7 +8025,7 @@ if (ui._hudTapDebug) {
     if (!IS_MOBILE) {
 
     if (rules) {
-      const hint = nearMarketTile() ? 'E: Market' : 'Find market (gold tile)';
+      const hint = nearMarketTile() ? 'Tap market to trade' : 'Find market (gold tile)';
       const shortHint = IS_MOBILE ? `${hint}` : hint;
       const contraTxt = IS_MOBILE ? rules.contraband.join(', ').slice(0, 18) + (rules.contraband.join(', ').length>18?'…':'') : rules.contraband.join(', ');
       const _cpop = cityPop[c.id];
@@ -8799,52 +8755,7 @@ function drawEvent() {
       maybeAggregateEconomy();
     }
 
-    // Virtual (touch) button actions
-    if (consumeVKey('KeyE')) {
-      const c = currentCity();
-      if (ui.npcDiag?.enabled && ui.npcDiag.forceNpc && c) {
-        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) { ui.npcDiag.lastAction = 'npc'; return; }
-      }
-      if (c && nearMarketTile()) {
-        ui.contractsOpen = false;
-        ui.marketOpen = !ui.marketOpen;
-        ui.selection = 0;
-        ui.mode = 'buy';
-        if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'market';
-        toast(ui.marketOpen ? `Market opened in ${c.name}` : 'Market closed', 2);
-      } else if (c && nearContractsTile()) {
-        ui.marketOpen = false;
-        ui.contractsOpen = !ui.contractsOpen;
-        ui.contractsSel = 0;
-        ui.contractsCityId = c.id;
-        toast(ui.contractsOpen ? 'Contracts board opened' : 'Contracts board closed', 2);
-      } else if (c && nearTile(13)) {
-        ui.bankOpen = true; ui.bankTab = 'deposit';
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast(`Bank of ${c.name} opened.`, 2);
-      } else if (c && nearTile(14)) {
-        ui.innOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast(`${c.name} Inn.`, 2);
-      } else if (c && nearTile(15)) {
-        ui.guildOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast('Merchants Guild.', 2);
-      } else if (c && nearTile(8)) {
-        ui.warehouseOpen = true;
-        domEnsureOpen(); dom.key = ''; domRender();
-        toast('Warehouse opened.', 2);
-      } else if (c) {
-        const npc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS);
-        if (npc && triggerNpcTalk(npc)) { if (ui.npcDiag?.enabled) ui.npcDiag.lastAction = 'npc'; return; }
-        toast('Find the market stall (tan), contracts board (green), or a local to chat with.', 2.5);
-      } else {
-        const poi = nearPOITile();
-        if (poi) triggerPOIEvent(poi);
-        else toast('Find the market stall (tan) or contracts board (green) inside a city.', 2.5);
-      }
-    }
+    // Virtual KeyE button removed — interaction is tap-only
 
     if (ui.marketOpen) {
       const totalN = ITEMS.length + 1;
