@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.39'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.40'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1642,110 +1642,125 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
       // 4. LAYOUT by city identity
       if (c.id === 'valdenmere') {
-        // Capital city: two main avenues, generous open space between buildings
-        const msX = gx;                            // main N-S avenue
-        const csY = y0 + Math.floor(H * 0.50);    // single E-W cross street
+        // Capital city: main N-S avenue + E-W cross street
+        // Districts: NW=residential, NE=barracks/manor, SW=warehouse/trade, SE=residential
+        // Center: grand town square with market, contracts, guildhall facing it
+        const msX = gx;                            // main N-S avenue (gate center)
+        const csY = y0 + Math.floor(H * 0.48);    // E-W cross street near mid
 
-        // Only two streets — one vertical, one horizontal
         carveStreet(msX, y0, msX, y0+H-1);
         carveStreet(x0, csY, x0+W-1, csY);
 
-        // NW quarter: Tavern (4×4) — tucked in corner with breathing room
-        placeBuilding(x0+3, y0+3, 4, 4, 7, 'east');
-        // NE quarter: residence block
-        placeBuilding(msX+3, y0+3, 5, 4, 4, 'south');
-        // SW quarter: warehouse (single, not a row)
-        placeBuilding(x0+3, csY+3, 5, 3, 8, 'north');
-        // SE quarter: residence (single block)
-        placeBuilding(msX+3, csY+3, 4, 4, 4, 'west');
+        // ── Town square (center of city, where streets cross) ──
+        paintPlaza(msX-4, csY-3, 9, 7);   // large cobble square
+        m[csY*MAP_W + (msX-5)] = 6;       // market stall west of square
+        m[csY*MAP_W + (msX+5)] = 6;       // market stall east of square
+        m[(csY-4)*MAP_W + msX] = 6;       // market stall north
+        m[(csY-2)*MAP_W + msX] = 12;      // contracts board in square
 
-        // Central market plaza (generous — 7×5 cobble area at the crossroads)
-        paintPlaza(msX-3, csY-2, 7, 5);
-        m[csY*MAP_W + (msX-4)] = 6;        // market stall W
-        m[csY*MAP_W + (msX+4)] = 6;        // market stall E
-        m[(csY-3)*MAP_W + msX] = 6;        // market N
-        m[(csY-1)*MAP_W + msX] = 12;       // contracts board
+        // ── Guildhall (faces south side of square — NE of crossing) ──
+        placeBuilding(msX+2, csY-5, 5, 3, 15, 'south');
 
-        // Special buildings — each in its own clear quarter, well-spaced
-        placeBuilding(msX+3, csY-5, 4, 3, 13, 'west');  // Bank (NE, above cross street)
-        placeBuilding(x0+3, csY-5, 4, 3, 14, 'east');   // Inn (NW, above cross street)
-        placeBuilding(x0+3, csY+8, 4, 3, 15, 'east');   // Guild Hall (SW lower)
+        // ── Bank (NW of square, easy access from main road) ──
+        placeBuilding(x0+3, csY-6, 4, 4, 13, 'east');
+
+        // ── Inn/Tavern (NW quarter, near bank) ──
+        placeBuilding(x0+3, y0+2, 5, 4, 7, 'east');
+
+        // ── Warehouse district (SW quarter, away from center) ──
+        placeBuilding(x0+3, csY+3, 6, 3, 8, 'north');
+
+        // ── Residence NE quarter ──
+        placeBuilding(msX+3, y0+2, 5, 4, 4, 'south');
+
+        // ── Barracks/manor SE quarter ──
+        placeBuilding(msX+3, csY+3, 5, 4, 4, 'west');
 
       } else if (c.id === 'ashport') {
-        // Port city: single dock road + single main road, fewer buildings
-        const dockY = y0 + Math.floor(H * 0.72);
-        const upY   = y0 + Math.floor(H * 0.38);
+        // Port city: gate south → main road north; dock road east-west at south
+        // Districts: north=residential/tavern, mid=market square, south=docks+warehouses
+        const dockY = y0 + Math.floor(H * 0.70);   // dock road
+        const mktY  = y0 + Math.floor(H * 0.40);   // market square row
 
-        // Two streets only
-        carveStreet(x0, dockY, x0+W-1, dockY);
-        carveStreet(gx, y0, gx, y0+H-1);
+        carveStreet(gx, y0, gx, y0+H-1);           // main N-S road from gate
+        carveStreet(x0, dockY, x0+W-1, dockY);     // dock road E-W
 
-        // Dock-side: two warehouses (not three), with gap between them
+        // ── Market square (mid-city, on main road) ──
+        paintPlaza(gx-3, mktY-2, 7, 5);
+        m[mktY*MAP_W+(gx-4)] = 6;
+        m[mktY*MAP_W+(gx+4)] = 6;
+        m[mktY*MAP_W+gx] = 12;
+
+        // ── Inn/Tavern (NW, large for sailors) ──
+        placeBuilding(x0+2, y0+2, 5, 5, 7, 'east');
+
+        // ── Residence block NE ──
+        placeBuilding(gx+3, y0+2, 5, 4, 4, 'south');
+
+        // ── Bank (east of market square) ──
+        placeBuilding(gx+3, mktY+1, 4, 3, 13, 'west');
+
+        // ── Guild near docks (trade guild) ──
+        placeBuilding(x0+2, dockY-5, 4, 3, 15, 'east');
+
+        // ── Dock warehouses (south, generous gap between them) ──
         placeBuilding(x0+2, dockY+1, 5, 3, 8, 'north');
         placeBuilding(gx+3, dockY+1, 5, 3, 8, 'north');
-        // Tavern — NW, lots of breathing room
-        placeBuilding(x0+2, y0+3, 4, 4, 7, 'east');
-        // NE building (single residence)
-        placeBuilding(gx+3, y0+3, 5, 4, 4, 'south');
-
-        // Market square (generous cobble plaza at road mid-point)
-        paintPlaza(gx-3, upY-2, 7, 5);
-        m[upY*MAP_W+(gx-4)] = 6;
-        m[upY*MAP_W+(gx+4)] = 6;
-        m[upY*MAP_W+gx] = 12;
-
-        // Special buildings — spread out, not clustered
-        placeBuilding(gx+3, upY+2, 4, 3, 13, 'west');   // Bank (SE of plaza)
-        placeBuilding(x0+2, upY-5, 4, 3, 14, 'east');   // Inn (NW, north of plaza)
-        placeBuilding(x0+2, upY+3, 4, 3, 15, 'east');   // Guild (SW, south of plaza)
 
       } else if (c.id === 'crosshaven') {
-        // Small village: single road, only a handful of buildings, very open
-        const vY = y0 + Math.floor(H * 0.45);
+        // Tiny village: one N-S road only. Very open. A handful of buildings.
+        const mktY = y0 + Math.floor(H * 0.45);   // market in middle
 
-        // Single main road (N-S only — small village doesn't need a cross street)
         carveStreet(gx, y0, gx, y0+H-1);
 
-        // Tavern (west side, small 3×3)
-        placeBuilding(x0+2, y0+2, 3, 3, 7, 'east');
-        // Warehouse (east side, small 3×3) — leave gap
-        placeBuilding(gx+3, y0+2, 3, 3, 8, 'west');
+        // ── Small plaza + market (center of village) ──
+        paintPlaza(gx-1, mktY-1, 3, 3);
+        m[mktY*MAP_W+(gx-2)] = 6;
+        m[mktY*MAP_W+gx] = 12;
 
-        // Tiny plaza + market at mid-street
-        paintPlaza(gx-1, vY-1, 3, 3);
-        m[vY*MAP_W+(gx-2)] = 6;
-        m[vY*MAP_W+gx] = 12;
+        // ── Inn/Tavern (west side, near top — first building travelers see) ──
+        placeBuilding(x0+1, y0+2, 4, 3, 7, 'east');
 
-        // Bank + Inn sharing the south half — each on opposite sides, open ground between
-        placeBuilding(gx+2, vY+2, 3, 3, 13, 'north');
-        placeBuilding(x0+2, vY+2, 3, 3, 14, 'east');
-        // No Guild in Crosshaven — too small
+        // ── Warehouse (east side, small) ──
+        placeBuilding(gx+2, y0+2, 3, 3, 8, 'west');
+
+        // ── Bank (east side, south of warehouse) ──
+        placeBuilding(gx+2, mktY+2, 3, 3, 13, 'north');
+
+        // ── Inn building (west side, south section) ──
+        placeBuilding(x0+1, mktY+2, 3, 3, 14, 'east');
+
+        // No guild — village too small
 
       } else if (c.id === 'ironholt') {
-        // Mining town: one yard road, main road — wide open ore yard, few buildings
-        const yardY = y0 + Math.floor(H * 0.60);
+        // Mining town: industrial feel
+        // Districts: NW=foreman HQ, NE=workers lodge, S=ore yard+warehouses, center=market/contracts
+        const yardY = y0 + Math.floor(H * 0.58);   // ore yard road
+        const mktY  = y0 + Math.floor(H * 0.38);   // market intersection
 
-        // Two streets only — no east branch
-        carveStreet(x0, yardY, x0+W-1, yardY);
-        carveStreet(gx, y0, gx, y0+H-1);
+        carveStreet(gx, y0, gx, y0+H-1);           // main N-S road
+        carveStreet(x0, yardY, x0+W-1, yardY);     // yard road E-W
 
-        // Ore yard: two warehouses with wide gap between them (yard feel)
-        placeBuilding(x0+2, yardY+1, 5, 3, 8, 'north');
-        placeBuilding(gx+3, yardY+1, 5, 3, 8, 'north');
+        // ── Market + contracts at road junction ──
+        paintPlaza(gx-2, mktY-2, 5, 4);
+        m[mktY*MAP_W+(gx-3)] = 6;
+        m[mktY*MAP_W+gx] = 12;
 
-        // Foreman HQ (NW corner, 4×4)
-        placeBuilding(x0+2, y0+3, 4, 4, 4, 'south');
-        // Workers lodge (NE corner, 4×4)
-        placeBuilding(gx+3, y0+3, 4, 4, 7, 'south');
+        // ── Foreman HQ (NW, 5×4) ──
+        placeBuilding(x0+2, y0+2, 5, 4, 4, 'east');
 
-        // Contracts + Market at road intersection
-        m[(yardY-1)*MAP_W+gx] = 12;
-        m[(yardY-1)*MAP_W+(gx+2)] = 6;
+        // ── Workers lodge / Inn (NE, 5×4) ──
+        placeBuilding(gx+2, y0+2, 5, 4, 7, 'west');
 
-        // Special buildings — spaced well, one per quadrant
-        placeBuilding(gx+3, y0+8, 4, 3, 13, 'west');   // Bank (NE mid)
-        placeBuilding(x0+2, yardY-5, 4, 3, 15, 'east'); // Guild (SW mid)
-        // No Inn listed — Inn is the workers lodge above
+        // ── Bank (east of market, between lodge and plaza) ──
+        placeBuilding(gx+2, mktY+1, 4, 3, 13, 'west');
+
+        // ── Guild (west of main road, mid section) ──
+        placeBuilding(x0+2, mktY+1, 4, 3, 15, 'east');
+
+        // ── Ore yard: two large warehouses, wide open space between ──
+        placeBuilding(x0+2, yardY+1, 6, 3, 8, 'north');
+        placeBuilding(gx+3, yardY+1, 6, 3, 8, 'north');
       }
 
       return { gx, gy };
@@ -2031,45 +2046,55 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   const CITY_NPCS = {
     valdenmere: [
-      { id: "valdenmere_scribe", name: "Archivist Rowen", role: "scribe" },
-      { id: "valdenmere_baker", name: "Mara the Baker", role: "baker" },
-      { id: "valdenmere_guard", name: "Captain Venn", role: "guard" },
+      { id: "valdenmere_guard1",  name: "Guard Aldric",        role: "guard_post" },
+      { id: "valdenmere_guard2",  name: "Guard Mira",          role: "guard_post" },
+      { id: "valdenmere_patrol",  name: "Captain Venn",        role: "guard" },
+      { id: "valdenmere_merchant",name: "Mara the Merchant",   role: "merchant" },
+      { id: "valdenmere_scribe",  name: "Archivist Rowen",     role: "scribe" },
     ],
     ashport: [
-      { id: "ashport_fisher", name: "Old Maren", role: "fisher" },
-      { id: "ashport_smuggler", name: "Lira of the Docks", role: "smuggler" },
-      { id: "ashport_broker", name: "Brusk the Broker", role: "broker" },
+      { id: "ashport_guard1",   name: "Dockhand Bryn",       role: "guard_post" },
+      { id: "ashport_fisher",   name: "Old Maren",           role: "fisher" },
+      { id: "ashport_smuggler", name: "Lira of the Docks",   role: "smuggler" },
+      { id: "ashport_broker",   name: "Brusk the Broker",    role: "broker" },
     ],
     crosshaven: [
-      { id: "crosshaven_innkeeper", name: "Bram the Innkeeper", role: "innkeeper" },
-      { id: "crosshaven_peddler", name: "Syla the Peddler", role: "peddler" },
+      { id: "crosshaven_guard",     name: "Town Watch Pel",    role: "guard_post" },
+      { id: "crosshaven_innkeeper", name: "Bram the Innkeeper",role: "innkeeper" },
+      { id: "crosshaven_peddler",   name: "Syla the Peddler",  role: "peddler" },
     ],
     ironholt: [
-      { id: "ironholt_miner", name: "Dag the Miner", role: "miner" },
-      { id: "ironholt_foreman", name: "Boss Kira", role: "foreman" },
-      { id: "ironholt_smith", name: "Torven the Smith", role: "smith" },
+      { id: "ironholt_guard1",  name: "Gate Warden Skor",    role: "guard_post" },
+      { id: "ironholt_foreman", name: "Boss Kira",           role: "foreman" },
+      { id: "ironholt_miner",   name: "Dag the Miner",       role: "miner" },
+      { id: "ironholt_smith",   name: "Torven the Smith",    role: "smith" },
     ],
   };
 
 const CITY_ENTITY_TEMPLATES = {
   valdenmere: [
-    { id: 'valdenmere_scribe', role: 'scribe', style: 'scribe', speed: 26, radius: 6 },
-    { id: 'valdenmere_baker', role: 'baker', style: 'baker', speed: 24, radius: 6 },
-    { id: 'valdenmere_guard', role: 'guard', style: 'guard', speed: 28, radius: 7 },
+    { id: 'valdenmere_guard1',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
+    { id: 'valdenmere_guard2',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
+    { id: 'valdenmere_patrol',   role: 'guard',      style: 'guard',  speed: 28, radius: 7 },
+    { id: 'valdenmere_merchant', role: 'merchant',   style: 'baker',  speed: 22, radius: 6 },
+    { id: 'valdenmere_scribe',   role: 'scribe',     style: 'scribe', speed: 25, radius: 6 },
   ],
   ashport: [
-    { id: 'ashport_fisher', role: 'fisher', style: 'fisher', speed: 24, radius: 6 },
-    { id: 'ashport_smuggler', role: 'smuggler', style: 'smuggler', speed: 26, radius: 6 },
-    { id: 'ashport_broker', role: 'broker', style: 'broker', speed: 25, radius: 6 },
+    { id: 'ashport_guard1',   role: 'guard_post', style: 'guard',    speed: 0,  radius: 7 },
+    { id: 'ashport_fisher',   role: 'fisher',     style: 'fisher',   speed: 24, radius: 6 },
+    { id: 'ashport_smuggler', role: 'smuggler',   style: 'smuggler', speed: 26, radius: 6 },
+    { id: 'ashport_broker',   role: 'broker',     style: 'broker',   speed: 25, radius: 6 },
   ],
   crosshaven: [
-    { id: 'crosshaven_innkeeper', role: 'innkeeper', style: 'baker', speed: 22, radius: 6 },
-    { id: 'crosshaven_peddler', role: 'peddler', style: 'scribe', speed: 24, radius: 6 },
+    { id: 'crosshaven_guard',     role: 'guard_post', style: 'guard', speed: 0,  radius: 7 },
+    { id: 'crosshaven_innkeeper', role: 'innkeeper',  style: 'baker', speed: 22, radius: 6 },
+    { id: 'crosshaven_peddler',   role: 'peddler',    style: 'scribe',speed: 24, radius: 6 },
   ],
   ironholt: [
-    { id: 'ironholt_miner', role: 'miner', style: 'fisher', speed: 25, radius: 6 },
-    { id: 'ironholt_foreman', role: 'foreman', style: 'guard', speed: 26, radius: 7 },
-    { id: 'ironholt_smith', role: 'smith', style: 'broker', speed: 22, radius: 6 },
+    { id: 'ironholt_guard1',  role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
+    { id: 'ironholt_foreman', role: 'foreman',    style: 'guard',  speed: 26, radius: 7 },
+    { id: 'ironholt_miner',   role: 'miner',      style: 'fisher', speed: 25, radius: 6 },
+    { id: 'ironholt_smith',   role: 'smith',      style: 'broker', speed: 22, radius: 6 },
   ],
 };
 
@@ -2117,10 +2142,70 @@ const NPC_INTERACT_RADIUS = 18;
           "Venn: The market\u2019s honest when the sun\u2019s high.",
           "Venn: Trouble usually arrives with a smile.",
   ],
+        valdenmere_guard1: [
+          "Aldric: Papers.",
+          "Aldric: State your business.",
+          "Aldric: Move along.",
+          "Aldric: No trouble in my watch.",
+          "Aldric: Keep weapons sheathed in the city.",
+          "Aldric: Curfew is at the third bell.",
+          "Aldric: Contraband means the cells.",
+          "Aldric: I\u2019ve been on this gate ten years. Don\u2019t test me.",
+          "Aldric: Merchant or traveler?",
+          "Aldric: The captain patrols every hour.",
+  ],
+        valdenmere_guard2: [
+          "Mira: Halt. What\u2019s your cargo?",
+          "Mira: Papers in order?",
+          "Mira: Keep it moving.",
+          "Mira: No loitering at the gate.",
+          "Mira: Weapons stay sheathed. Always.",
+          "Mira: The market closes at sundown.",
+          "Mira: We check every wagon. No exceptions.",
+          "Mira: First time in Valdenmere?",
+          "Mira: Mind the curfew.",
+          "Mira: Move on, nothing to see here.",
+  ],
+        valdenmere_patrol: [
+          "Venn: Papers ready? We don\u2019t bend for excuses.",
+          "Venn: Contraband earns a night in the cells.",
+          "Venn: Valdenmere\u2019s gates close at the third bell.",
+          "Venn: I\u2019ve seen more deals than duels.",
+          "Venn: The road south is clear\u2014for now.",
+          "Venn: Permits make inspections shorter.",
+          "Venn: Don\u2019t flash relics in daylight.",
+          "Venn: Keep your wagon straight and your story straighter.",
+          "Venn: The market\u2019s honest when the sun\u2019s high.",
+          "Venn: Trouble usually arrives with a smile.",
+  ],
+        valdenmere_merchant: [
+          "Mara: Best prices in the city, I promise.",
+          "Mara: Rations and herbs\u2014always in stock.",
+          "Mara: The market bell rings twice at noon.",
+          "Mara: I\u2019ve sold to every caravan on the road.",
+          "Mara: Ironholt wants food. Ashport wants silk.",
+          "Mara: Buy low here, sell high on the road.",
+          "Mara: The guild takes a cut but it\u2019s worth the seal.",
+          "Mara: Fresh stock from the south arrived this morning.",
+          "Mara: Grain prices are up. Buy now.",
+          "Mara: Treat your horse well and the road treats you better.",
+  ],
       }
     },
     ashport: {
       npcs: {
+        ashport_guard1: [
+          "Bryn: Dock papers or step aside.",
+          "Bryn: No crates without a manifest.",
+          "Bryn: Keep it moving.",
+          "Bryn: The dock master\u2019s rules, not mine.",
+          "Bryn: Watched a smuggler try this gate last week. Cells.",
+          "Bryn: Weapons peace-tied on the docks.",
+          "Bryn: What\u2019s your tonnage?",
+          "Bryn: Clear the gate. Others are waiting.",
+          "Bryn: Trading or passing through?",
+          "Bryn: Move along.",
+  ],
         ashport_fisher: [
           "Maren: The tide brings profit and rot alike.",
           "Maren: Fish sells, if you can stomach the stink.",
@@ -2161,6 +2246,18 @@ const NPC_INTERACT_RADIUS = 18;
     },
     crosshaven: {
       npcs: {
+        crosshaven_guard: [
+          "Pel: Just the one of me, but I\u2019m enough.",
+          "Pel: Small town, clear rules.",
+          "Pel: State your business.",
+          "Pel: Crosshaven\u2019s quiet. Keep it that way.",
+          "Pel: I know every face in this village.",
+          "Pel: Trouble goes straight to the road.",
+          "Pel: Move along.",
+          "Pel: No weapons drawn inside.",
+          "Pel: Merchant or traveler?",
+          "Pel: The inn\u2019s that way if you need it.",
+  ],
         crosshaven_innkeeper: [
           "Bram: Bed and board, no questions asked.",
           "Bram: The road north is clear today.",
@@ -2189,6 +2286,18 @@ const NPC_INTERACT_RADIUS = 18;
     },
     ironholt: {
       npcs: {
+        ironholt_guard1: [
+          "Skor: Mine or merchant?",
+          "Skor: No open flames near the shaft.",
+          "Skor: Move along.",
+          "Skor: Papers for the ore yard.",
+          "Skor: Keep the gate clear.",
+          "Skor: Ironholt\u2019s rules: work hard, cause no trouble.",
+          "Skor: The foreman\u2019s word is law here.",
+          "Skor: You\u2019re not on the roster. Stand aside.",
+          "Skor: State your business.",
+          "Skor: Weapons check at the gate.",
+  ],
         ironholt_miner: [
           "Dag: Ten years underground, and still the sky surprises me.",
           "Dag: Ore flows east this season.",
@@ -3227,6 +3336,10 @@ function buildNpcWaypoints(role, city) {
   const wp = (pt, pauseMs = 800) => ({ x: pt.x, y: pt.y, pauseMs });
 
   switch (role) {
+    case 'guard_post':
+      // Stand at gate — one waypoint with very long pause. Slight jitter from NPC id separates them.
+      return [ wp(gate, 30000) ];
+
     case 'guard':
       // Patrol: gate → wall NW → wall NE → market check → wall SE → gate
       return [
@@ -3276,6 +3389,15 @@ function buildNpcWaypoints(role, city) {
         wp(gate, 600),     // watches the gate
         wp(alley, 300),
         wp(cornerSW, 500),
+      ];
+
+    case 'merchant':
+      // Paces back and forth near market stalls
+      return [
+        wp(market, 2000),
+        wp({ x: market.x - 14, y: market.y + 8 }, 800),
+        wp({ x: market.x + 14, y: market.y - 8 }, 800),
+        wp(market, 1800),
       ];
 
     case 'broker':
@@ -3431,17 +3553,33 @@ function spawnCityNPCs(cityId) {
   if (!city) return;
   const templates = CITY_ENTITY_TEMPLATES[cityId] || [];
   const b = npcCityBounds(city);
+  // Gate pixel position: south-center of the city, just inside walls
+  const gateWorldX = (city.x + Math.floor(city.w / 2)) * TILE;
+  const gateWorldY = (city.y + city.h - 2) * TILE;  // 2 tiles from south wall inside
+  let guardPostCount = 0; // track how many guard_posts placed for offset
   for (const tpl of templates) {
-    let placed = false;
-    let x = (city.x + city.w / 2) * TILE;
-    let y = (city.y + city.h / 2) * TILE;
-    for (let i = 0; i < 16; i++) {
-      const rx = seeded01(hashStr(tpl.id), i, 7);
-      const ry = seeded01(hashStr(tpl.id), i, 13);
-      const nx = b.x1 + rx * (b.x2 - b.x1);
-      const ny = b.y1 + ry * (b.y2 - b.y1);
-      if (!npcBlockedAt(nx, ny, tpl.radius)) {
-        x = nx; y = ny; placed = true; break;
+    let x, y;
+    if (tpl.role === 'guard_post') {
+      // Place guards flanking the gate entrance (left/right offset)
+      const offset = (guardPostCount === 0 ? -1 : 1) * TILE * 1.5;
+      guardPostCount++;
+      x = gateWorldX + offset;
+      y = gateWorldY;
+      // If blocked, nudge inward
+      for (let nudge = 0; nudge <= TILE * 3; nudge += TILE) {
+        if (!npcBlockedAt(x, y - nudge, tpl.radius)) { y -= nudge; break; }
+      }
+    } else {
+      x = (city.x + city.w / 2) * TILE;
+      y = (city.y + city.h / 2) * TILE;
+      for (let i = 0; i < 16; i++) {
+        const rx = seeded01(hashStr(tpl.id), i, 7);
+        const ry = seeded01(hashStr(tpl.id), i, 13);
+        const nx = b.x1 + rx * (b.x2 - b.x1);
+        const ny = b.y1 + ry * (b.y2 - b.y1);
+        if (!npcBlockedAt(nx, ny, tpl.radius)) {
+          x = nx; y = ny; break;
+        }
       }
     }
     const waypoints = buildNpcWaypoints(tpl.role, city);
