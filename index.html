@@ -8,25 +8,100 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>The Amber Road</title>
   <style>
-    :root { color-scheme: dark; }
-    body { margin: 0; background: #0b0f14; color: #e8edf2; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-    header { padding: 14px 16px; border-bottom: 1px solid #1e2a36; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
-    header h1 { font-size: 16px; margin: 0; }
-    header .meta { color: #8aa0b3; }
-    #wrap { display: grid; grid-template-columns: 1fr; place-items: center; padding: 18px; }
-    @media (pointer: coarse) {
-      #wrap { padding: 10px; }
+    :root {
+      color-scheme: dark;
+      --amber: #d4943a;
+      --amber-dim: rgba(212,148,58,0.55);
+      --surface: #0d1219;
+      --surface-2: #111820;
+      --border: #1a2736;
+      --border-bright: #243448;
+      --text: #e8edf2;
+      --text-dim: #7a9ab5;
     }
-    canvas { width: 100%; height: auto; border: 1px solid #1e2a36; border-radius: 14px; background: #0f1620; box-shadow: 0 12px 40px rgba(0,0,0,.35); image-rendering: pixelated; touch-action: none; }
-    .hint { margin-top: 12px; color: #8aa0b3; text-align:center; max-width: min(960px, 96vw); }
+    body { margin: 0; background: var(--surface); color: var(--text);
+      font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212,148,58,0.07), transparent);
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 0 20px;
+      height: 48px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(10,14,20,0.92);
+      backdrop-filter: blur(10px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    header h1 {
+      font-size: 15px; font-weight: 800; margin: 0;
+      letter-spacing: 0.03em;
+      background: linear-gradient(135deg, #e8d5b0, var(--amber));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .header-badge {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+      color: var(--amber);
+      border: 1px solid var(--amber-dim);
+      border-radius: 999px;
+      padding: 2px 8px;
+      opacity: 0.85;
+    }
+    header .meta { color: var(--text-dim); font-size: 12px; }
+
+    /* ── Main layout ── */
+    #wrap { display: flex; flex-direction: column; align-items: center; padding: 20px 16px 28px; gap: 14px; }
+    @media (pointer: coarse) {
+      #wrap { padding: 8px 8px 20px; gap: 10px; }
+      header { height: 44px; padding: 0 14px; }
+    }
+
+    /* ── Game stage + canvas ── */
+    #stage {
+      position: relative;
+      width: min(960px, calc(100vw - 32px));
+    }
+    canvas {
+      width: 100%; height: auto;
+      display: block;
+      background: #0f1620;
+      image-rendering: pixelated;
+      touch-action: none;
+      border-radius: 16px;
+      box-shadow: 0 0 0 1px var(--border), 0 20px 60px rgba(0,0,0,.5), 0 0 80px rgba(212,148,58,0.05);
+    }
+    @media (pointer: coarse) {
+      canvas { border-radius: 12px; }
+    }
+    .hint {
+      color: var(--text-dim); text-align: center;
+      max-width: min(960px, calc(100vw - 32px));
+      font-size: 12px; letter-spacing: 0.01em;
+    }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding: 2px 6px; border: 1px solid #2a3a4b; border-bottom-color: #16202b; border-radius: 6px; background: #0f1620; color: #cfe6ff; }
 
-    .devlog { margin-top: 12px; width: min(920px, calc(100vw - 28px)); border: 1px solid #1e2a36; border-radius: 14px; background: rgba(15,22,32,0.75); backdrop-filter: blur(8px); padding: 12px 14px; color: #cbd5e1; }
-    .devlog-title { font-weight: 700; color: #e8edf2; margin-bottom: 6px; }
-    .devlog-body { color: #a8bdcf; font-size: 13px; white-space: pre-line; max-height: 140px; overflow: auto; }
-
-    #stage { position: relative; width: min(920px, calc(100vw - 28px)); }
+    /* ── Dev log ── */
+    .devlog {
+      width: min(960px, calc(100vw - 32px));
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(13,18,25,0.80);
+      backdrop-filter: blur(8px);
+      padding: 10px 16px 12px;
+      color: #cbd5e1;
+      box-sizing: border-box;
+    }
+    .devlog-title {
+      font-weight: 800; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--amber); opacity: 0.75; margin-bottom: 6px;
+    }
+    .devlog-body { color: #8aa0b3; font-size: 12px; white-space: pre-line; max-height: 120px; overflow: auto; line-height: 1.6; }
 
     /* Floating action buttons */
     #fab-bar .fab {
@@ -354,8 +429,11 @@
 </head>
 <body>
   <header>
-    <h1>The Amber Road</h1>
-    <div class="meta">Top-down fantasy trading — roam, trade, survive the road</div>
+    <div class="header-left">
+      <h1>⚔️ The Amber Road</h1>
+      <span class="header-badge">ALPHA</span>
+    </div>
+    <div class="meta">Roam · Trade · Survive</div>
   </header>
   <!-- Player Login Overlay -->
   <div id="login-overlay">
@@ -388,15 +466,14 @@
       <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:200"></div>
     </div>
 
-    <!-- Touch controls (shown on coarse pointers). Placed UNDER the stage so it never blocks HUD/notes. -->
     <div class="hint">
-      Tap/click to move · Tap NPCs to talk · Tap market tile to trade
+      Click / tap to move &nbsp;·&nbsp; Tap NPCs to talk &nbsp;·&nbsp; Tap a building to interact
     </div>
 
     <div id="devlog" class="devlog" aria-label="Iteration notes">
-      <div class="devlog-title">Iteration Notes</div>
+      <div class="devlog-title">Patch Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.75; font-size:12px; margin-top:8px;">HTML build: v0.3.36</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.3.37</div>
     </div>
   </div>
 
