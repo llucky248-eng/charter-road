@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.41'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.42'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1416,10 +1416,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     if (TAP_BUILDING_ACTIONS[tapTile] !== undefined) {
       const action = TAP_BUILDING_ACTIONS[tapTile];
-      const c = currentCity();
       const playerTX = Math.floor(player.x / TILE), playerTY = Math.floor(player.y / TILE);
       const distTiles = Math.max(Math.abs(resolvedTileX - playerTX), Math.abs(resolvedTileY - playerTY));
-      if (c && distTiles <= 5) {
+      const c = currentOrNearestCity(8);
+      if (c && distTiles <= 6) {
         // Close enough — open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
         else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
@@ -5978,16 +5978,16 @@ function drawNpcBubble() {
               toast('Contracts board opened', 1.8);
             }
           } else if (action === 'bank') {
-            const c = currentCity();
+            const c = currentOrNearestCity(8);
             if (c) { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
           } else if (action === 'inn') {
-            const c = currentCity();
+            const c = currentOrNearestCity(8);
             if (c) { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
           } else if (action === 'guild') {
-            const c = currentCity();
+            const c = currentOrNearestCity(8);
             if (c) { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
           } else if (action === 'warehouse') {
-            const c = currentCity();
+            const c = currentOrNearestCity(8);
             if (c) { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
           }
         }
@@ -6108,6 +6108,23 @@ function drawNpcBubble() {
       if (px >= c.x && px < c.x + c.w && py >= c.y && py < c.y + c.h) return c;
     }
     return null;
+  }
+
+  // Like currentCity() but also returns the nearest city within 3 tiles — useful
+  // when the player is standing in a building at the city boundary.
+  function currentOrNearestCity(radiusTiles = 3) {
+    const c = currentCity();
+    if (c) return c;
+    const px = player.x / TILE;
+    const py = player.y / TILE;
+    let best = null, bestD = radiusTiles;
+    for (const city of world.cities) {
+      const cx = city.x + city.w / 2;
+      const cy = city.y + city.h / 2;
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < bestD) { bestD = d; best = city; }
+    }
+    return best;
   }
 
   function nearMarketTile() {
