@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.40'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.41'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2073,25 +2073,25 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 const CITY_ENTITY_TEMPLATES = {
   valdenmere: [
-    { id: 'valdenmere_guard1',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
-    { id: 'valdenmere_guard2',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
+    { id: 'valdenmere_guard1',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 5 },
+    { id: 'valdenmere_guard2',   role: 'guard_post', style: 'guard',  speed: 0,  radius: 5 },
     { id: 'valdenmere_patrol',   role: 'guard',      style: 'guard',  speed: 28, radius: 7 },
     { id: 'valdenmere_merchant', role: 'merchant',   style: 'baker',  speed: 22, radius: 6 },
     { id: 'valdenmere_scribe',   role: 'scribe',     style: 'scribe', speed: 25, radius: 6 },
   ],
   ashport: [
-    { id: 'ashport_guard1',   role: 'guard_post', style: 'guard',    speed: 0,  radius: 7 },
+    { id: 'ashport_guard1',   role: 'guard_post', style: 'guard',    speed: 0,  radius: 5 },
     { id: 'ashport_fisher',   role: 'fisher',     style: 'fisher',   speed: 24, radius: 6 },
     { id: 'ashport_smuggler', role: 'smuggler',   style: 'smuggler', speed: 26, radius: 6 },
     { id: 'ashport_broker',   role: 'broker',     style: 'broker',   speed: 25, radius: 6 },
   ],
   crosshaven: [
-    { id: 'crosshaven_guard',     role: 'guard_post', style: 'guard', speed: 0,  radius: 7 },
+    { id: 'crosshaven_guard',     role: 'guard_post', style: 'guard', speed: 0,  radius: 5 },
     { id: 'crosshaven_innkeeper', role: 'innkeeper',  style: 'baker', speed: 22, radius: 6 },
     { id: 'crosshaven_peddler',   role: 'peddler',    style: 'scribe',speed: 24, radius: 6 },
   ],
   ironholt: [
-    { id: 'ironholt_guard1',  role: 'guard_post', style: 'guard',  speed: 0,  radius: 7 },
+    { id: 'ironholt_guard1',  role: 'guard_post', style: 'guard',  speed: 0,  radius: 5 },
     { id: 'ironholt_foreman', role: 'foreman',    style: 'guard',  speed: 26, radius: 7 },
     { id: 'ironholt_miner',   role: 'miner',      style: 'fisher', speed: 25, radius: 6 },
     { id: 'ironholt_smith',   role: 'smith',      style: 'broker', speed: 22, radius: 6 },
@@ -3560,13 +3560,13 @@ function spawnCityNPCs(cityId) {
   for (const tpl of templates) {
     let x, y;
     if (tpl.role === 'guard_post') {
-      // Place guards flanking the gate entrance (left/right offset)
-      const offset = (guardPostCount === 0 ? -1 : 1) * TILE * 1.5;
+      // Place guards flanking the gate — left/right of center, 3 tiles apart, inside city
+      const side = guardPostCount === 0 ? -1 : 1;
       guardPostCount++;
-      x = gateWorldX + offset;
-      y = gateWorldY;
-      // If blocked, nudge inward
-      for (let nudge = 0; nudge <= TILE * 3; nudge += TILE) {
+      x = gateWorldX + side * TILE * 2.5;  // far enough left/right to not block the lane
+      y = gateWorldY - TILE * 1.5;         // one step inside the city
+      // Nudge inward if blocked
+      for (let nudge = 0; nudge <= TILE * 4; nudge += TILE) {
         if (!npcBlockedAt(x, y - nudge, tpl.radius)) { y -= nudge; break; }
       }
     } else {
@@ -4188,11 +4188,11 @@ function resolvePlayerNpcOverlap() {
 function isNpcBlocking(px, py) {
   if (stateTime < (player.npcGhostUntil || 0)) return false;
   const overlaps = getOverlappingNpcs(player.x, player.y);
-  if (!overlaps.length) return npcOverlapAt(px, py);
   const ignore = new Set(overlaps.map(e => e.id));
   for (const e of entities) {
     if (e.kind !== 'npc') continue;
     if (ignore.has(e.id)) continue;
+    if (e.role === 'guard_post') continue; // guards are decorative — player passes through
     const dx = px - e.x;
     const dy = py - e.y;
     const r = player.r + e.radius;
