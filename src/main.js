@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.38'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.39'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1386,16 +1386,40 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Check tile at tap location
     const tapTileX = Math.floor(worldX / TILE);
     const tapTileY = Math.floor(worldY / TILE);
-    const tapTile = tileAt(tapTileX, tapTileY);
+    let tapTile = tileAt(tapTileX, tapTileY);
 
     // Building tap-to-interact: open immediately if close enough + in city,
     // otherwise walk to the tile first then open on arrival.
     const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild' };
+
+    // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
+    // nearest building interior tile so tapping on a building's visible art still works.
+    let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
+    if (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined) {
+      let bestDist = 9999, bestTile = null;
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const nx = tapTileX + dx, ny = tapTileY + dy;
+          const t = tileAt(nx, ny);
+          if (TAP_BUILDING_ACTIONS[t] !== undefined) {
+            const d = Math.abs(dx) + Math.abs(dy);
+            if (d < bestDist) { bestDist = d; bestTile = { tx: nx, ty: ny, t }; }
+          }
+        }
+      }
+      if (bestTile && bestDist <= 4) {
+        tapTile = bestTile.t;
+        resolvedTileX = bestTile.tx;
+        resolvedTileY = bestTile.ty;
+      }
+    }
+
     if (TAP_BUILDING_ACTIONS[tapTile] !== undefined) {
       const action = TAP_BUILDING_ACTIONS[tapTile];
       const c = currentCity();
-      const distTiles = Math.max(Math.abs(tapTileX - Math.floor(player.x / TILE)), Math.abs(tapTileY - Math.floor(player.y / TILE)));
-      if (c && distTiles <= 4) {
+      const playerTX = Math.floor(player.x / TILE), playerTY = Math.floor(player.y / TILE);
+      const distTiles = Math.max(Math.abs(resolvedTileX - playerTX), Math.abs(resolvedTileY - playerTY));
+      if (c && distTiles <= 5) {
         // Close enough — open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
         else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
@@ -1404,9 +1428,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
         else if (action === 'warehouse') { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
       } else {
-        // Walk to building tile, open on arrival
+        // Walk to building interior tile, open on arrival
         clickMove.markerX = sx; clickMove.markerY = sy;
-        planClickPath((tapTileX + 0.5) * TILE, (tapTileY + 0.5) * TILE, action);
+        planClickPath((resolvedTileX + 0.5) * TILE, (resolvedTileY + 0.5) * TILE, action);
       }
       e.preventDefault(); return;
     }
@@ -7015,13 +7039,13 @@ function drawBuildingLabels() {
   if (!currentCity()) return; // only inside cities
 
   const INTERACT = {
-    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 4 },
-    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 4 },
-    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 3 },
-    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 3 },
-    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 4 },
-    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 4 },
-    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 4 },
+    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 6 },
+    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 6 },
+    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 5 },
+    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 5 },
+    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 6 },
+    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 6 },
+    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 6 },
   };
 
   const px = player.x, py = player.y;
