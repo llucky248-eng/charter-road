@@ -478,10 +478,10 @@ function renderPopulations(save) {
 
 // ── AI Trader definitions (mirrors main.js) ───────────────────────────────
 const TRADER_DEFS = [
-  { id: 'olt_the_bold',    name: 'Olt the Bold',      style: 'guard',    personality: 'aggressive',  color: '#ef4444' },
-  { id: 'mira_silvertong', name: 'Mira Silvertongue', style: 'scribe',   personality: 'opportunist', color: '#a78bfa' },
-  { id: 'cargo_dom',       name: 'Cargo Dom',         style: 'broker',   personality: 'cautious',    color: '#f59e0b' },
-  { id: 'wren_the_swift',  name: 'Wren the Swift',    style: 'smuggler', personality: 'aggressive',  color: '#34d399' },
+  { id: 'olt_the_bold',    name: 'Olt the Bold',      style: 'guard',    personality: 'aggressive',  color: '#ef4444', startGold: 80  },
+  { id: 'mira_silvertong', name: 'Mira Silvertongue', style: 'scribe',   personality: 'opportunist', color: '#a78bfa', startGold: 100 },
+  { id: 'cargo_dom',       name: 'Cargo Dom',         style: 'broker',   personality: 'cautious',    color: '#f59e0b', startGold: 120 },
+  { id: 'wren_the_swift',  name: 'Wren the Swift',    style: 'smuggler', personality: 'aggressive',  color: '#34d399', startGold: 140 },
 ];
 
 const TRADER_STATIC = {
@@ -496,44 +496,81 @@ function personalityLabel(p) {
   return                          { icon: '🎲', label: 'Opportunist', color: '#c084fc' };
 }
 
-function renderTraders(save) {
-  const grid = document.getElementById('trader-grid');
-  // Try to read live trader state from the save
-  const traders = save?.data?.aiTraders || [];
+// ── Fetch live trader state from Supabase world_traders ───────────────────
+async function fetchTraders() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/world_traders?select=*`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  return res.json();
+}
 
-  // If no saved trader state, render definition cards with personality lines
+function renderTraders(liveRows, save, source) {
+  const grid = document.getElementById('trader-grid');
+
+  // source: 'supabase' | 'localsave' | 'default'
+  const badge = source === 'supabase'
+    ? `<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(74,222,128,0.15);color:#4ade80;font-weight:700">🟢 Live server sim</span>`
+    : source === 'localsave'
+    ? `<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(148,163,184,0.15);color:#94a3b8;font-weight:700">⚪ Local save</span>`
+    : `<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(100,116,139,0.1);color:#64748b;font-weight:700">⭕ No live data</span>`;
+
   const cards = TRADER_DEFS.map(def => {
-    const live = traders.find(t => t.id === def.id);
-    const p = personalityLabel(def.personality);
+    // Prefer Supabase row, fall back to localStorage save
+    const sb   = liveRows.find(r => r.id === def.id);
+    const local = save?.data?.aiTraders?.find(t => t.id === def.id);
+    const d    = sb || local; // best available data
+
+    const p    = personalityLabel(def.personality);
     const pool = TRADER_STATIC[def.personality] || TRADER_STATIC.opportunist;
-    // Pick a deterministic "current quip" from the pool
     const quip = pool[def.id.length % pool.length];
 
-    // Starting gold per TRADER_DEFS order (matches main.js: 80 + i*20)
-    const defIdx = TRADER_DEFS.indexOf(def);
-    const startGold = live?.startGold ?? (80 + defIdx * 20);
-    const currentGold = live?.gold ?? startGold;
-    const totalProfit = live?.totalProfit ?? 0;
-    const tripsCompleted = live?.tripsCompleted ?? 0;
-    const netChange = currentGold - startGold;
-    const netColor = netChange >= 0 ? '#4ade80' : '#f87171';
-    const profitColor = totalProfit > 0 ? '#4ade80' : '#94a3b8';
+    const startGold     = d?.start_gold ?? d?.startGold ?? def.startGold;
+    const currentGold   = d?.gold ?? def.startGold;
+    const totalProfit   = d?.total_profit ?? d?.totalProfit ?? 0;
+    const tripsCompleted= d?.trips_completed ?? d?.tripsCompleted ?? 0;
+    const netChange     = currentGold - startGold;
+    const netColor      = netChange >= 0 ? '#4ade80' : '#f87171';
+    const profitColor   = totalProfit > 0 ? '#4ade80' : '#94a3b8';
+
+    // Route fields: Supabase uses snake_case, localStorage uses camelCase
+    const state    = d?.state || 'unknown';
+    const fromId   = d?.from_id || d?.fromId || '—';
+    const toId     = d?.to_id   || d?.toId   || '—';
+    const itemId   = d?.item_id || d?.itemId  || '—';
+    const inv      = d?.inv || {};
+    const progress = typeof d?.progress === 'number' ? d.progress : null;
+
+    const fromCity = CITIES.find(c => c.id === fromId);
+    const toCity   = CITIES.find(c => c.id === toId);
+    const it       = ITEMS.find(i => i.id === itemId);
+    const cargoCount = Object.values(inv).reduce((a, b) => a + b, 0);
+
+    const stateLabel = state === 'traveling' ? '🚚 Traveling' : state === 'in_city' ? '🏙 In City' : '❓ Unknown';
+    const stateColor = state === 'traveling' ? '#4ade80' : state === 'in_city' ? '#94a3b8' : '#64748b';
+
+    // Progress bar (only for traveling + Supabase source)
+    const progressBar = (state === 'traveling' && progress !== null) ? `
+      <div style="margin:6px 0 8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#6a8aa0;margin-bottom:3px">
+          <span>${fromCity?.name || fromId}</span>
+          <span style="color:#a0c0d0">${Math.round(progress * 100)}%</span>
+          <span>${toCity?.name || toId}</span>
+        </div>
+        <div style="background:#1e293b;border-radius:4px;height:6px;overflow:hidden">
+          <div style="width:${Math.round(progress*100)}%;height:100%;background:${def.color};transition:width 0.5s;border-radius:4px"></div>
+        </div>
+      </div>` : '';
 
     let statusHtml = '';
-    if (live) {
-      const fromCity = CITIES.find(c => c.id === live.fromId);
-      const toCity   = CITIES.find(c => c.id === live.toId);
-      const it       = ITEMS.find(i => i.id === live.itemId);
-      const cargoCount = Object.values(live.inv || {}).reduce((a, b) => a + b, 0);
-      const stateLabel = live.state === 'traveling' ? '🚚 Traveling' : live.state === 'in_city' ? '🏙 In City' : live.state;
-      const stateColor = live.state === 'traveling' ? '#4ade80' : '#94a3b8';
-
+    if (d) {
       statusHtml = `
         <div class="stat"><span class="stat-label">Status</span><span class="stat-val" style="color:${stateColor}">${stateLabel}</span></div>
-        <div class="stat"><span class="stat-label">Route</span><span class="stat-val">${fromCity?.name || '—'} → ${toCity?.name || '—'}</span></div>
-        <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${cargoCount > 0 ? `${cargoCount}× ${it?.name || live.itemId}` : 'Empty'}</span></div>`;
+        <div class="stat"><span class="stat-label">Route</span><span class="stat-val">${fromCity?.name || fromId} → ${toCity?.name || toId}</span></div>
+        <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${cargoCount > 0 ? `${cargoCount}× ${it?.name || itemId}` : 'Empty'}</span></div>
+        ${progressBar}`;
     } else {
-      statusHtml = `<div style="font-size:12px;color:#4a6a80;margin:6px 0 4px">Play the game to see live route data.</div>`;
+      statusHtml = `<div style="font-size:12px;color:#4a6a80;margin:6px 0 4px">Waiting for first world tick…</div>`;
     }
 
     statusHtml += `
@@ -542,9 +579,14 @@ function renderTraders(save) {
       <div class="stat"><span class="stat-label">Total Profit</span><span class="stat-val" style="color:${profitColor}">${totalProfit > 0 ? '+' : ''}${totalProfit}g</span></div>
       <div class="stat"><span class="stat-label">Trips Done</span><span class="stat-val">${tripsCompleted}</span></div>`;
 
+    const quipText = d ? (pool[Math.floor((currentGold || 0) % pool.length)] || quip) : quip;
+
     return `
-      <div class="card" style="border-color:${def.color}22">
-        <div class="card-title">AI Trader</div>
+      <div class="card" style="border-color:${def.color}33">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div class="card-title" style="margin-bottom:0">AI Trader</div>
+          ${badge}
+        </div>
         <div class="city-name" style="color:${def.color};margin-bottom:2px">${def.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
           <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${def.color}22;color:${p.color}">${p.icon} ${p.label}</span>
@@ -553,7 +595,7 @@ function renderTraders(save) {
         ${statusHtml}
         <div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;border-left:2px solid ${def.color}55">
           <div style="font-size:10px;color:#4a6a80;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase">Says</div>
-          <div style="font-size:12px;color:#c0d0e0;font-style:italic">"${live ? (TRADER_STATIC[def.personality][Math.floor((live.gold||0) % pool.length)] || quip) : quip}"</div>
+          <div style="font-size:12px;color:#c0d0e0;font-style:italic">"${quipText}"</div>
         </div>
       </div>`;
   }).join('');
@@ -572,19 +614,35 @@ async function refresh() {
   const save = readSave();
   renderSave(save);
   renderPopulations(save);
-  renderTraders(save);
 
-  try {
-    const pressure = await fetchPressure();
-    renderHeatmap(pressure);
-    renderCities(pressure);
-    const now = new Date().toLocaleTimeString();
-    statusText.textContent = `Last updated ${now} · ${Object.keys(pressure).length} cities · ${save ? 'Save loaded' : 'No local save'}`;
-  } catch (e) {
+  // Fetch Supabase data in parallel
+  const [pressureResult, tradersResult] = await Promise.allSettled([
+    fetchPressure(),
+    fetchTraders(),
+  ]);
+
+  // Economy
+  const pressure = pressureResult.status === 'fulfilled' ? pressureResult.value : {};
+  if (pressureResult.status === 'rejected') {
     dot.className = 'dot err';
-    statusText.textContent = `Supabase error: ${e.message} — showing base prices`;
-    renderHeatmap({});
-    renderCities({});
+    statusText.textContent = `Supabase error: ${pressureResult.reason.message} — showing base prices`;
+  }
+  renderHeatmap(pressure);
+  renderCities(pressure);
+
+  // Traders
+  let liveRows = [], traderSource = 'default';
+  if (tradersResult.status === 'fulfilled' && tradersResult.value?.length > 0) {
+    liveRows = tradersResult.value;
+    traderSource = 'supabase';
+  } else if (save?.data?.aiTraders?.length > 0) {
+    traderSource = 'localsave';
+  }
+  renderTraders(liveRows, save, traderSource);
+
+  if (pressureResult.status === 'fulfilled') {
+    const now = new Date().toLocaleTimeString();
+    statusText.textContent = `Last updated ${now} · ${Object.keys(pressure).length} cities · Traders: ${traderSource === 'supabase' ? '🟢 live' : traderSource === 'localsave' ? '⚪ local' : '⭕ none'}`;
   }
 }
 

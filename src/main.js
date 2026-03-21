@@ -2960,6 +2960,61 @@ function spawnAiTraders() {
 // Call after TRADER_DEFS and AI_TRADERS are initialized (world is available at this point)
 spawnAiTraders();
 
+// Sync AI trader state from Supabase world_traders (fire-and-forget, non-blocking)
+async function syncTradersFromServer() {
+  if (__QA.enabled) return; // skip in QA mode
+  try {
+    const res = await fetch(
+      `${ECONOMY.url}/rest/v1/world_traders?select=*`,
+      { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
+    );
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) return;
+
+    for (const row of rows) {
+      const t = AI_TRADERS.find(tr => tr.id === row.id);
+      if (!t) continue;
+      // Sync economy data
+      t.gold           = row.gold;
+      t.totalProfit    = row.total_profit;
+      t.tripsCompleted = row.trips_completed;
+      t.fromId         = row.from_id;
+      t.toId           = row.to_id;
+      t.itemId         = row.item_id;
+      t.inv            = typeof row.inv === 'object' ? row.inv : {};
+
+      // Sync travel state
+      if (row.state === 'in_city') {
+        t.state = 'in_city';
+        t.path  = [];
+        t.pathIdx = 0;
+        const destC = getCityById(row.to_id);
+        if (destC) {
+          t.x = (destC.x + destC.w / 2) * TILE;
+          t.y = (destC.y + destC.h / 2) * TILE;
+        }
+      } else if (row.state === 'traveling' && typeof row.progress === 'number') {
+        t.state = 'traveling';
+        const path = buildTraderPath(row.from_id, row.to_id);
+        if (path && path.length > 0) {
+          t.path    = path;
+          t.pathIdx = Math.min(Math.floor(row.progress * path.length), path.length - 1);
+          const wp  = path[t.pathIdx];
+          if (wp) { t.x = wp.x; t.y = wp.y; }
+        }
+      }
+    }
+    console.log(`[SYNC] Synced ${rows.length} traders from server`);
+  } catch (e) {
+    // Non-fatal — game runs with local state
+    console.warn('[SYNC] Trader sync failed (non-fatal):', e.message);
+  }
+}
+
+// Call after world is ready — deferred slightly so world init completes first
+setTimeout(syncTradersFromServer, 1500);
+
 function traderArrive(t) {
   // Snap to city center
   const destC = getCityById(t.toId);
