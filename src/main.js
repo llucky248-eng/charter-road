@@ -3052,6 +3052,13 @@ function updateAiTraders(dt) {
       }
       t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y;
     }
+
+    maybeFireTraderBubble(t, dt);
+  }
+
+  // Also tick in_city bubbles
+  for (const t of AI_TRADERS) {
+    if (t.state === 'in_city') maybeFireTraderBubble(t, dt);
   }
 }
 
@@ -3148,6 +3155,159 @@ function openTraderUI(trader) {
 function closeTraderUI() {
   const el = document.getElementById('cr-trader-modal');
   if (el) el.remove();
+}
+
+// ── Trader speech bubbles ("static") ─────────────────────────────────────────
+const TRADER_STATIC = {
+  aggressive: [
+    'Out of my way!',
+    'Time is gold.',
+    'I\'ll cut you a deal — once.',
+    'Move it or lose it.',
+    'Profits don\'t wait.',
+    'Faster than the tax man!',
+  ],
+  cautious: [
+    'Steady trade, steady coin.',
+    'Always check the road ahead.',
+    'No rush — no losses.',
+    'Is that bandit country?',
+    'A safe route beats a fast one.',
+    'Better safe than sorry.',
+  ],
+  opportunist: [
+    'Where there\'s chaos, there\'s coin.',
+    'I smell a bargain…',
+    'The market never sleeps.',
+    'Luck favours the prepared.',
+    'Every trip\'s a gamble.',
+    'Who needs a map?',
+  ],
+};
+
+// Context-sensitive lines based on trader state
+function getTraderContextLine(t) {
+  const destName = getCityById(t.toId)?.name || t.toId;
+  const fromName = getCityById(t.fromId)?.name || t.fromId;
+  const it = ITEMS.find(i => i.id === t.itemId);
+  const itemName = it ? it.name : 'goods';
+  const cargoCount = Object.values(t.inv).reduce((a, b) => a + b, 0);
+
+  if (t.state === 'in_city') {
+    const lines = [
+      `Restocking in ${fromName}…`,
+      `${fromName} market is lively today.`,
+      'Just arrived. Give me a moment.',
+      `Looking for ${itemName} at a good price.`,
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+  }
+  // Traveling
+  if (cargoCount === 0) return `Heading to ${destName} empty — not ideal.`;
+  const lines = [
+    `Hauling ${cargoCount}× ${itemName} to ${destName}.`,
+    `${destName} pays well for ${itemName}.`,
+    `${Math.round(Math.hypot(t.x - (getCityById(t.toId)?.x||0)*TILE, t.y - (getCityById(t.toId)?.y||0)*TILE))}px to go…`,
+    `${itemName} → ${destName}. Let's go.`,
+  ];
+  return lines[Math.floor(Math.random() * lines.length)];
+}
+
+// Pick a line (mix context-sensitive + personality)
+function pickTraderLine(t) {
+  const useContext = Math.random() < 0.4;
+  if (useContext) return getTraderContextLine(t);
+  const pool = TRADER_STATIC[t.personality] || TRADER_STATIC.opportunist;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Active trader bubbles: Map<traderId, {text, untilMs}>
+const _traderBubbles = new Map();
+
+// Called from updateAiTraders to occasionally fire a quip
+function maybeFireTraderBubble(t, dt) {
+  // Don't fire if trader not visible
+  const sx = t.x - camera.x, sy = t.y - camera.y;
+  if (sx < -20 || sx > VIEW_W+20 || sy < -20 || sy > VIEW_H+20) return;
+
+  // Timers stored on trader object
+  if (t._bubbleTimer === undefined) t._bubbleTimer = 8 + Math.random() * 12 + (TRADER_DEFS.indexOf(TRADER_DEFS.find(d=>d.id===t.id))||0) * 3;
+  t._bubbleTimer -= dt;
+  if (t._bubbleTimer > 0) return;
+
+  // Fire a bubble
+  const text = pickTraderLine(t);
+  _traderBubbles.set(t.id, { text, untilMs: stateTime + 2800 });
+
+  // Next quip in 10–20s
+  t._bubbleTimer = 10 + Math.random() * 10;
+}
+
+function drawTraderBubbles() {
+  if (_traderBubbles.size === 0) return;
+
+  const fontSize = Math.round(10 * UI_SCALE);
+  ctx.save();
+  ctx.font = `600 ${fontSize}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+
+  for (const [traderId, bubble] of _traderBubbles) {
+    if (stateTime > bubble.untilMs) { _traderBubbles.delete(traderId); continue; }
+    const t = AI_TRADERS.find(tr => tr.id === traderId);
+    if (!t) { _traderBubbles.delete(traderId); continue; }
+
+    const sx = t.x - camera.x;
+    const sy = t.y - camera.y;
+    if (sx < -20 || sx > VIEW_W+40 || sy < -40 || sy > VIEW_H+20) continue;
+
+    const maxW = IS_MOBILE ? Math.min(180, VIEW_W - 20) : 220;
+    const pad = 9;
+    const maxTextW = Math.max(40, maxW - pad * 2);
+    const line = ellipsizeText(bubble.text, maxTextW);
+    const tw = Math.min(maxW, ctx.measureText(line).width + pad * 2);
+    const th = Math.round(17 * UI_SCALE);
+
+    let bx = sx - tw / 2;
+    let by = sy - t.radius - th - 14;
+    if (IS_MOBILE && by < HUD_H + 6) by = sy + t.radius + 6;
+    bx = clamp(bx, 8, VIEW_W - tw - 8);
+    by = clamp(by, HUD_H + 6, VIEW_H - th - 8);
+
+    // Alpha fade near end
+    const remaining = bubble.untilMs - stateTime;
+    const alpha = remaining < 400 ? remaining / 400 : 1;
+    ctx.globalAlpha = alpha;
+
+    // Bubble background — tinted by trader color
+    ctx.fillStyle = 'rgba(12,10,6,0.88)';
+    ctx.strokeStyle = t.color || 'rgba(200,160,60,0.6)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, tw, th, 8);
+    else ctx.rect(bx, by, tw, th);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tail triangle
+    const tx = clamp(sx, bx + 8, bx + tw - 8);
+    ctx.fillStyle = 'rgba(12,10,6,0.88)';
+    ctx.beginPath();
+    ctx.moveTo(tx - 5, by + th);
+    ctx.lineTo(tx + 5, by + th);
+    ctx.lineTo(tx, by + th + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = t.color || 'rgba(200,160,60,0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Text
+    ctx.fillStyle = '#e8d89a';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(line, bx + pad, by + th / 2);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawAiTrader(t) {
@@ -9063,6 +9223,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawBuildingLabels();
     drawEntities();
     for (const t of AI_TRADERS) drawAiTrader(t);
+    drawTraderBubbles();
     drawNavPath();
     drawClickMarker();
     drawPlayer();
