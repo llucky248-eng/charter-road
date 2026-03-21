@@ -210,6 +210,11 @@
   <div class="card"><div class="empty">Loading…</div></div>
 </div>
 
+<div class="section-title">🛒 AI Traders on the Road</div>
+<div class="grid" id="trader-grid">
+  <div class="card"><div class="empty">Loading…</div></div>
+</div>
+
 <script>
 // ── Config ────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://ycjhcsxxtinipwailbjb.supabase.co';
@@ -471,6 +476,77 @@ function renderPopulations(save) {
   }).join('');
 }
 
+// ── AI Trader definitions (mirrors main.js) ───────────────────────────────
+const TRADER_DEFS = [
+  { id: 'olt_the_bold',    name: 'Olt the Bold',      style: 'guard',    personality: 'aggressive',  color: '#ef4444' },
+  { id: 'mira_silvertong', name: 'Mira Silvertongue', style: 'scribe',   personality: 'opportunist', color: '#a78bfa' },
+  { id: 'cargo_dom',       name: 'Cargo Dom',         style: 'broker',   personality: 'cautious',    color: '#f59e0b' },
+  { id: 'wren_the_swift',  name: 'Wren the Swift',    style: 'smuggler', personality: 'aggressive',  color: '#34d399' },
+];
+
+const TRADER_STATIC = {
+  aggressive:  ['Out of my way!', 'Time is gold.', "I'll cut you a deal — once.", 'Move it or lose it.', "Profits don't wait.", 'Faster than the tax man!'],
+  cautious:    ['Steady trade, steady coin.', 'Always check the road ahead.', 'No rush — no losses.', 'Is that bandit country?', 'A safe route beats a fast one.', 'Better safe than sorry.'],
+  opportunist: ["Where there's chaos, there's coin.", 'I smell a bargain…', 'The market never sleeps.', 'Luck favours the prepared.', "Every trip's a gamble.", 'Who needs a map?'],
+};
+
+function personalityLabel(p) {
+  if (p === 'aggressive')  return { icon: '⚔️', label: 'Aggressive',  color: '#f87171' };
+  if (p === 'cautious')    return { icon: '🛡️', label: 'Cautious',    color: '#60a5fa' };
+  return                          { icon: '🎲', label: 'Opportunist', color: '#c084fc' };
+}
+
+function renderTraders(save) {
+  const grid = document.getElementById('trader-grid');
+  // Try to read live trader state from the save
+  const traders = save?.data?.aiTraders || [];
+
+  // If no saved trader state, render definition cards with personality lines
+  const cards = TRADER_DEFS.map(def => {
+    const live = traders.find(t => t.id === def.id);
+    const p = personalityLabel(def.personality);
+    const pool = TRADER_STATIC[def.personality] || TRADER_STATIC.opportunist;
+    // Pick a deterministic "current quip" from the pool
+    const quip = pool[def.id.length % pool.length];
+
+    let statusHtml = '';
+    if (live) {
+      const fromCity = CITIES.find(c => c.id === live.fromId);
+      const toCity   = CITIES.find(c => c.id === live.toId);
+      const it       = ITEMS.find(i => i.id === live.itemId);
+      const cargoCount = Object.values(live.inv || {}).reduce((a, b) => a + b, 0);
+      const stateLabel = live.state === 'traveling' ? '🚚 Traveling' : live.state === 'in_city' ? '🏙 In City' : live.state;
+      const stateColor = live.state === 'traveling' ? '#4ade80' : '#94a3b8';
+
+      statusHtml = `
+        <div class="stat"><span class="stat-label">Status</span><span class="stat-val" style="color:${stateColor}">${stateLabel}</span></div>
+        <div class="stat"><span class="stat-label">From</span><span class="stat-val">${fromCity?.name || live.fromId || '—'}</span></div>
+        <div class="stat"><span class="stat-label">To</span><span class="stat-val">${toCity?.name || live.toId || '—'}</span></div>
+        <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${cargoCount > 0 ? `${cargoCount}× ${it?.name || live.itemId}` : 'Empty'}</span></div>
+        <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${live.gold ?? '?'}g</span></div>`;
+    } else {
+      statusHtml = `<div style="font-size:12px;color:#4a6a80;margin:8px 0">No live data — play the game to track traders.</div>`;
+    }
+
+    return `
+      <div class="card" style="border-color:${def.color}22">
+        <div class="card-title">AI Trader</div>
+        <div class="city-name" style="color:${def.color};margin-bottom:2px">${def.name}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:${def.color}22;color:${p.color}">${p.icon} ${p.label}</span>
+          <span style="font-size:11px;color:#4a6a80;text-transform:capitalize">${def.style}</span>
+        </div>
+        ${statusHtml}
+        <div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;border-left:2px solid ${def.color}55">
+          <div style="font-size:10px;color:#4a6a80;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase">Says</div>
+          <div style="font-size:12px;color:#c0d0e0;font-style:italic">"${live ? (TRADER_STATIC[def.personality][Math.floor((live.gold||0) % pool.length)] || quip) : quip}"</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  grid.innerHTML = cards;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function refresh() {
   const dot = document.getElementById('dot');
@@ -482,6 +558,7 @@ async function refresh() {
   const save = readSave();
   renderSave(save);
   renderPopulations(save);
+  renderTraders(save);
 
   try {
     const pressure = await fetchPressure();

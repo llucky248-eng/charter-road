@@ -5738,6 +5738,11 @@ function drawNpcBubble() {
       playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
       playerGuild: { ...playerGuild },
       warehouseStash: Object.fromEntries(Object.entries(warehouseStash).map(([k,v]) => [k, {...v}])),
+      aiTraders: AI_TRADERS.map(t => ({
+        id: t.id, name: t.name, personality: t.personality, color: t.color,
+        state: t.state, fromId: t.fromId, toId: t.toId, itemId: t.itemId,
+        inv: { ...t.inv }, gold: t.gold,
+      })),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
