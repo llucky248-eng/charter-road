@@ -509,6 +509,16 @@ function renderTraders(save) {
     // Pick a deterministic "current quip" from the pool
     const quip = pool[def.id.length % pool.length];
 
+    // Starting gold per TRADER_DEFS order (matches main.js: 80 + i*20)
+    const defIdx = TRADER_DEFS.indexOf(def);
+    const startGold = live?.startGold ?? (80 + defIdx * 20);
+    const currentGold = live?.gold ?? startGold;
+    const totalProfit = live?.totalProfit ?? 0;
+    const tripsCompleted = live?.tripsCompleted ?? 0;
+    const netChange = currentGold - startGold;
+    const netColor = netChange >= 0 ? '#4ade80' : '#f87171';
+    const profitColor = totalProfit > 0 ? '#4ade80' : '#94a3b8';
+
     let statusHtml = '';
     if (live) {
       const fromCity = CITIES.find(c => c.id === live.fromId);
@@ -520,13 +530,17 @@ function renderTraders(save) {
 
       statusHtml = `
         <div class="stat"><span class="stat-label">Status</span><span class="stat-val" style="color:${stateColor}">${stateLabel}</span></div>
-        <div class="stat"><span class="stat-label">From</span><span class="stat-val">${fromCity?.name || live.fromId || '—'}</span></div>
-        <div class="stat"><span class="stat-label">To</span><span class="stat-val">${toCity?.name || live.toId || '—'}</span></div>
-        <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${cargoCount > 0 ? `${cargoCount}× ${it?.name || live.itemId}` : 'Empty'}</span></div>
-        <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${live.gold ?? '?'}g</span></div>`;
+        <div class="stat"><span class="stat-label">Route</span><span class="stat-val">${fromCity?.name || '—'} → ${toCity?.name || '—'}</span></div>
+        <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${cargoCount > 0 ? `${cargoCount}× ${it?.name || live.itemId}` : 'Empty'}</span></div>`;
     } else {
-      statusHtml = `<div style="font-size:12px;color:#4a6a80;margin:8px 0">No live data — play the game to track traders.</div>`;
+      statusHtml = `<div style="font-size:12px;color:#4a6a80;margin:6px 0 4px">Play the game to see live route data.</div>`;
     }
+
+    statusHtml += `
+      <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${currentGold}g</span></div>
+      <div class="stat"><span class="stat-label">Net Change</span><span class="stat-val" style="color:${netColor}">${netChange >= 0 ? '+' : ''}${netChange}g</span></div>
+      <div class="stat"><span class="stat-label">Total Profit</span><span class="stat-val" style="color:${profitColor}">${totalProfit > 0 ? '+' : ''}${totalProfit}g</span></div>
+      <div class="stat"><span class="stat-label">Trips Done</span><span class="stat-val">${tripsCompleted}</span></div>`;
 
     return `
       <div class="card" style="border-color:${def.color}22">

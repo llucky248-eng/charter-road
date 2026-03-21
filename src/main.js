@@ -2935,6 +2935,9 @@ function spawnAiTraders() {
       ...def,
       capacity: 12,
       gold: 80 + i * 20,
+      startGold: 80 + i * 20,
+      totalProfit: 0,
+      tripsCompleted: 0,
       inv: {},
       x: startX,
       y: startY,
@@ -2965,10 +2968,15 @@ function traderArrive(t) {
     t.y = (destC.y + destC.h/2) * TILE;
   }
   // Sell all cargo at destination
+  let tripRevenue = 0;
   for (const [itemId, qty] of Object.entries(t.inv)) {
     if (!qty) continue;
     const it = ITEMS.find(i => i.id === itemId);
-    if (it) { const q = quoteFor(t.toId, it); t.gold += q.sell * qty; }
+    if (it) { const q = quoteFor(t.toId, it); const earned = q.sell * qty; t.gold += earned; tripRevenue += earned; }
+  }
+  if (tripRevenue > 0) {
+    t.totalProfit = (t.totalProfit || 0) + tripRevenue;
+    t.tripsCompleted = (t.tripsCompleted || 0) + 1;
   }
   t.inv = {};
   t.path = [];       // clear path so stale idx can't re-trigger
@@ -5742,6 +5750,9 @@ function drawNpcBubble() {
         id: t.id, name: t.name, personality: t.personality, color: t.color,
         state: t.state, fromId: t.fromId, toId: t.toId, itemId: t.itemId,
         inv: { ...t.inv }, gold: t.gold,
+        startGold: t.startGold || 80,
+        totalProfit: t.totalProfit || 0,
+        tripsCompleted: t.tripsCompleted || 0,
       })),
     };
     try {
