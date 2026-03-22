@@ -109,6 +109,9 @@ function decideRoute(trader) {
 
 const STRATEGY_LOG_BATCH = []; // collect log entries, upsert at end of tick
 
+// allTraders is injected by the tick loop so each trader can see peers
+let ALL_TRADERS_SNAPSHOT = [];
+
 function reviewStrategy(trader) {
   const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
   const trips   = trader.trips_completed || 0;
@@ -118,7 +121,7 @@ function reviewStrategy(trader) {
   const recentProfit = recentWindow.reduce((s, e) => s + (e.profit || 0), 0);
   const recentRate   = recentWindow.length > 0 ? recentProfit / recentWindow.length : 0;
 
-  // Best item by profit across all cities from current location
+  // Best item by profit from current location
   const fromId = trader.to_id || trader.from_id || 'valdenmere';
   const itemProfits = {};
   for (const toId of CITIES) {
@@ -129,6 +132,26 @@ function reviewStrategy(trader) {
     }
   }
   const bestItem = Object.entries(itemProfits).sort((a, b) => b[1] - a[1])[0];
+
+  // ── Peer comparison ───────────────────────────────────────────────────
+  const peers = ALL_TRADERS_SNAPSHOT.filter(p => p.id !== trader.id);
+  const peerRates = peers.map(p => {
+    const ph = Array.isArray(p.profit_history) ? p.profit_history : [];
+    const w  = ph.slice(-3);
+    return w.length > 0 ? w.reduce((s, e) => s + (e.profit || 0), 0) / w.length : 0;
+  });
+  const bestPeerRate = peerRates.length > 0 ? Math.max(...peerRates) : 0;
+  const avgPeerRate  = peerRates.length > 0 ? peerRates.reduce((a, b) => a + b, 0) / peerRates.length : 0;
+
+  // Count how many peers share the same preferred item (saturation)
+  const competingPeers = peers.filter(p => p.preferred_item === trader.preferred_item && trader.preferred_item).length;
+
+  // Find item no other trader is focusing on (niche opportunity)
+  const takenItems = new Set(peers.map(p => p.preferred_item).filter(Boolean));
+  const nicheItems = Object.entries(itemProfits)
+    .filter(([id]) => !takenItems.has(id))
+    .sort((a, b) => b[1] - a[1]);
+  const nicheItem = nicheItems[0];
 
   const oldStrategy = {
     preferred_item: trader.preferred_item || null,
@@ -141,41 +164,54 @@ function reviewStrategy(trader) {
   let nextReviewAt = trips + 3;
 
   if (recentRate === 0 && trips === 0) {
-    // First review — just pick the best item
+    // First review — pick best uncrowded item
     decision = 'init_strategy';
-    newPreferredItem = bestItem?.[0] || null;
-    reason = `First strategy set. Best item from ${fromId}: ${newPreferredItem} (score ${bestItem?.[1] || 0}g).`;
+    newPreferredItem = nicheItem?.[0] || bestItem?.[0] || null;
+    reason = `First strategy. Picked ${newPreferredItem} (score ${itemProfits[newPreferredItem] || 0}g, uncrowded).`;
     nextReviewAt = trips + 3;
-  } else if (recentRate < 20) {
-    // Poor recent performance — switch to best item
-    decision = 'switch_item';
-    newPreferredItem = bestItem?.[0] || null;
-    reason = `Recent avg profit ${recentRate.toFixed(0)}g/trip is low. Switching focus to ${newPreferredItem} (projected score ${bestItem?.[1] || 0}g).`;
-    nextReviewAt = trips + 2; // check again sooner
-  } else if (recentRate > 60) {
-    // Strong — stay the course but review later
-    decision = 'stay_course';
-    reason   = `Recent avg profit ${recentRate.toFixed(0)}g/trip is strong. Keeping strategy: ${newPreferredItem || 'flexible'}.`;
-    nextReviewAt = trips + 4; // review less often when thriving
-  } else {
-    // Medium — try diversifying if preferred item is set
-    if (trader.preferred_item) {
-      const currentItemScore = itemProfits[trader.preferred_item] || 0;
-      const bestScore        = bestItem?.[1] || 0;
-      if (bestScore > currentItemScore * 1.3) {
-        decision = 'upgrade_item';
-        const oldItem = trader.preferred_item;
-        newPreferredItem = bestItem[0];
-        reason = `${oldItem} score ${currentItemScore}g < ${newPreferredItem} score ${bestScore}g (+${Math.round((bestScore/currentItemScore - 1)*100)}%). Upgrading focus.`;
-      } else {
-        decision = 'stay_course';
-        reason   = `${trader.preferred_item} still competitive (score ${currentItemScore}g). No change needed.`;
-      }
+  } else if (recentRate < bestPeerRate * 0.75) {
+    // Significantly behind the best peer — need a shake-up
+    const bestPeer = peers[peerRates.indexOf(bestPeerRate)];
+    if (nicheItem && nicheItem[1] > (itemProfits[newPreferredItem] || 0) * 0.9) {
+      // Pivot to an uncontested niche
+      decision = 'pivot_niche';
+      const oldItem = newPreferredItem;
+      newPreferredItem = nicheItem[0];
+      reason = `Trailing best peer ${bestPeer?.name} (${bestPeerRate.toFixed(0)}g vs my ${recentRate.toFixed(0)}g/trip). Pivoting to uncontested ${newPreferredItem} (score ${nicheItem[1]}g).`;
     } else {
-      decision = 'set_focus';
-      newPreferredItem = bestItem?.[0] || null;
-      reason = `No preferred item set. Picking ${newPreferredItem} (score ${bestItem?.[1] || 0}g) as new focus.`;
+      // Copy the leader's item
+      decision = 'copy_leader';
+      newPreferredItem = bestPeer?.preferred_item || bestItem?.[0] || null;
+      reason = `Trailing best peer ${bestPeer?.name} (${bestPeerRate.toFixed(0)}g vs my ${recentRate.toFixed(0)}g/trip). Copying their focus: ${newPreferredItem}.`;
     }
+    nextReviewAt = trips + 2;
+  } else if (recentRate >= bestPeerRate && recentRate > avgPeerRate * 1.2) {
+    // Leading the pack — stay course
+    decision = 'stay_course';
+    reason   = `Leading peers (${recentRate.toFixed(0)}g/trip vs avg ${avgPeerRate.toFixed(0)}g). Staying on ${newPreferredItem || 'flexible'}.`;
+    nextReviewAt = trips + 4;
+  } else if (competingPeers >= 2 && nicheItem) {
+    // Too crowded on current item — find a niche
+    decision = 'find_niche';
+    const oldItem = newPreferredItem;
+    newPreferredItem = nicheItem[0];
+    reason = `${competingPeers} peers competing on ${oldItem}. Moving to uncontested ${newPreferredItem} (score ${nicheItem[1]}g).`;
+    nextReviewAt = trips + 3;
+  } else if (trader.preferred_item) {
+    const currentScore = itemProfits[trader.preferred_item] || 0;
+    const bestScore    = bestItem?.[1] || 0;
+    if (bestScore > currentScore * 1.3 && !takenItems.has(bestItem[0])) {
+      decision = 'upgrade_item';
+      newPreferredItem = bestItem[0];
+      reason = `${trader.preferred_item} (${currentScore}g) < ${newPreferredItem} (${bestScore}g, uncrowded). Upgrading.`;
+    } else {
+      decision = 'stay_course';
+      reason   = `Performing near peer avg (${recentRate.toFixed(0)}g vs avg ${avgPeerRate.toFixed(0)}g). Holding ${newPreferredItem}.`;
+    }
+  } else {
+    decision = 'set_focus';
+    newPreferredItem = nicheItem?.[0] || bestItem?.[0] || null;
+    reason = `No focus set. Picking ${newPreferredItem} — ${takenItems.has(newPreferredItem) ? 'contested' : 'uncontested'} (score ${itemProfits[newPreferredItem] || 0}g).`;
   }
 
   trader.preferred_item  = newPreferredItem;
@@ -366,6 +402,8 @@ async function main() {
   } else {
     // Compute elapsed since last tick
     const now = Date.now();
+    // Snapshot all traders before ticking so strategy reviews can compare peers
+    ALL_TRADERS_SNAPSHOT = traders.map(t => ({ ...t }));
     traders = traders.map(t => {
       const lastTick = t.updated_at ? new Date(t.updated_at).getTime() : now;
       const elapsed  = Math.min(MAX_TICK, (now - lastTick) / 1000);
