@@ -108,6 +108,7 @@ function decideRoute(trader) {
 // ── Strategy review (triggered every N trips) ─────────────────────────────
 
 const STRATEGY_LOG_BATCH = []; // collect log entries, upsert at end of tick
+const TRADE_EVENTS_BATCH = []; // collect trade events, upsert at end of tick
 
 // allTraders is injected by the tick loop so each trader can see peers
 let ALL_TRADERS_SNAPSHOT = [];
@@ -172,8 +173,8 @@ function reviewStrategy(trader) {
   } else if (recentRate < bestPeerRate * 0.75) {
     // Significantly behind the best peer — need a shake-up
     const bestPeer = peers[peerRates.indexOf(bestPeerRate)];
-    if (nicheItem && nicheItem[1] > (itemProfits[newPreferredItem] || 0) * 0.9) {
-      // Pivot to an uncontested niche
+    if (nicheItem && nicheItem[1] > bestPeerRate * 0.5 && nicheItem[1] > (itemProfits[newPreferredItem] || 0) * 0.9) {
+      // Pivot to an uncontested niche only if its score is worth it (>50% of leader rate)
       decision = 'pivot_niche';
       const oldItem = newPreferredItem;
       newPreferredItem = nicheItem[0];
@@ -252,6 +253,26 @@ async function flushStrategyLog() {
   STRATEGY_LOG_BATCH.length = 0;
 }
 
+async function flushTradeEvents() {
+  if (TRADE_EVENTS_BATCH.length === 0) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/trade_events`, {
+      method: 'POST',
+      headers: { ...HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify(TRADE_EVENTS_BATCH),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn('[TRADE_EVENTS] Insert failed:', body);
+    } else {
+      console.log(`[TRADE_EVENTS] Logged ${TRADE_EVENTS_BATCH.length} event(s)`);
+    }
+  } catch (e) {
+    console.warn('[TRADE_EVENTS] Flush error (non-fatal):', e.message);
+  }
+  TRADE_EVENTS_BATCH.length = 0;
+}
+
 // ── Supabase helpers ───────────────────────────────────────────────────────
 
 const HEADERS = {
@@ -320,6 +341,14 @@ function tickTrader(t, elapsed) {
           if (units > 0) {
             t.gold -= buy * units;
             t.inv = { [route.itemId]: units };
+            // Record buy event for market pressure
+            TRADE_EVENTS_BATCH.push({
+              city_id:   route.fromId,
+              item_id:   route.itemId,
+              direction: 'buy',
+              qty:       units,
+              created_at: new Date().toISOString(),
+            });
           } else {
             t.inv = {};
           }
@@ -340,7 +369,17 @@ function tickTrader(t, elapsed) {
         for (const [itemId, qty] of Object.entries(t.inv || {})) {
           if (!qty) continue;
           const item = ITEMS.find(i => i.id === itemId);
-          if (item) { revenue += sellPrice(t.to_id, item) * qty; }
+          if (item) {
+            revenue += sellPrice(t.to_id, item) * qty;
+            // Record sell event for market pressure
+            TRADE_EVENTS_BATCH.push({
+              city_id:   t.to_id,
+              item_id:   itemId,
+              direction: 'sell',
+              qty,
+              created_at: new Date().toISOString(),
+            });
+          }
         }
         t.gold            += revenue;
         t.total_profit     = (t.total_profit || 0) + revenue;
@@ -416,6 +455,7 @@ async function main() {
   console.log(`[WORLD SIM] Upserted ${traders.length} traders`);
 
   await flushStrategyLog();
+  await flushTradeEvents();
   await callAggregateEconomy();
   console.log('[WORLD SIM] Tick complete');
 }

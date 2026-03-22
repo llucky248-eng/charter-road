@@ -81,7 +81,8 @@ BEGIN
 
   -- Clamp pressure to [-0.5, +0.5] (max 50% price swing)
   UPDATE market_economy
-  SET pressure = GREATEST(-0.5, LEAST(0.5, pressure));
+  SET pressure = GREATEST(-0.5, LEAST(0.5, pressure))
+  WHERE pressure < -0.5 OR pressure > 0.5;
 END;
 $$;
 
