@@ -33,17 +33,17 @@ const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
 
 // Travel durations in seconds (at 5-min ticks, progress advances each tick)
 const ROUTE_DURATION = {
-  'valdenmere→ashport': 900, 'ashport→valdenmere': 900,
-  'valdenmere→crosshaven': 600, 'crosshaven→valdenmere': 600,
-  'valdenmere→ironholt': 480, 'ironholt→valdenmere': 480,
-  'ashport→crosshaven': 480, 'crosshaven→ashport': 480,
+  'valdenmere→ashport': 300, 'ashport→valdenmere': 300,
+  'valdenmere→crosshaven': 240, 'crosshaven→valdenmere': 240,
+  'valdenmere→ironholt': 180, 'ironholt→valdenmere': 180,
+  'ashport→crosshaven': 180, 'crosshaven→ashport': 180,
   'ashport→ironholt': 720, 'ironholt→ashport': 720,
-  'crosshaven→ironholt': 600, 'ironholt→crosshaven': 600,
+  'crosshaven→ironholt': 240, 'ironholt→crosshaven': 240,
 };
 
 const CAPACITY = 12;
 const SPREAD   = 0.10;
-const MAX_TICK = 600; // cap elapsed seconds to avoid huge jumps
+const MAX_TICK = 1800; // cap elapsed seconds to avoid huge jumps (allow up to 6 trips per tick)
 
 // ── Price model (mirrors main.js seeded hash) ──────────────────────────────
 
@@ -257,67 +257,75 @@ async function callAggregateEconomy() {
 // ── Tick logic ────────────────────────────────────────────────────────────
 
 function tickTrader(t, elapsed) {
-  if (t.state === 'in_city') {
-    t.city_timer -= elapsed;
-    if (t.city_timer <= 0) {
-      // Depart
-      const route = decideRoute(t);
-      t.from_id = route.fromId;
-      t.to_id   = route.toId;
-      t.item_id = route.itemId;
+  // Process elapsed time in micro-steps so multiple trips can complete in one tick
+  const STEP = 60; // seconds per micro-step
+  let remaining = elapsed;
+  while (remaining > 0) {
+    const dt = Math.min(STEP, remaining);
+    remaining -= dt;
 
-      // Buy cargo
-      const item = ITEMS.find(i => i.id === route.itemId);
-      if (item) {
-        const buy = buyPrice(route.fromId, item);
-        const units = Math.min(
-          Math.floor(CAPACITY / item.weight),
-          t.gold > 0 ? Math.floor(t.gold / buy) : 0
-        );
-        if (units > 0) {
-          t.gold -= buy * units;
-          t.inv = { [route.itemId]: units };
-        } else {
-          t.inv = {};
+    if (t.state === 'in_city') {
+      t.city_timer -= dt;
+      if (t.city_timer <= 0) {
+        // Depart
+        const route = decideRoute(t);
+        t.from_id = route.fromId;
+        t.to_id   = route.toId;
+        t.item_id = route.itemId;
+
+        // Buy cargo
+        const item = ITEMS.find(i => i.id === route.itemId);
+        if (item) {
+          const buy = buyPrice(route.fromId, item);
+          const units = Math.min(
+            Math.floor(CAPACITY / item.weight),
+            t.gold > 0 ? Math.floor(t.gold / buy) : 0
+          );
+          if (units > 0) {
+            t.gold -= buy * units;
+            t.inv = { [route.itemId]: units };
+          } else {
+            t.inv = {};
+          }
         }
+
+        t.state    = 'traveling';
+        t.progress = 0;
+        console.log(`[${t.name}] Departing ${t.from_id} → ${t.to_id} with ${JSON.stringify(t.inv)}`);
       }
+    } else if (t.state === 'traveling') {
+      const routeKey = `${t.from_id}→${t.to_id}`;
+      const duration = ROUTE_DURATION[routeKey] || 240;
+      t.progress = Math.min(1, t.progress + dt / duration);
 
-      t.state    = 'traveling';
-      t.progress = 0;
-      console.log(`[${t.name}] Departing ${t.from_id} → ${t.to_id} with ${JSON.stringify(t.inv)}`);
-    }
-  } else if (t.state === 'traveling') {
-    const routeKey = `${t.from_id}→${t.to_id}`;
-    const duration = ROUTE_DURATION[routeKey] || 600;
-    t.progress = Math.min(1, t.progress + elapsed / duration);
+      if (t.progress >= 1) {
+        // Arrive — sell cargo
+        let revenue = 0;
+        for (const [itemId, qty] of Object.entries(t.inv || {})) {
+          if (!qty) continue;
+          const item = ITEMS.find(i => i.id === itemId);
+          if (item) { revenue += sellPrice(t.to_id, item) * qty; }
+        }
+        t.gold            += revenue;
+        t.total_profit     = (t.total_profit || 0) + revenue;
+        t.trips_completed  = (t.trips_completed || 0) + 1;
+        // Track per-trip profit history (keep last 10)
+        const history = Array.isArray(t.profit_history) ? t.profit_history : [];
+        history.push({ trip: t.trips_completed, profit: revenue, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
+        if (history.length > 10) history.splice(0, history.length - 10);
+        t.profit_history   = history;
+        t.inv              = {};
+        t.from_id          = t.to_id;
+        t.state            = 'in_city';
+        t.city_timer       = 30 + Math.random() * 60;
+        t.progress         = 0;
+        console.log(`[${t.name}] Arrived at ${t.to_id}, sold for ${revenue}g. Total profit: ${t.total_profit}g`);
 
-    if (t.progress >= 1) {
-      // Arrive — sell cargo
-      let revenue = 0;
-      for (const [itemId, qty] of Object.entries(t.inv || {})) {
-        if (!qty) continue;
-        const item = ITEMS.find(i => i.id === itemId);
-        if (item) { revenue += sellPrice(t.to_id, item) * qty; }
-      }
-      t.gold            += revenue;
-      t.total_profit     = (t.total_profit || 0) + revenue;
-      t.trips_completed  = (t.trips_completed || 0) + 1;
-      // Track per-trip profit history (keep last 10)
-      const history = Array.isArray(t.profit_history) ? t.profit_history : [];
-      history.push({ trip: t.trips_completed, profit: revenue, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
-      if (history.length > 10) history.splice(0, history.length - 10);
-      t.profit_history   = history;
-      t.inv              = {};
-      t.from_id          = t.to_id;
-      t.state            = 'in_city';
-      t.city_timer       = 30 + Math.random() * 60;
-      t.progress         = 0;
-      console.log(`[${t.name}] Arrived at ${t.to_id}, sold for ${revenue}g. Total profit: ${t.total_profit}g`);
-
-      // Strategy review every N trips
-      const reviewAt = t.review_at_trips || 3;
-      if (t.trips_completed >= reviewAt) {
-        reviewStrategy(t);
+        // Strategy review every N trips
+        const reviewAt = t.review_at_trips || 3;
+        if (t.trips_completed >= reviewAt) {
+          reviewStrategy(t);
+        }
       }
     }
   }
