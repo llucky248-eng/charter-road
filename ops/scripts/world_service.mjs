@@ -70,7 +70,7 @@ function sellPrice(cityId, item) {
   return Math.max(1, Math.round(mid * (1 - SPREAD / 2)));
 }
 
-// ── Route picking (mirrors main.js traderDecideRoute) ─────────────────────
+// ── Route picking (mirrors main.js, extended with preferred_item bias) ────
 
 function decideRoute(trader) {
   const fromId = trader.to_id || trader.from_id || 'valdenmere';
@@ -83,14 +83,17 @@ function decideRoute(trader) {
       const profit = sell - buy;
       if (profit <= 0) continue;
       const units = Math.floor(CAPACITY / item.weight);
-      candidates.push({ fromId, toId, itemId: item.id, profit: profit * units });
+      let score = profit * units;
+      // Bias toward preferred item if strategy review selected one
+      if (trader.preferred_item && item.id === trader.preferred_item) score *= 1.25;
+      candidates.push({ fromId, toId, itemId: item.id, profit: profit * units, score });
     }
   }
   if (!candidates.length) {
     const others = CITIES.filter(c => c !== fromId);
     return { fromId, toId: others[Math.floor(Math.random() * others.length)], itemId: 'ore' };
   }
-  candidates.sort((a, b) => b.profit - a.profit);
+  candidates.sort((a, b) => b.score - a.score);
   let pick;
   if (trader.personality === 'aggressive') {
     pick = candidates[0];
@@ -100,6 +103,117 @@ function decideRoute(trader) {
     pick = candidates[Math.floor(Math.random() * Math.min(5, candidates.length))];
   }
   return pick;
+}
+
+// ── Strategy review (triggered every N trips) ─────────────────────────────
+
+const STRATEGY_LOG_BATCH = []; // collect log entries, upsert at end of tick
+
+function reviewStrategy(trader) {
+  const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
+  const trips   = trader.trips_completed || 0;
+
+  // Compute recent profit rate (last 3 trips)
+  const recentWindow = history.slice(-3);
+  const recentProfit = recentWindow.reduce((s, e) => s + (e.profit || 0), 0);
+  const recentRate   = recentWindow.length > 0 ? recentProfit / recentWindow.length : 0;
+
+  // Best item by profit across all cities from current location
+  const fromId = trader.to_id || trader.from_id || 'valdenmere';
+  const itemProfits = {};
+  for (const toId of CITIES) {
+    if (toId === fromId) continue;
+    for (const item of ITEMS) {
+      const p = (sellPrice(toId, item) - buyPrice(fromId, item)) * Math.floor(CAPACITY / item.weight);
+      if (p > 0) itemProfits[item.id] = (itemProfits[item.id] || 0) + p;
+    }
+  }
+  const bestItem = Object.entries(itemProfits).sort((a, b) => b[1] - a[1])[0];
+
+  const oldStrategy = {
+    preferred_item: trader.preferred_item || null,
+    personality: trader.personality,
+  };
+
+  let decision = 'no_change';
+  let reason   = '';
+  let newPreferredItem = trader.preferred_item || null;
+  let nextReviewAt = trips + 3;
+
+  if (recentRate === 0 && trips === 0) {
+    // First review — just pick the best item
+    decision = 'init_strategy';
+    newPreferredItem = bestItem?.[0] || null;
+    reason = `First strategy set. Best item from ${fromId}: ${newPreferredItem} (score ${bestItem?.[1] || 0}g).`;
+    nextReviewAt = trips + 3;
+  } else if (recentRate < 20) {
+    // Poor recent performance — switch to best item
+    decision = 'switch_item';
+    newPreferredItem = bestItem?.[0] || null;
+    reason = `Recent avg profit ${recentRate.toFixed(0)}g/trip is low. Switching focus to ${newPreferredItem} (projected score ${bestItem?.[1] || 0}g).`;
+    nextReviewAt = trips + 2; // check again sooner
+  } else if (recentRate > 60) {
+    // Strong — stay the course but review later
+    decision = 'stay_course';
+    reason   = `Recent avg profit ${recentRate.toFixed(0)}g/trip is strong. Keeping strategy: ${newPreferredItem || 'flexible'}.`;
+    nextReviewAt = trips + 4; // review less often when thriving
+  } else {
+    // Medium — try diversifying if preferred item is set
+    if (trader.preferred_item) {
+      const currentItemScore = itemProfits[trader.preferred_item] || 0;
+      const bestScore        = bestItem?.[1] || 0;
+      if (bestScore > currentItemScore * 1.3) {
+        decision = 'upgrade_item';
+        const oldItem = trader.preferred_item;
+        newPreferredItem = bestItem[0];
+        reason = `${oldItem} score ${currentItemScore}g < ${newPreferredItem} score ${bestScore}g (+${Math.round((bestScore/currentItemScore - 1)*100)}%). Upgrading focus.`;
+      } else {
+        decision = 'stay_course';
+        reason   = `${trader.preferred_item} still competitive (score ${currentItemScore}g). No change needed.`;
+      }
+    } else {
+      decision = 'set_focus';
+      newPreferredItem = bestItem?.[0] || null;
+      reason = `No preferred item set. Picking ${newPreferredItem} (score ${bestItem?.[1] || 0}g) as new focus.`;
+    }
+  }
+
+  trader.preferred_item  = newPreferredItem;
+  trader.review_at_trips = nextReviewAt;
+
+  const logEntry = {
+    trader_id:    trader.id,
+    trader_name:  trader.name,
+    trips_at:     trips,
+    decision,
+    reason,
+    profit_rate:  recentRate,
+    old_strategy: JSON.stringify(oldStrategy),
+    new_strategy: JSON.stringify({ preferred_item: newPreferredItem, personality: trader.personality }),
+    created_at:   new Date().toISOString(),
+  };
+  STRATEGY_LOG_BATCH.push(logEntry);
+  console.log(`[STRATEGY][${trader.name}] ${decision}: ${reason}`);
+}
+
+async function flushStrategyLog() {
+  if (STRATEGY_LOG_BATCH.length === 0) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/trader_strategy_log`, {
+      method: 'POST',
+      headers: { ...HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify(STRATEGY_LOG_BATCH),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn('[STRATEGY] Log insert failed:', body);
+    } else {
+      console.log(`[STRATEGY] Logged ${STRATEGY_LOG_BATCH.length} decision(s)`);
+    }
+  } catch (e) {
+    console.warn('[STRATEGY] Log flush error (non-fatal):', e.message);
+  }
+  STRATEGY_LOG_BATCH.length = 0;
 }
 
 // ── Supabase helpers ───────────────────────────────────────────────────────
@@ -185,15 +299,26 @@ function tickTrader(t, elapsed) {
         const item = ITEMS.find(i => i.id === itemId);
         if (item) { revenue += sellPrice(t.to_id, item) * qty; }
       }
-      t.gold         += revenue;
-      t.total_profit  = (t.total_profit || 0) + revenue;
-      t.trips_completed = (t.trips_completed || 0) + 1;
-      t.inv          = {};
-      t.from_id      = t.to_id;
-      t.state        = 'in_city';
-      t.city_timer   = 30 + Math.random() * 60;
-      t.progress     = 0;
+      t.gold            += revenue;
+      t.total_profit     = (t.total_profit || 0) + revenue;
+      t.trips_completed  = (t.trips_completed || 0) + 1;
+      // Track per-trip profit history (keep last 10)
+      const history = Array.isArray(t.profit_history) ? t.profit_history : [];
+      history.push({ trip: t.trips_completed, profit: revenue, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
+      if (history.length > 10) history.splice(0, history.length - 10);
+      t.profit_history   = history;
+      t.inv              = {};
+      t.from_id          = t.to_id;
+      t.state            = 'in_city';
+      t.city_timer       = 30 + Math.random() * 60;
+      t.progress         = 0;
       console.log(`[${t.name}] Arrived at ${t.to_id}, sold for ${revenue}g. Total profit: ${t.total_profit}g`);
+
+      // Strategy review every N trips
+      const reviewAt = t.review_at_trips || 3;
+      if (t.trips_completed >= reviewAt) {
+        reviewStrategy(t);
+      }
     }
   }
   t.updated_at = new Date().toISOString();
@@ -225,6 +350,9 @@ async function main() {
       trips_completed: 0,
       progress:        0,
       city_timer:      10 + TRADER_DEFS.indexOf(def) * 15,
+      preferred_item:  null,
+      review_at_trips: 3,
+      profit_history:  [],
       updated_at:      new Date().toISOString(),
     }));
   } else {
@@ -241,6 +369,7 @@ async function main() {
   await upsertTraders(traders);
   console.log(`[WORLD SIM] Upserted ${traders.length} traders`);
 
+  await flushStrategyLog();
   await callAggregateEconomy();
   console.log('[WORLD SIM] Tick complete');
 }

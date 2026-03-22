@@ -27,3 +27,29 @@ CREATE POLICY "public read world_traders"
 
 CREATE POLICY "public upsert world_traders"
   ON world_traders FOR ALL USING (true);
+
+-- Strategy decision log
+CREATE TABLE IF NOT EXISTS trader_strategy_log (
+  id          BIGSERIAL PRIMARY KEY,
+  trader_id   TEXT NOT NULL,
+  trader_name TEXT NOT NULL,
+  trips_at    INT NOT NULL,
+  decision    TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  profit_rate FLOAT,
+  old_strategy JSONB,
+  new_strategy JSONB,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE trader_strategy_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read trader_strategy_log"
+  ON trader_strategy_log FOR SELECT USING (true);
+CREATE POLICY "public insert trader_strategy_log"
+  ON trader_strategy_log FOR INSERT WITH CHECK (true);
+
+-- Add strategy columns to world_traders
+ALTER TABLE world_traders
+  ADD COLUMN IF NOT EXISTS preferred_item  TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS review_at_trips INT NOT NULL DEFAULT 3,
+  ADD COLUMN IF NOT EXISTS profit_history  JSONB NOT NULL DEFAULT '[]';
