@@ -379,10 +379,10 @@ async function sbFetch(path, opts = {}) {
 
 // In-memory treasury accumulates within a tick, flushed at end
 const CITY_TREASURY = {
-  valdenmere: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
-  ashport:    { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
-  crosshaven: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
-  ironholt:   { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
+  valdenmere: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 8000 },
+  ashport:    { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 4000 },
+  crosshaven: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 1500 },
+  ironholt:   { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 2500 },
 };
 
 // City investment projects — what a city can spend its treasury on
@@ -434,6 +434,7 @@ async function upsertTreasuries() {
     permit_collected: t.permit_collected,
     spent:            t.spent,
     invest_log:       t.invest_log,
+    population:       t.population,
     updated_at:       new Date().toISOString(),
   }));
   try {
@@ -654,6 +655,17 @@ async function main() {
     t.permit_collected += (row.permit_collected || 0);
     t.spent            += (row.spent || 0);
     t.invest_log        = [...(row.invest_log || []), ...t.invest_log].slice(-10);
+    // Restore DB population as base (don't double-add)
+    t.population        = row.population || t.population;
+  }
+  // Population growth: cities grow proportional to trade activity (tax revenue)
+  for (const cityId of CITIES) {
+    const t = CITY_TREASURY[cityId];
+    if (!t) continue;
+    // Grow by 1 resident per 5g of tax collected this tick
+    const thisTick = t.tax_collected - (dbTreasuries.find(r => r.city_id === cityId)?.tax_collected || 0);
+    const growth = Math.floor(thisTick / 5);
+    if (growth > 0) t.population += growth;
   }
   for (const cityId of CITIES) tickCityTreasury(cityId);
   await upsertTreasuries();

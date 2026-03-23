@@ -434,54 +434,58 @@ const INVEST_PROJECT_LABELS = {
   popIncentive:   '👥 Pop Incentive',
 };
 
-function renderPopulations(save) {
+function renderPopulations(save, liveTreasuries) {
   const grid = document.getElementById('pop-grid');
-  const defaultPops = {
-    valdenmere: { pop: 8000, hunger: 0 },
-    ashport:    { pop: 4000, hunger: 0 },
-    crosshaven: { pop: 1500, hunger: 0 },
-    ironholt:   { pop: 2500, hunger: 0 },
-  };
-  const cityPopData     = (save?.data?.cityPop)      || defaultPops;
-  const cityTreasuryData= (save?.data?.cityTreasury) || {};
-  const cityBonusData   = (save?.data?.cityBonus)    || {};
+  const BASE_POPS = { valdenmere: 8000, ashport: 4000, crosshaven: 1500, ironholt: 2500 };
+
+  // Build lookup from live Supabase treasury rows
+  const liveByCity = {};
+  (liveTreasuries || []).forEach(r => { liveByCity[r.city_id] = r; });
+
+  // Fallback to player local save city data
+  const cityPopData = save?.data?.cityPop || {};
 
   grid.innerHTML = CITIES.map(city => {
-    const state = cityPopData[city.id] || defaultPops[city.id] || { pop: 0, hunger: 0 };
-    const treasury = cityTreasuryData[city.id] || { gold: 0, investLog: [] };
-    const bonus = cityBonusData[city.id] || {};
-    const popStr = state.pop >= 1000 ? (state.pop / 1000).toFixed(1) + 'k' : Math.round(state.pop).toString();
-    const hungerPct = Math.round((state.hunger || 0) * 100);
+    const live = liveByCity[city.id];
+    const local = cityPopData[city.id];
+
+    const population = live?.population || local?.pop || BASE_POPS[city.id] || 0;
+    const popStr = population >= 1000 ? (population / 1000).toFixed(1) + 'k' : Math.round(population).toString();
+
+    // Hunger from local save only (world sim doesn't track it yet)
+    const hungerPct = Math.round((local?.hunger || 0) * 100);
     const hungerColor = hungerPct < 20 ? '#34d399' : hungerPct < 50 ? '#f59e0b' : '#ef4444';
 
-    const bonusHtml = Object.entries(bonus)
-      .filter(([, v]) => v > 0)
-      .map(([k, v]) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-        <span style="color:#94a3b8">${INVEST_PROJECT_LABELS[k] || k}</span>
-        <span style="color:#4ade80;font-weight:700">+${Math.round(v*100)}%</span>
-      </div>`).join('') || '<div style="font-size:12px;color:#4a6a80">No upgrades yet</div>';
+    const source = live ? '🟢 live' : local ? '⚪ local' : '⭕ default';
 
-    const logHtml = (treasury.investLog || []).slice(-3).reverse()
-      .map(e => `<div style="font-size:11px;color:#6a8aa0;padding:2px 0">Day ${e.day}: ${e.project}</div>`).join('')
-      || '<div style="font-size:11px;color:#4a6a80">No investments yet</div>';
+    // Recent investments from live treasury
+    const log = Array.isArray(live?.invest_log) ? live.invest_log.slice(-3).reverse() : [];
+    const logHtml = log.length
+      ? log.map(e => `<div style="font-size:11px;color:#6a8aa0;padding:2px 0">📜 ${e.project} <span style="color:#4a6a80">(${e.cost}g)</span></div>`).join('')
+      : '<div style="font-size:11px;color:#4a6a80">No investments yet</div>';
+
+    // Trade activity indicator based on tax collected
+    const taxTotal = live?.tax_collected || 0;
+    const tradeLabel = taxTotal > 2000 ? '🔥 Booming' : taxTotal > 500 ? '📈 Active' : taxTotal > 0 ? '🌱 Growing' : '😴 Quiet';
 
     return `
       <div class="card">
-        <div class="card-title">Population</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div class="card-title" style="margin:0">Population</div>
+          <span style="font-size:10px;color:#4a6a80">${source}</span>
+        </div>
         <div class="city-name" style="color:${city.color}">${city.name}</div>
-        <div style="margin:8px 0;font-size:13px;color:#e8d4a0">👥 ${popStr} residents</div>
+        <div style="margin:8px 0;font-size:18px;font-weight:700;color:#e8d4a0">👥 ${popStr}</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">${tradeLabel} · ${taxTotal}g tax collected</div>
+        ${hungerPct > 0 ? `
         <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Hunger: ${hungerPct}%</div>
-        <div style="background:#1e293b;border-radius:4px;height:8px;overflow:hidden;margin-bottom:12px">
-          <div style="width:${hungerPct}%;height:100%;background:${hungerColor};transition:width 0.3s"></div>
+        <div style="background:#1e293b;border-radius:4px;height:6px;overflow:hidden;margin-bottom:10px">
+          <div style="width:${hungerPct}%;height:100%;background:${hungerColor}"></div>
+        </div>` : ''}
+        <div style="border-top:1px solid #1e293b;padding-top:8px;margin-top:4px">
+          <div style="font-size:10px;color:#4a6a80;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">City Investments</div>
+          ${logHtml}
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">
-          <span style="color:#6a8aa0">Treasury</span>
-          <span style="color:#e8d4a0;font-weight:700">💰 ${treasury.gold}g</span>
-        </div>
-        <div class="card-title" style="margin-bottom:6px">Active Upgrades</div>
-        ${bonusHtml}
-        <div class="card-title" style="margin:10px 0 4px">Recent Investments</div>
-        ${logHtml}
       </div>`;
   }).join('');
 }
@@ -768,7 +772,7 @@ async function refresh() {
   // Read local save
   const save = readSave();
   renderSave(save);
-  renderPopulations(save);
+  renderPopulations(save, treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
 
   // Fetch Supabase data in parallel
   const [pressureResult, tradersResult, strategyResult, treasuryResult] = await Promise.allSettled([
