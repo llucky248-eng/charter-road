@@ -589,6 +589,13 @@ function renderTraders(liveRows, save, source) {
     const currentGold   = d?.gold ?? def.startGold;
     const totalProfit   = d?.total_profit ?? d?.totalProfit ?? 0;
     const tripsCompleted= d?.trips_completed ?? d?.tripsCompleted ?? 0;
+    const gearTier      = d?.gear_tier ?? 0;
+    const GEAR_TIER_NAMES = ['🎒 Mule & Pack', '🛒 Reinforced Cart', '🚃 Merchant Wagon', '⛵ Trade Galleon'];
+    const GEAR_TIER_CAPS  = [12, 18, 26, 36];
+    const gearName = GEAR_TIER_NAMES[gearTier] || `Tier ${gearTier}`;
+    const gearCap  = GEAR_TIER_CAPS[gearTier] || 12;
+    const gearNextCost = [0, 500, 1500, 3500][gearTier + 1];
+    const gearColor = ['#94a3b8','#60a5fa','#a78bfa','#f59e0b'][gearTier] || '#94a3b8';
     const netChange     = currentGold - startGold;
     const netColor      = netChange >= 0 ? '#4ade80' : '#f87171';
     const profitColor   = totalProfit > 0 ? '#4ade80' : '#94a3b8';
@@ -637,7 +644,9 @@ function renderTraders(liveRows, save, source) {
       <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${currentGold}g</span></div>
       <div class="stat"><span class="stat-label">Net Change</span><span class="stat-val" style="color:${netColor}">${netChange >= 0 ? '+' : ''}${netChange}g</span></div>
       <div class="stat"><span class="stat-label">Total Profit</span><span class="stat-val" style="color:${profitColor}">${totalProfit > 0 ? '+' : ''}${totalProfit}g</span></div>
-      <div class="stat"><span class="stat-label">Trips Done</span><span class="stat-val">${tripsCompleted}</span></div>`;
+      <div class="stat"><span class="stat-label">Trips Done</span><span class="stat-val">${tripsCompleted}</span></div>
+      <div class="stat"><span class="stat-label">Gear</span><span class="stat-val" style="color:${gearColor}">${gearName}</span></div>
+      <div class="stat"><span class="stat-label">Capacity</span><span class="stat-val">${gearCap} units${gearNextCost ? ` <span style="font-size:10px;color:#4a6a80">(next: ${gearNextCost}g)</span>` : ' <span style="font-size:10px;color:#f59e0b">★ MAX</span>'}</span></div>`;
 
     const quipText = d ? (pool[Math.floor((currentGold || 0) % pool.length)] || quip) : quip;
 
