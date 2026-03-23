@@ -645,26 +645,16 @@ async function main() {
   await flushStrategyLog();
   await flushTradeEvents();
 
-  // Merge DB treasury balances with this tick's revenue, then run city spending
-  const dbTreasuries = await fetchTreasuries();
-  for (const row of dbTreasuries) {
-    const t = CITY_TREASURY[row.city_id];
-    if (!t) continue;
-    t.gold             += (row.gold || 0);
-    t.tax_collected    += (row.tax_collected || 0);
-    t.permit_collected += (row.permit_collected || 0);
-    t.spent            += (row.spent || 0);
-    t.invest_log        = [...(row.invest_log || []), ...t.invest_log].slice(-10);
-    // Restore DB population as base (don't double-add)
-    t.population        = row.population || t.population;
-  }
-  // Population growth: cities grow proportional to trade activity (tax revenue)
+  // Population growth: cities grow proportional to THIS tick's tax revenue only
+  // (CITY_TREASURY was pre-loaded from DB at start; delta_tax = what was added this tick)
   for (const cityId of CITIES) {
     const t = CITY_TREASURY[cityId];
     if (!t) continue;
-    // Grow by 1 resident per 5g of tax collected this tick
-    const thisTick = t.tax_collected - (dbTreasuries.find(r => r.city_id === cityId)?.tax_collected || 0);
-    const growth = Math.floor(thisTick / 5);
+    const dbRow = treasuryRows.find(r => r.city_id === cityId);
+    const prevTax = dbRow?.tax_collected || 0;
+    const thisTick = t.tax_collected - prevTax; // only new tax from this tick
+    // Grow by 1 resident per 50g of tax collected this tick (capped at +100/tick)
+    const growth = Math.min(100, Math.floor(thisTick / 50));
     if (growth > 0) t.population += growth;
   }
   for (const cityId of CITIES) tickCityTreasury(cityId);
