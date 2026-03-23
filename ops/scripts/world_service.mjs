@@ -45,6 +45,50 @@ const CAPACITY = 12;
 const SPREAD   = 0.10;
 const MAX_TICK = 1800; // cap elapsed seconds to avoid huge jumps (allow up to 6 trips per tick)
 
+// ── Taxation & Trading Permits ────────────────────────────────────────────
+
+// Tax rate on every sale (fraction of revenue)
+const CITY_TAX = {
+  valdenmere: 0.12,  // capital — high tax
+  ashport:    0.08,  // merchant hub — moderate
+  crosshaven: 0.05,  // free port — low tax
+  ironholt:   0.15,  // military — heaviest tax
+};
+
+// Premium items that require a trading permit to sell
+const PERMIT_ITEMS = new Set(['ink', 'relic', 'potion', 'cloth']);
+
+// Permit cost and duration (in trips)
+const PERMIT_COST  = 300;
+const PERMIT_TRIPS = 6;
+
+function hasValidPermit(trader, cityId) {
+  const permits = trader.permits || {};
+  const p = permits[cityId];
+  if (!p) return false;
+  return (trader.trips_completed || 0) < p.expires_at_trip;
+}
+
+function buyPermitIfNeeded(trader, cityId, itemId) {
+  if (!PERMIT_ITEMS.has(itemId)) return; // basic item, no permit needed
+  if (hasValidPermit(trader, cityId)) return; // already has one
+
+  // Check if it's worth buying — will we profit even after permit cost?
+  // Amortize cost over PERMIT_TRIPS trips
+  const item = ITEMS.find(i => i.id === itemId);
+  if (!item) return;
+  const grossPerTrip = sellPrice(cityId, item) * Math.floor(CAPACITY / item.weight);
+  const permitCostPerTrip = PERMIT_COST / PERMIT_TRIPS;
+  if (grossPerTrip > permitCostPerTrip * 2 && (trader.gold || 0) >= PERMIT_COST) {
+    trader.gold -= PERMIT_COST;
+    if (!trader.permits) trader.permits = {};
+    trader.permits[cityId] = {
+      expires_at_trip: (trader.trips_completed || 0) + PERMIT_TRIPS,
+    };
+    console.log(`[${trader.name}] Bought ${cityId} permit for ${PERMIT_COST}g (valid ${PERMIT_TRIPS} trips)`);
+  }
+}
+
 // ── Price model (mirrors main.js seeded hash) ──────────────────────────────
 
 function hashStr(s) {
@@ -354,6 +398,9 @@ function tickTrader(t, elapsed) {
           }
         }
 
+        // Buy permit if needed for destination
+        buyPermitIfNeeded(t, route.toId, route.itemId);
+
         t.state    = 'traveling';
         t.progress = 0;
         console.log(`[${t.name}] Departing ${t.from_id} → ${t.to_id} with ${JSON.stringify(t.inv)}`);
@@ -364,23 +411,34 @@ function tickTrader(t, elapsed) {
       t.progress = Math.min(1, t.progress + dt / duration);
 
       if (t.progress >= 1) {
-        // Arrive — sell cargo
+        // Arrive — sell cargo (with tax + permit enforcement)
         let revenue = 0;
+        let taxPaid = 0;
+        const taxRate = CITY_TAX[t.to_id] || 0.10;
         for (const [itemId, qty] of Object.entries(t.inv || {})) {
           if (!qty) continue;
           const item = ITEMS.find(i => i.id === itemId);
-          if (item) {
-            revenue += sellPrice(t.to_id, item) * qty;
-            // Record sell event for market pressure
-            TRADE_EVENTS_BATCH.push({
-              city_id:   t.to_id,
-              item_id:   itemId,
-              direction: 'sell',
-              qty,
-              created_at: new Date().toISOString(),
-            });
+          if (!item) continue;
+          // Permit check — can't sell premium items without a permit
+          if (PERMIT_ITEMS.has(itemId) && !hasValidPermit(t, t.to_id)) {
+            console.log(`[${t.name}] No permit for ${itemId} in ${t.to_id} — selling as contraband at 50% price`);
+            revenue += Math.round(sellPrice(t.to_id, item) * qty * 0.5);
+          } else {
+            const gross = sellPrice(t.to_id, item) * qty;
+            const tax   = Math.round(gross * taxRate);
+            revenue  += gross - tax;
+            taxPaid  += tax;
           }
+          // Record sell event for market pressure
+          TRADE_EVENTS_BATCH.push({
+            city_id:   t.to_id,
+            item_id:   itemId,
+            direction: 'sell',
+            qty,
+            created_at: new Date().toISOString(),
+          });
         }
+        if (taxPaid > 0) console.log(`[${t.name}] Paid ${taxPaid}g tax (${Math.round(taxRate*100)}%) to ${t.to_id}`);
         t.gold            += revenue;
         t.total_profit     = (t.total_profit || 0) + revenue;
         t.trips_completed  = (t.trips_completed || 0) + 1;

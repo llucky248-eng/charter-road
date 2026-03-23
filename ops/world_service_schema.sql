@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS world_traders (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE world_traders ADD COLUMN IF NOT EXISTS permits JSONB NOT NULL DEFAULT '{}';
+
 ALTER TABLE world_traders ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "public read world_traders"
