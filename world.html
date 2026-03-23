@@ -772,7 +772,6 @@ async function refresh() {
   // Read local save
   const save = readSave();
   renderSave(save);
-  renderPopulations(save, treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
 
   // Fetch Supabase data in parallel
   const [pressureResult, tradersResult, strategyResult, treasuryResult] = await Promise.allSettled([
@@ -781,6 +780,8 @@ async function refresh() {
     fetchStrategyLog(),
     fetchTreasuries(),
   ]);
+
+  renderPopulations(save, treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
 
   // Economy
   const pressure = pressureResult.status === 'fulfilled' ? pressureResult.value : {};
