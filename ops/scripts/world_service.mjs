@@ -125,6 +125,7 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
       expires_at_trip: (trader.trips_completed || 0) + PERMIT_TRIPS,
     };
     console.log(`[${trader.name}] Bought ${cityId} permit for ${PERMIT_COST}g (valid ${PERMIT_TRIPS} trips)`);
+    addTaxRevenue(cityId, PERMIT_COST, 'permit');
   }
 }
 
@@ -374,6 +375,78 @@ async function sbFetch(path, opts = {}) {
   return res.headers.get('content-type')?.includes('json') ? res.json() : null;
 }
 
+// ── City Treasury ─────────────────────────────────────────────────────────
+
+// In-memory treasury accumulates within a tick, flushed at end
+const CITY_TREASURY = {
+  valdenmere: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
+  ashport:    { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
+  crosshaven: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
+  ironholt:   { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [] },
+};
+
+// City investment projects — what a city can spend its treasury on
+const CITY_INVESTMENTS = [
+  { id: 'road_repair',    name: 'Road Repair',       cost: 300,  effect: 'Reduces travel time to/from this city by 10%',   type: 'route_speed'  },
+  { id: 'market_subsidy', name: 'Market Subsidy',    cost: 500,  effect: 'Lowers buy prices in this city by 8% for 20 trips', type: 'price_discount' },
+  { id: 'guard_patrol',   name: 'Guard Patrol',      cost: 200,  effect: 'Protects traders from bandit events near this city', type: 'safety'       },
+  { id: 'trade_fair',     name: 'Trade Fair',        cost: 800,  effect: 'Raises sell prices in this city by 12% for 15 trips', type: 'price_boost' },
+  { id: 'warehouse',      name: 'Public Warehouse',  cost: 400,  effect: 'Traders can store goods here (coming soon)',      type: 'storage'      },
+];
+
+function addTaxRevenue(cityId, amount, type = 'tax') {
+  const t = CITY_TREASURY[cityId];
+  if (!t) return;
+  t.gold += amount;
+  if (type === 'permit') t.permit_collected += amount;
+  else t.tax_collected += amount;
+}
+
+function tickCityTreasury(cityId) {
+  const t = CITY_TREASURY[cityId];
+  if (!t) return;
+  // Spend: pick an affordable investment if treasury has enough
+  if (t.gold >= 200) {
+    const affordable = CITY_INVESTMENTS.filter(inv => inv.cost <= t.gold);
+    if (affordable.length > 0) {
+      const pick = affordable[Math.floor(Math.random() * affordable.length)];
+      t.gold  -= pick.cost;
+      t.spent += pick.cost;
+      const entry = { day: new Date().toISOString(), project: pick.name, effect: pick.effect, cost: pick.cost };
+      t.invest_log.push(entry);
+      if (t.invest_log.length > 10) t.invest_log.shift();
+      console.log(`[TREASURY][${cityId}] Invested ${pick.cost}g in ${pick.name}: ${pick.effect}`);
+    }
+  }
+}
+
+async function fetchTreasuries() {
+  try {
+    return await sbFetch('/rest/v1/city_treasury?select=*') || [];
+  } catch { return []; }
+}
+
+async function upsertTreasuries() {
+  const rows = Object.entries(CITY_TREASURY).map(([cityId, t]) => ({
+    city_id:          cityId,
+    gold:             Math.max(0, t.gold),
+    tax_collected:    t.tax_collected,
+    permit_collected: t.permit_collected,
+    spent:            t.spent,
+    invest_log:       t.invest_log,
+    updated_at:       new Date().toISOString(),
+  }));
+  try {
+    await sbFetch('/rest/v1/city_treasury', {
+      method: 'POST',
+      body: JSON.stringify(rows),
+    });
+    console.log(`[TREASURY] Upserted ${rows.length} city treasuries`);
+  } catch (e) {
+    console.warn('[TREASURY] Upsert failed (non-fatal):', e.message);
+  }
+}
+
 async function fetchTraders() {
   return sbFetch('/rest/v1/world_traders?select=*');
 }
@@ -477,7 +550,10 @@ function tickTrader(t, elapsed) {
             created_at: new Date().toISOString(),
           });
         }
-        if (taxPaid > 0) console.log(`[${t.name}] Paid ${taxPaid}g tax (${Math.round(taxRate*100)}%) to ${t.to_id}`);
+        if (taxPaid > 0) {
+          console.log(`[${t.name}] Paid ${taxPaid}g tax (${Math.round(taxRate*100)}%) to ${t.to_id}`);
+          addTaxRevenue(t.to_id, taxPaid, 'tax');
+        }
         t.gold            += revenue;
         t.total_profit     = (t.total_profit || 0) + revenue;
         t.trips_completed  = (t.trips_completed || 0) + 1;
@@ -513,6 +589,17 @@ async function main() {
   console.log(`[WORLD SIM] Tick starting at ${new Date().toISOString()}`);
 
   let traders = await fetchTraders();
+  const treasuryRows = await fetchTreasuries();
+  // Pre-load DB treasury balances into in-memory state
+  for (const row of treasuryRows) {
+    if (CITY_TREASURY[row.city_id]) {
+      CITY_TREASURY[row.city_id].gold             = row.gold || 0;
+      CITY_TREASURY[row.city_id].tax_collected    = row.tax_collected || 0;
+      CITY_TREASURY[row.city_id].permit_collected = row.permit_collected || 0;
+      CITY_TREASURY[row.city_id].spent            = row.spent || 0;
+      CITY_TREASURY[row.city_id].invest_log       = row.invest_log || [];
+    }
+  }
 
   if (!traders || traders.length === 0) {
     // Seed initial state
@@ -556,6 +643,11 @@ async function main() {
 
   await flushStrategyLog();
   await flushTradeEvents();
+  // Run city investment decisions then persist
+  for (const cityId of CITIES) {
+    tickCityTreasury(cityId);
+  }
+  await upsertTreasuries();
   await callAggregateEconomy();
   console.log('[WORLD SIM] Tick complete');
 }
