@@ -643,11 +643,21 @@ async function main() {
 
   await flushStrategyLog();
   await flushTradeEvents();
-  // Run city investment decisions then persist
-  for (const cityId of CITIES) {
-    tickCityTreasury(cityId);
+
+  // Merge DB treasury balances with this tick's revenue, then run city spending
+  const dbTreasuries = await fetchTreasuries();
+  for (const row of dbTreasuries) {
+    const t = CITY_TREASURY[row.city_id];
+    if (!t) continue;
+    t.gold             += (row.gold || 0);
+    t.tax_collected    += (row.tax_collected || 0);
+    t.permit_collected += (row.permit_collected || 0);
+    t.spent            += (row.spent || 0);
+    t.invest_log        = [...(row.invest_log || []), ...t.invest_log].slice(-10);
   }
+  for (const cityId of CITIES) tickCityTreasury(cityId);
   await upsertTreasuries();
+
   await callAggregateEconomy();
   console.log('[WORLD SIM] Tick complete');
 }

@@ -548,6 +548,46 @@ function renderTreasuries(rows) {
 }
 
 // ── Fetch strategy log from Supabase ─────────────────────────────────────
+async function fetchTreasuries() {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/city_treasury?select=*&order=gold.desc`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  return res.json();
+}
+
+function renderTreasuries(rows) {
+  const grid = document.getElementById('treasury-grid');
+  if (!rows || rows.length === 0) {
+    grid.innerHTML = '<div class="card"><div class="empty">No treasury data yet.</div></div>';
+    return;
+  }
+  const CITY_TAX_RATES = { valdenmere: '12%', ashport: '8%', crosshaven: '5%', ironholt: '15%' };
+  const CITY_COLORS = { valdenmere: '#60a5fa', ashport: '#34d399', crosshaven: '#f59e0b', ironholt: '#f87171' };
+  grid.innerHTML = rows.map(r => {
+    const color = CITY_COLORS[r.city_id] || '#94a3b8';
+    const taxRate = CITY_TAX_RATES[r.city_id] || '?%';
+    const log = Array.isArray(r.invest_log) ? r.invest_log.slice(-3).reverse() : [];
+    const logHtml = log.length
+      ? log.map(e => `<div style="font-size:11px;color:#94a3b8;margin-top:4px">📜 ${e.project} <span style="color:#4a6a80">(${e.cost}g)</span></div>`).join('')
+      : `<div style="font-size:11px;color:#4a6a80">No investments yet</div>`;
+    return `
+      <div class="card" style="border-color:${color}33">
+        <div class="city-name" style="color:${color};margin-bottom:8px">${r.city_id.charAt(0).toUpperCase()+r.city_id.slice(1)}</div>
+        <div class="stat"><span class="stat-label">Treasury</span><span class="stat-val">💰 ${r.gold}g</span></div>
+        <div class="stat"><span class="stat-label">Tax Rate</span><span class="stat-val">${taxRate}</span></div>
+        <div class="stat"><span class="stat-label">Tax Collected</span><span class="stat-val" style="color:#4ade80">+${r.tax_collected}g</span></div>
+        <div class="stat"><span class="stat-label">Permit Fees</span><span class="stat-val" style="color:#a78bfa">+${r.permit_collected}g</span></div>
+        <div class="stat"><span class="stat-label">Spent</span><span class="stat-val" style="color:#f87171">-${r.spent}g</span></div>
+        <div style="margin-top:10px;border-top:1px solid #1e293b;padding-top:8px">
+          <div style="font-size:10px;color:#4a6a80;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">Recent Investments</div>
+          ${logHtml}
+        </div>
+      </div>`;
+  }).join('');
+}
+
 async function fetchStrategyLog() {
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/trader_strategy_log?select=*&order=created_at.desc&limit=20`,
