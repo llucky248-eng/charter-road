@@ -41,8 +41,47 @@ const ROUTE_DURATION = {
   'crosshaven→ironholt': 240, 'ironholt→crosshaven': 240,
 };
 
-const CAPACITY = 12;
-const SPREAD   = 0.10;
+const BASE_CAPACITY = 12;
+const SPREAD        = 0.10;
+
+// ── Gear upgrade tiers ────────────────────────────────────────────────────
+const GEAR_TIERS = [
+  { tier: 0, name: 'Mule & Pack',      capacity: 12,  cost: 0    },
+  { tier: 1, name: 'Reinforced Cart',  capacity: 18,  cost: 500  },
+  { tier: 2, name: 'Merchant Wagon',   capacity: 26,  cost: 1500 },
+  { tier: 3, name: 'Trade Galleon',    capacity: 36,  cost: 3500 },
+];
+
+function traderCapacity(trader) {
+  const tier = GEAR_TIERS[trader.gear_tier || 0] || GEAR_TIERS[0];
+  return tier.capacity;
+}
+
+function tryGearUpgrade(trader) {
+  const currentTier = trader.gear_tier || 0;
+  const nextTier    = GEAR_TIERS[currentTier + 1];
+  if (!nextTier) return; // already maxed
+
+  if ((trader.gold || 0) < nextTier.cost) return; // can't afford
+
+  // Check ROI: extra capacity × avg profit per unit × payback in <10 trips
+  const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
+  const recent  = history.slice(-3);
+  const avgProfit = recent.length > 0
+    ? recent.reduce((s, e) => s + (e.profit || 0), 0) / recent.length
+    : 0;
+  const currentCap = GEAR_TIERS[currentTier].capacity;
+  const extraCap   = nextTier.capacity - currentCap;
+  const profitPerUnit = currentCap > 0 ? avgProfit / currentCap : 0;
+  const extraProfitPerTrip = profitPerUnit * extraCap;
+  const paybackTrips = extraProfitPerTrip > 0 ? nextTier.cost / extraProfitPerTrip : Infinity;
+
+  if (paybackTrips <= 10) {
+    trader.gold      -= nextTier.cost;
+    trader.gear_tier  = nextTier.tier;
+    console.log(`[${trader.name}] 🔧 Upgraded to ${nextTier.name} (${nextTier.capacity} capacity) for ${nextTier.cost}g — payback in ~${paybackTrips.toFixed(1)} trips`);
+  }
+}
 const MAX_TICK = 1800; // cap elapsed seconds to avoid huge jumps (allow up to 6 trips per tick)
 
 // ── Taxation & Trading Permits ────────────────────────────────────────────
@@ -77,7 +116,7 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
   // Amortize cost over PERMIT_TRIPS trips
   const item = ITEMS.find(i => i.id === itemId);
   if (!item) return;
-  const grossPerTrip = sellPrice(cityId, item) * Math.floor(CAPACITY / item.weight);
+  const grossPerTrip = sellPrice(cityId, item) * Math.floor(traderCapacity(trader) / item.weight);
   const permitCostPerTrip = PERMIT_COST / PERMIT_TRIPS;
   if (grossPerTrip > permitCostPerTrip * 2 && (trader.gold || 0) >= PERMIT_COST) {
     trader.gold -= PERMIT_COST;
@@ -126,7 +165,7 @@ function decideRoute(trader) {
       const sell = sellPrice(toId, item);
       const profit = sell - buy;
       if (profit <= 0) continue;
-      const units = Math.floor(CAPACITY / item.weight);
+      const units = Math.floor(traderCapacity(trader) / item.weight);
       let score = profit * units;
       // Bias toward preferred item if strategy review selected one
       if (trader.preferred_item && item.id === trader.preferred_item) score *= 1.25;
@@ -172,7 +211,7 @@ function reviewStrategy(trader) {
   for (const toId of CITIES) {
     if (toId === fromId) continue;
     for (const item of ITEMS) {
-      const p = (sellPrice(toId, item) - buyPrice(fromId, item)) * Math.floor(CAPACITY / item.weight);
+      const p = (sellPrice(toId, item) - buyPrice(fromId, item)) * Math.floor(traderCapacity(trader) / item.weight);
       if (p > 0) itemProfits[item.id] = (itemProfits[item.id] || 0) + p;
     }
   }
@@ -379,7 +418,7 @@ function tickTrader(t, elapsed) {
         if (item) {
           const buy = buyPrice(route.fromId, item);
           const units = Math.min(
-            Math.floor(CAPACITY / item.weight),
+            Math.floor(traderCapacity(t) / item.weight),
             t.gold > 0 ? Math.floor(t.gold / buy) : 0
           );
           if (units > 0) {
@@ -453,6 +492,9 @@ function tickTrader(t, elapsed) {
         t.city_timer       = 30 + Math.random() * 60;
         t.progress         = 0;
         console.log(`[${t.name}] Arrived at ${t.to_id}, sold for ${revenue}g. Total profit: ${t.total_profit}g`);
+
+        // Gear upgrade check (every trip)
+        tryGearUpgrade(t);
 
         // Strategy review every N trips
         const reviewAt = t.review_at_trips || 3;
