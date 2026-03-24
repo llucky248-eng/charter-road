@@ -2510,10 +2510,18 @@ const NPC_INTERACT_RADIUS = 18;
     return Math.max(1, Math.round(item.base));
   }
 
+  function dayWobble(cityId, item) {
+    // Deterministic wobble that changes once per in-game day, not every frame.
+    // Produces a ±3% variation so prices feel alive without flickering.
+    const day = Math.max(1, Math.floor(time?.day || 1));
+    const cs = citySeed(cityId);
+    const u = seeded01(cs ^ (item.base * 7), day, item.id.charCodeAt(0) || 0);
+    return 0.97 + u * 0.06; // range [0.97, 1.03]
+  }
+
   function midPriceFor(cityId, item) {
-    // persistent town differences + tiny time wobble
     const mod = townItemModifier(cityId, item.id);
-    const wob = 0.97 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.03;
+    const wob = dayWobble(cityId, item);
     return Math.max(1, Math.round(item.base * mod * wob));
   }
 
@@ -4857,11 +4865,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.99',
+    version: 'v0.1.0',
     whatsNew: [
-      'Bank loans: fixed overdue penalty compounding on inflated principal.',
-      'Bank loans: removed double-penalty on city entry (gold drain was firing every visit).',
-      'Bank loans: clear breakdown — borrowed / fee / overdue penalty shown separately.',
+      'Prices: replaced real-time sine wobble with day-based wobble (no more per-frame flicker).',
+      'Prices: quoteFor and priceFor now use identical wobble — display matches trade price.',
+      'Prices: still vary meaningfully day-to-day; stable within the same day.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6016,7 +6024,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.99',
+      buildVersion: 'v0.1.0',
       player: {
         x: player.x,
         y: player.y,
@@ -6360,8 +6368,8 @@ function drawNpcBubble() {
       ironholt:   { food: 1.25, ore: 0.70, herbs: 1.20, potion: 1.10, relic: 0.88, ink: 0.92 },
     };
     const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
-    // tiny wobble so it feels alive
-    const wob = 0.95 + (Math.sin((item.base + stateTime) * 0.001) + 1) * 0.04;
+    // Same day-based wobble as quoteFor — no real-time flicker, changes once per in-game day
+    const wob = dayWobble(cityId, item);
     const drift = (marketDrift[cityId] && marketDrift[cityId][item.id]) ? marketDrift[cityId][item.id] : 1;
     // Global economy: player collective pressure shifts prices
     const econ = economyModifier(cityId, item.id);
