@@ -6079,8 +6079,24 @@ function drawNpcBubble() {
   let autoSaveTimer = null;
   function scheduleAutoSave() {
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(saveGame, 2000);
+    autoSaveTimer = setTimeout(saveGame, 500); // reduced from 2000ms — saves faster after action
   }
+
+  // Flush any pending auto-save immediately when tab is hidden or closed.
+  // Without this, closing/backgrounding within 2s of an action loses the save.
+  function flushAutoSaveNow() {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+      saveGame();
+    }
+  }
+  window.addEventListener('beforeunload', flushAutoSaveNow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushAutoSaveNow();
+  });
+  // Periodic safety save every 60s regardless of activity
+  setInterval(saveGame, 60_000);
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
 
