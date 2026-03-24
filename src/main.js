@@ -4857,11 +4857,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.98',
+    version: 'v0.0.99',
     whatsNew: [
-      'Bank: vault reserve system — each city bank has a real balance.',
-      'Bank: can go bankrupt if city treasury runs dry (deposits partially lost).',
-      'Bank: overdue loans now accrue 5%/day penalty. Deposit rate fixed to 0.5%/day.',
+      'Bank loans: fixed overdue penalty compounding on inflated principal.',
+      'Bank loans: removed double-penalty on city entry (gold drain was firing every visit).',
+      'Bank loans: clear breakdown — borrowed / fee / overdue penalty shown separately.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -5576,17 +5576,22 @@ function drawNpcBubble() {
           : `<div class="cr-sub">No deposit in this city.</div>`;
       } else {
         const hasLoan = !!loan;
+        const loanPrincipal = loan ? (loan.principal ?? loan.amount) : 0;
         const overdue = loan ? Math.max(0, Math.floor(time.day) - loan.dueDay) : 0;
-        const overdueExtra = overdue > 0 ? Math.round(loan.amount * 0.05 * overdue) : 0; // 5%/day overdue penalty
-        const overdueTotal = hasLoan ? loan.amount + overdueExtra : 0;
-        const maxLoan = Math.min(200, Math.floor(vault.reserve * 0.6)); // can only lend 60% of vault
+        const overdueExtra = overdue > 0 ? Math.round(loanPrincipal * 0.05 * overdue) : 0;
+        const repayTotal = hasLoan ? loan.amount + overdueExtra : 0;
+        const maxLoan = Math.min(200, Math.floor(bankVault[cid]?.reserve * 0.6 || 0));
         bodyHtml = hasLoan
-          ? `<div class="cr-sub">Active loan: <b>${loan.amount}g</b> due day ${loan.dueDay}</div>
-             ${overdue > 0 ? `<div class="cr-sub" style="color:#ef4444">OVERDUE ${overdue}d — penalty +${overdueExtra}g → total <b>${overdueTotal}g</b></div>` : ''}
-             <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay (${overdueTotal || loan.amount}g)</button></div>`
+          ? `<div class="cr-sub">Borrowed: <b>${loanPrincipal}g</b> · Due day <b>${loan.dueDay}</b></div>
+             <div class="cr-sub">Repay amount: <b>${loan.amount}g</b> (incl. 10% fee)</div>
+             ${overdue > 0
+               ? `<div class="cr-sub" style="color:#ef4444;margin-top:4px">⚠️ OVERDUE ${overdue}d — +${overdueExtra}g penalty → total <b>${repayTotal}g</b></div>`
+               : `<div class="cr-sub" style="color:#4ade80;margin-top:4px">✓ On time — ${loan.dueDay - Math.floor(time.day)}d remaining</div>`}
+             <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay (${repayTotal}g)</button></div>`
           : vault.reserve < 50
           ? `<div class="cr-sub" style="color:#fbbf24">⚠️ Vault reserves too low for loans (${vault.reserve}g). Sell goods here to help the city economy.</div>`
-          : `<div class="cr-sub">Borrow up to <b>${maxLoan}g</b> at 10% interest, due in 7 days. Overdue loans accrue 5%/day.</div>
+          : `<div class="cr-sub">Borrow up to <b>${maxLoan}g</b> at 10% fee, due in 7 days.</div>
+             <div class="cr-sub" style="color:#fbbf24">Overdue loans: +5%/day of principal.</div>
              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
                ${maxLoan >= 50  ? '<button class="cr-tab" data-action="loan50">50g</button>' : ''}
                ${maxLoan >= 100 ? '<button class="cr-tab" data-action="loan100">100g</button>' : ''}
@@ -5658,17 +5663,16 @@ function drawNpcBubble() {
           toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
         });
 
-        const overdue = loan ? Math.max(0, Math.floor(time.day) - loan.dueDay) : 0;
-        const overdueExtra = overdue > 0 ? Math.round(loan.amount * 0.05 * overdue) : 0;
-        const overdueTotal = loan ? loan.amount + overdueExtra : 0;
         const maxLoan = Math.min(200, Math.floor((bankVault[cid]?.reserve || 0) * 0.6));
 
         const takeLoan = (amt) => {
           if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
           const v = bankVault[cid];
           if (!v || v.reserve < amt) { toast(`Vault can only lend ${v?.reserve || 0}g right now.`, 2); return; }
-          const repayAmt = Math.round(amt * (1 + BANK_LOAN_RATE));
-          playerBank.loans[cid] = { amount: repayAmt, dueDay: Math.floor(time.day) + 7, interest: Math.round(amt * BANK_LOAN_RATE) };
+          const feeAmt = Math.round(amt * BANK_LOAN_RATE);
+          const repayAmt = amt + feeAmt;
+          // Store principal separately so overdue penalty compounds on original borrowed amount, not inflated repay total
+          playerBank.loans[cid] = { principal: amt, amount: repayAmt, fee: feeAmt, dueDay: Math.floor(time.day) + 7 };
           player.gold += amt;
           v.reserve -= amt; // loan comes out of vault
           toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
@@ -5681,13 +5685,15 @@ function drawNpcBubble() {
           const l = playerBank.loans[cid];
           if (!l) { toast('No loan here.', 2); return; }
           const overdue = Math.max(0, Math.floor(time.day) - l.dueDay);
-          const penalty = overdue > 0 ? Math.round(l.amount * 0.05 * overdue) : 0;
+          // Penalty on original principal only, not on the already-interest-inflated repay amount
+          const basePrincipal = l.principal ?? l.amount; // fallback for legacy saves
+          const penalty = overdue > 0 ? Math.round(basePrincipal * 0.05 * overdue) : 0;
           const total = l.amount + penalty;
           if (player.gold < total) { toast(`Need ${total}g to repay${penalty > 0 ? ` (incl. ${penalty}g overdue penalty)` : ''}.`, 2); return; }
           player.gold -= total;
-          if (bankVault[cid]) bankVault[cid].reserve += total; // repayment goes back to vault
+          if (bankVault[cid]) bankVault[cid].reserve += total; // repayment flows back to vault
           delete playerBank.loans[cid];
-          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g penalty` : ''}).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
         });
       }
       return;
@@ -6010,7 +6016,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.98',
+      buildVersion: 'v0.0.99',
       player: {
         x: player.x,
         y: player.y,
@@ -9408,16 +9414,14 @@ function drawEvent() {
         }
       }
       player.lastCityId = nowId;
-      // Check overdue loans at any bank city
+      // Check overdue loans at any bank city (rep warning only — gold penalty handled at repay time)
       if (nowId) {
         for (const [loanCid, loan] of Object.entries(playerBank.loans)) {
           const overdue = Math.max(0, Math.floor(time.day) - loan.dueDay);
-          if (overdue > 0) {
-            const penalty = overdue * 20;
-            const paid = Math.min(player.gold, penalty);
-            player.gold -= paid;
-            if (player.gold < 0) player.gold = 0;
-            toast(`Overdue loan in ${loanCid}! Penalty: ${paid}g (${overdue}d overdue).`, 3.5);
+          if (overdue > 0 && !loan._warnedOverdue) {
+            loan._warnedOverdue = true;
+            const cityObj = getCityById(loanCid);
+            toast(`⚠️ Loan overdue in ${cityObj?.name || loanCid}! Visit the bank to repay and avoid growing penalties.`, 4);
           }
         }
       }
