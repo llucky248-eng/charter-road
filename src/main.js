@@ -1563,10 +1563,31 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // roads between cities
     const carveRoad = (x0,y0,x1,y1) => {
+      // Carve 3-wide road so player (r=8px, TILE=16px) can navigate cleanly.
+      // Horizontal leg: widen north+south. Vertical leg: widen east+west.
+      // Paint a 3×3 patch at corners to avoid gaps at L-turns.
+      const paint3h = (tx, ty) => { // horizontal — widen N/S
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = ty + dy;
+          if (ny >= 0 && ny < MAP_H) m[ny*MAP_W + tx] = 1;
+        }
+      };
+      const paint3v = (tx, ty) => { // vertical — widen E/W
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = tx + dx;
+          if (nx >= 0 && nx < MAP_W) m[ty*MAP_W + nx] = 1;
+        }
+      };
+      const paint3x3 = (tx, ty) => { // junction patch
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = tx+dx, ny = ty+dy;
+          if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) m[ny*MAP_W+nx] = 1;
+        }
+      };
       let x=x0, y=y0;
-      while (x !== x1) { m[y*MAP_W + x] = 1; x += x < x1 ? 1 : -1; }
-      while (y !== y1) { m[y*MAP_W + x] = 1; y += y < y1 ? 1 : -1; }
-      m[y*MAP_W + x] = 1;
+      while (x !== x1) { paint3h(x, y); x += x < x1 ? 1 : -1; }
+      while (y !== y1) { paint3v(x, y); y += y < y1 ? 1 : -1; }
+      paint3x3(x, y); // endpoint / corner — fill 3×3 to close gap
     };
 
     // ── CITIES ──────────────────────────────────────────────────────────────
@@ -1634,12 +1655,13 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[yy*MAP_W+(x0+W)] = 3;
       }
 
-      // 3. Gate (south center, wide)
+      // 3. Gate (south center, wide) — 7 tiles wide to match 3-wide road + margin
       const gx = x0 + Math.floor(W/2);
       const gy = y0 + H;
-      for (let ox=-2; ox<=2; ox++) {
-        m[gy*MAP_W+(gx+ox)] = 5;
-        m[(gy+1)*MAP_W+(gx+ox)] = 1;
+      for (let ox=-3; ox<=3; ox++) {
+        m[gy*MAP_W+(gx+ox)] = 5;           // gate tile (walkable)
+        m[(gy+1)*MAP_W+(gx+ox)] = 1;       // road tile immediately outside
+        m[(gy+2)*MAP_W+(gx+ox)] = 1;       // extra buffer row to join road network
       }
 
       // 4. LAYOUT by city identity
