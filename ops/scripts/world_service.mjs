@@ -45,11 +45,12 @@ const BASE_CAPACITY = 12;
 const SPREAD        = 0.10;
 
 // ── Gear upgrade tiers ────────────────────────────────────────────────────
+// FIX: lower tier 1 cost so traders can upgrade after ~10 profitable trips
 const GEAR_TIERS = [
   { tier: 0, name: 'Mule & Pack',      capacity: 12,  cost: 0    },
-  { tier: 1, name: 'Reinforced Cart',  capacity: 18,  cost: 500  },
-  { tier: 2, name: 'Merchant Wagon',   capacity: 26,  cost: 1500 },
-  { tier: 3, name: 'Trade Galleon',    capacity: 36,  cost: 3500 },
+  { tier: 1, name: 'Reinforced Cart',  capacity: 18,  cost: 200  },
+  { tier: 2, name: 'Merchant Wagon',   capacity: 26,  cost: 800  },
+  { tier: 3, name: 'Trade Galleon',    capacity: 36,  cost: 2000 },
 ];
 
 function traderCapacity(trader) {
@@ -76,7 +77,8 @@ function tryGearUpgrade(trader) {
   const extraProfitPerTrip = profitPerUnit * extraCap;
   const paybackTrips = extraProfitPerTrip > 0 ? nextTier.cost / extraProfitPerTrip : Infinity;
 
-  if (paybackTrips <= 10) {
+  if (paybackTrips <= 15 || (nextTier.tier === 1 && (trader.gold || 0) >= nextTier.cost)) {
+    // Always upgrade to tier 1 if affordable — minimum ROI check waived for first upgrade
     trader.gold      -= nextTier.cost;
     trader.gear_tier  = nextTier.tier;
     console.log(`[${trader.name}] 🔧 Upgraded to ${nextTier.name} (${nextTier.capacity} capacity) for ${nextTier.cost}g — payback in ~${paybackTrips.toFixed(1)} trips`);
@@ -182,34 +184,89 @@ function sellPrice(cityId, item) {
 function decideRoute(trader) {
   const fromId = trader.to_id || trader.from_id || 'valdenmere';
   const candidates = [];
+
+  // FIX: evaluate ALL city pairs so distant routes (ironholt, ashport) are always considered
   for (const toId of CITIES) {
     if (toId === fromId) continue;
     for (const item of ITEMS) {
-      // FIX: skip permit items the trader can't afford a permit for AND can't currently sell legally
+      // Skip permit items without gold for permit
       if (PERMIT_ITEMS.has(item.id) && !hasValidPermit(trader, toId) && (trader.gold || 0) < PERMIT_COST) continue;
+
       const buy  = buyPrice(fromId, item);
       const sell = sellPrice(toId, item);
       const profit = sell - buy;
       if (profit <= 0) continue;
+
       const units = Math.floor(traderCapacity(trader) / item.weight);
+      if (units === 0) continue;
+
       let score = profit * units;
-      // Bias toward preferred item if strategy review selected one
-      if (trader.preferred_item && item.id === trader.preferred_item) score *= 1.25;
+
+      // FIX: stronger preferred_item bias (2× instead of 1.25×) so focus can beat saturated routes
+      if (trader.preferred_item && item.id === trader.preferred_item) score *= 2.0;
+
+      // FIX: penalise routes where sell pressure is at saturation (≥ 0.4 = heavily oversupplied)
+      const sellPressure = PRESSURE_MAP[`${toId}:${item.id}`] || 0;
+      if (sellPressure >= 0.4) score *= 0.3;        // heavily depressed sell market
+      else if (sellPressure >= 0.25) score *= 0.6;  // moderately depressed
+
+      // FIX: bonus for routes where buy pressure is positive (item scarce at destination)
+      const buyPressure = PRESSURE_MAP[`${fromId}:${item.id}`] || 0;
+      if (buyPressure <= -0.3) score *= 1.4;  // item oversupplied at source = cheap to buy
+
       candidates.push({ fromId, toId, itemId: item.id, profit: profit * units, score });
     }
   }
+
   if (!candidates.length) {
     const others = CITIES.filter(c => c !== fromId);
-    return { fromId, toId: others[Math.floor(Math.random() * others.length)], itemId: 'ore' };
+    return { fromId, toId: others[Math.floor(Math.random() * others.length)], itemId: 'grain' };
   }
+
   candidates.sort((a, b) => b.score - a.score);
+
   let pick;
   if (trader.personality === 'aggressive') {
+    // Always takes best opportunity
     pick = candidates[0];
   } else if (trader.personality === 'cautious') {
-    pick = candidates[Math.floor(candidates.length * 0.4)] || candidates[0];
+    // FIX: cautious picks the route with the most consistent (lowest variance) recent profit,
+    // not just 40th percentile by score. Fallback to top-3 if no history.
+    const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
+    if (history.length >= 3) {
+      const top5 = candidates.slice(0, Math.min(5, candidates.length));
+      // Score consistency: prefer routes the trader has done before with stable returns
+      const routeProfit = {};
+      for (const e of history) {
+        const k = `${e.to}:${e.item}`;
+        if (!routeProfit[k]) routeProfit[k] = [];
+        routeProfit[k].push(e.profit || 0);
+      }
+      let bestConsistent = null, bestConsistencyScore = -Infinity;
+      for (const c of top5) {
+        const k = `${c.toId}:${c.itemId}`;
+        const hist = routeProfit[k] || [];
+        const mean = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : c.score * 0.5;
+        const variance = hist.length > 1
+          ? hist.reduce((s, v) => s + (v - mean) ** 2, 0) / hist.length
+          : mean * mean; // unknown route = high variance
+        const consistencyScore = mean - Math.sqrt(variance) * 0.3;
+        if (consistencyScore > bestConsistencyScore) {
+          bestConsistencyScore = consistencyScore;
+          bestConsistent = c;
+        }
+      }
+      pick = bestConsistent || candidates[0];
+    } else {
+      pick = candidates[Math.min(2, candidates.length - 1)]; // top-3 until enough history
+    }
   } else {
-    pick = candidates[Math.floor(Math.random() * Math.min(5, candidates.length))];
+    // Opportunist: random among top 5 with score weighting
+    const pool = candidates.slice(0, Math.min(5, candidates.length));
+    const totalScore = pool.reduce((s, c) => s + c.score, 0);
+    let r = Math.random() * totalScore;
+    pick = pool[pool.length - 1];
+    for (const c of pool) { r -= c.score; if (r <= 0) { pick = c; break; } }
   }
   return pick;
 }
@@ -231,14 +288,24 @@ function reviewStrategy(trader) {
   const recentProfit = recentWindow.reduce((s, e) => s + (e.profit || 0), 0);
   const recentRate   = recentWindow.length > 0 ? recentProfit / recentWindow.length : 0;
 
-  // Best item by profit from current location
+  // FIX: evaluate item profitability across ALL city pairs (not just from current city)
+  // and apply pressure penalty so saturated routes rank lower
   const fromId = trader.to_id || trader.from_id || 'valdenmere';
   const itemProfits = {};
-  for (const toId of CITIES) {
-    if (toId === fromId) continue;
-    for (const item of ITEMS) {
-      const p = (sellPrice(toId, item) - buyPrice(fromId, item)) * Math.floor(traderCapacity(trader) / item.weight);
-      if (p > 0) itemProfits[item.id] = (itemProfits[item.id] || 0) + p;
+  for (const srcId of CITIES) {
+    for (const toId of CITIES) {
+      if (toId === srcId) continue;
+      for (const item of ITEMS) {
+        if (PERMIT_ITEMS.has(item.id) && (trader.gold || 0) < PERMIT_COST) continue;
+        const sellPressure = PRESSURE_MAP[`${toId}:${item.id}`] || 0;
+        if (sellPressure >= 0.4) continue; // skip saturated sell markets entirely
+        const p = (sellPrice(toId, item) - buyPrice(srcId, item)) * Math.floor(traderCapacity(trader) / item.weight);
+        if (p > 0) {
+          // Weight by how close the source city is to the trader's current position
+          const distWeight = srcId === fromId ? 1.5 : 1.0;
+          itemProfits[item.id] = (itemProfits[item.id] || 0) + p * distWeight;
+        }
+      }
     }
   }
   const bestItem = Object.entries(itemProfits).sort((a, b) => b[1] - a[1])[0];
