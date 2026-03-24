@@ -2596,7 +2596,32 @@ const NPC_INTERACT_RADIUS = 18;
       ironholt:    regenContractsForCity('ironholt'),
     },
     active: null,
+    lastRegenDay: { valdenmere: 1, ashport: 1, crosshaven: 1, ironholt: 1 },
   };
+
+  const CONTRACT_REGEN_DAYS = 3; // boards refresh every 3 in-game days
+
+  /** Remove a specific job from a city board and top it up to 4 slots */
+  function removeContractFromBoard(cityId, job) {
+    const board = contracts.byCity[cityId];
+    if (!board) return;
+    const idx = board.indexOf(job);
+    if (idx !== -1) board.splice(idx, 1);
+    // If board drops below 2 jobs, immediately top up
+    while (board.length < 2) board.push(makeContract(cityId, Math.random() < 0.4 ? 1 : 0));
+  }
+
+  /** Regen a city's board if CONTRACT_REGEN_DAYS have passed since last regen */
+  function maybeRegenCityContracts(cityId) {
+    const day = Math.floor(time.day);
+    const last = contracts.lastRegenDay[cityId] || 1;
+    if (day - last >= CONTRACT_REGEN_DAYS) {
+      contracts.byCity[cityId] = regenContractsForCity(cityId);
+      contracts.lastRegenDay[cityId] = day;
+      return true; // refreshed
+    }
+    return false;
+  }
 
 
   // --- Time / travel pressure
@@ -4721,6 +4746,14 @@ function drawNpcBubble() {
       populationTick();
       // City investment every 7 days
       if (time.day % 7 === 0) cityInvestTick();
+      // Contract boards refresh every CONTRACT_REGEN_DAYS days (silent background regen)
+      for (const cid of Object.keys(contracts.byCity)) {
+        const last = contracts.lastRegenDay[cid] || 1;
+        if (time.day - last >= CONTRACT_REGEN_DAYS) {
+          contracts.byCity[cid] = regenContractsForCity(cid);
+          contracts.lastRegenDay[cid] = time.day;
+        }
+      }
       // tiny drift; mean ~0 over time; clamp to keep prices sane
       for (const cityId of Object.keys(marketDrift)) {
         for (const it of ITEMS) {
@@ -4739,11 +4772,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.96',
+    version: 'v0.0.97',
     whatsNew: [
-      'Market cards: compact horizontal layout — info left, delta + BUY right.',
-      'Market cards: Buy/Sell prices + color-coded delta badge (▲/▼/~) vs base.',
-      'Mobile dialog: 5 items visible without scrolling (list fills 78% of panel).',
+      'Contracts: accepted job removed from board immediately.',
+      'Contracts: boards auto-refresh every 3 in-game days (new postings).',
+      'Contracts: board state + regen timers saved/loaded correctly.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -4945,6 +4978,10 @@ function drawNpcBubble() {
 
     const finalReward = contractRewardForAccept(c.id, job.reward, job.tier);
     contracts.active = { ...job, reward: finalReward };
+
+    // Remove the accepted job from the board so it's not re-takeable
+    removeContractFromBoard(c.id, job);
+
     toast(`Accepted contract. (Reward ${finalReward}g)`, 2.2);
 
     // QA hook: accepting a contract must not crash and should activate a job.
@@ -5244,6 +5281,12 @@ function drawNpcBubble() {
     if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
       if (!c) { domCloseAll(); return; }
+
+      // Auto-refresh board if enough days have passed
+      if (maybeRegenCityContracts(c.id)) {
+        toast(`📋 ${c.name} contract board refreshed.`, 2.2);
+        dom.key = ''; // force re-render with new jobs
+      }
 
       const rep = player.rep?.[c.id] || 0;
       const repTier = contractTierForRep(rep);
@@ -5805,7 +5848,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.96',
+      buildVersion: 'v0.0.97',
       player: {
         x: player.x,
         y: player.y,
@@ -5826,6 +5869,8 @@ function drawNpcBubble() {
       ),
       contracts: {
         active: contracts.active ? { ...contracts.active } : null,
+        byCity: Object.fromEntries(Object.entries(contracts.byCity).map(([k,v]) => [k, v.map(j => ({...j}))])),
+        lastRegenDay: { ...contracts.lastRegenDay },
       },
       openedCaches: Array.from(openedCaches),
       cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
@@ -6009,6 +6054,16 @@ function drawNpcBubble() {
       }
       // Restore contracts
       contracts.active = state.contracts?.active || null;
+      if (state.contracts?.byCity) {
+        for (const cid of Object.keys(contracts.byCity)) {
+          if (Array.isArray(state.contracts.byCity[cid]) && state.contracts.byCity[cid].length > 0) {
+            contracts.byCity[cid] = state.contracts.byCity[cid];
+          }
+        }
+      }
+      if (state.contracts?.lastRegenDay) {
+        Object.assign(contracts.lastRegenDay, state.contracts.lastRegenDay);
+      }
 
       // Restore cityPop (with migration fallback)
       if (state.cityPop) {
