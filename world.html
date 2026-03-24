@@ -296,15 +296,34 @@ async function fetchPressure() {
 
 // ── Save reader ───────────────────────────────────────────────────────────
 function readSave() {
-  // Try known save keys (guest + IDs 1–20)
-  const keys = ['charter-road-save-v1'];
-  for (let i = 1; i <= 20; i++) keys.push(`charter-road-save-v1-${i}`);
-  for (const k of keys) {
+  // Scan ALL localStorage keys for any charter-road save — covers guest (v1),
+  // numeric IDs (v1-1..20), and alphanumeric player IDs (v1-A3F2 etc.)
+  const prefix = 'charter-road-save-v1';
+  const candidates = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) candidates.push(k);
+    }
+  } catch {}
+  // Fallback: hardcoded list if localStorage enumeration fails
+  if (candidates.length === 0) {
+    candidates.push('charter-road-save-v1');
+    for (let i = 1; i <= 20; i++) candidates.push(`charter-road-save-v1-${i}`);
+  }
+  // Sort: prefer most recently modified (highest day value)
+  const saves = [];
+  for (const k of candidates) {
     const raw = localStorage.getItem(k);
     if (!raw) continue;
-    try { return { key: k, data: JSON.parse(raw) }; } catch {}
+    try {
+      const data = JSON.parse(raw);
+      saves.push({ key: k, data, day: data?.time?.day || 0 });
+    } catch {}
   }
-  return null;
+  if (saves.length === 0) return null;
+  saves.sort((a, b) => b.day - a.day); // most progressed save first
+  return saves[0];
 }
 
 // ── Render ────────────────────────────────────────────────────────────────
