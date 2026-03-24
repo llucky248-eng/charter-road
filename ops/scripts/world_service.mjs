@@ -37,7 +37,7 @@ const ROUTE_DURATION = {
   'valdenmere→crosshaven': 240, 'crosshaven→valdenmere': 240,
   'valdenmere→ironholt': 180, 'ironholt→valdenmere': 180,
   'ashport→crosshaven': 180, 'crosshaven→ashport': 180,
-  'ashport→ironholt': 720, 'ironholt→ashport': 720,
+  'ashport→ironholt': 360, 'ironholt→ashport': 360,   // FIX: reduced from 720s — ashport was completely isolated
   'crosshaven→ironholt': 240, 'ironholt→crosshaven': 240,
 };
 
@@ -98,7 +98,7 @@ const CITY_TAX = {
 const PERMIT_ITEMS = new Set(['ink', 'relic', 'potion', 'cloth']);
 
 // Permit cost and duration (in trips)
-const PERMIT_COST  = 300;
+const PERMIT_COST  = 150;  // FIX: reduced from 300 — was unaffordable for early traders (80-120g start)
 const PERMIT_TRIPS = 6;
 
 function hasValidPermit(trader, cityId) {
@@ -140,6 +140,23 @@ function seededRand(seed) {
   let s = seed;
   return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
 }
+// Live market pressure snapshot loaded at tick start — keyed as "cityId:itemId"
+const PRESSURE_MAP = {};
+
+async function loadPressureMap() {
+  try {
+    const rows = await sbFetch('/rest/v1/market_economy?select=city_id,item_id,pressure') || [];
+    for (const r of rows) PRESSURE_MAP[`${r.city_id}:${r.item_id}`] = r.pressure;
+    console.log(`[PRESSURE] Loaded ${rows.length} pressure entries`);
+  } catch (e) {
+    console.warn('[PRESSURE] Failed to load (non-fatal):', e.message);
+  }
+}
+
+// FIX: pressure now modifies prices — high sell pressure (oversupply) lowers sell price,
+// high buy pressure (undersupply) raises buy price. Max ±20% swing.
+const PRESSURE_EFFECT = 0.20;
+
 function basePrice(cityId, itemId, itemBase) {
   const seed = hashStr(cityId + ':' + itemId);
   const rng = seededRand(seed);
@@ -147,11 +164,17 @@ function basePrice(cityId, itemId, itemBase) {
 }
 function buyPrice(cityId, item)  {
   const mid = basePrice(cityId, item.id, item.base);
-  return Math.round(mid * (1 + SPREAD / 2));
+  const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
+  // Buy pressure > 0 means item is being bought heavily → supply shrinks → prices rise
+  const factor = 1 + (SPREAD / 2) + (pressure * PRESSURE_EFFECT);
+  return Math.max(1, Math.round(mid * factor));
 }
 function sellPrice(cityId, item) {
   const mid = basePrice(cityId, item.id, item.base);
-  return Math.max(1, Math.round(mid * (1 - SPREAD / 2)));
+  const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
+  // Sell pressure > 0 means item is being sold heavily → supply grows → sell price drops
+  const factor = Math.max(0.5, 1 - (SPREAD / 2) - (pressure * PRESSURE_EFFECT));
+  return Math.max(1, Math.round(mid * factor));
 }
 
 // ── Route picking (mirrors main.js, extended with preferred_item bias) ────
@@ -162,6 +185,8 @@ function decideRoute(trader) {
   for (const toId of CITIES) {
     if (toId === fromId) continue;
     for (const item of ITEMS) {
+      // FIX: skip permit items the trader can't afford a permit for AND can't currently sell legally
+      if (PERMIT_ITEMS.has(item.id) && !hasValidPermit(trader, toId) && (trader.gold || 0) < PERMIT_COST) continue;
       const buy  = buyPrice(fromId, item);
       const sell = sellPrice(toId, item);
       const profit = sell - buy;
@@ -556,6 +581,11 @@ function tickTrader(t, elapsed) {
           addTaxRevenue(t.to_id, taxPaid, 'tax');
         }
         t.gold            += revenue;
+        // FIX: gold floor — traders always keep at least 30g so they can buy basic cargo
+        if (t.gold < 30) {
+          console.log(`[${t.name}] ⚠️ Gold floor applied (${t.gold}g → 30g)`);
+          t.gold = 30;
+        }
         t.total_profit     = (t.total_profit || 0) + revenue;
         t.trips_completed  = (t.trips_completed || 0) + 1;
         // Track per-trip profit history (keep last 10)
@@ -588,6 +618,9 @@ function tickTrader(t, elapsed) {
 
 async function main() {
   console.log(`[WORLD SIM] Tick starting at ${new Date().toISOString()}`);
+
+  // FIX: load market pressure before ticking so prices respond to supply/demand
+  await loadPressureMap();
 
   let traders = await fetchTraders();
   const treasuryRows = await fetchTreasuries();
