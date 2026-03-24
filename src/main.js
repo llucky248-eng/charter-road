@@ -2661,6 +2661,75 @@ const NPC_INTERACT_RADIUS = 18;
     loans: {},    // cityId -> { amount, dueDay, interest }
   };
 
+  // Bank vault — each city bank holds its own reserve
+  // Fed by: player deposits + periodic city treasury contribution
+  // Goes bankrupt when vault < total owed to depositors
+  const bankVault = {
+    valdenmere: { reserve: 120, bankruptDay: null }, // start with small seed reserves
+    ashport:    { reserve: 80,  bankruptDay: null },
+    crosshaven: { reserve: 40,  bankruptDay: null },
+    ironholt:   { reserve: 60,  bankruptDay: null },
+  };
+
+  const BANK_BANKRUPTCY_REOPEN_DAYS = 5; // days until bank reopens after bankruptcy
+  const BANK_INTEREST_RATE = 0.005;      // 0.5%/day deposit interest (down from broken 2%)
+  const BANK_LOAN_RATE     = 0.10;       // 10% flat loan fee
+
+  /** Total gold owed to all depositors at a city bank right now */
+  function bankTotalOwed(cid) {
+    const dep = playerBank.deposits[cid];
+    if (!dep) return 0;
+    const days = Math.max(0, Math.floor(time.day) - dep.depositDay);
+    return dep.amount + Math.floor(dep.amount * BANK_INTEREST_RATE * days);
+  }
+
+  /** Is a city bank currently bankrupt (closed)? */
+  function bankIsBankrupt(cid) {
+    const v = bankVault[cid];
+    if (!v) return false;
+    if (v.bankruptDay !== null) {
+      // Reopen after BANK_BANKRUPTCY_REOPEN_DAYS
+      if (Math.floor(time.day) >= v.bankruptDay + BANK_BANKRUPTCY_REOPEN_DAYS) {
+        v.bankruptDay = null; // reopened
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** Check if a bank should go bankrupt; trigger if so */
+  function checkBankSolvency(cid) {
+    const v = bankVault[cid];
+    if (!v || bankIsBankrupt(cid)) return;
+    const owed = bankTotalOwed(cid);
+    // Bankrupt if reserve can't cover even 30% of what's owed AND owed > 0
+    if (owed > 0 && v.reserve < owed * 0.30) {
+      v.bankruptDay = Math.floor(time.day);
+      // Partial payout: player gets back what the vault can cover
+      const dep = playerBank.deposits[cid];
+      if (dep) {
+        const payout = Math.min(v.reserve, owed);
+        player.gold += payout;
+        v.reserve = Math.max(0, v.reserve - payout);
+        delete playerBank.deposits[cid];
+        // Loans are forgiven in a bankruptcy
+        delete playerBank.loans[cid];
+        const cityObj = getCityById(cid);
+        const haircut = owed - payout;
+        const msg = haircut > 0
+          ? `🏦 Bank of ${cityObj?.name || cid} BANKRUPT! Recovered ${payout}g of ${owed}g owed. Lost ${haircut}g.`
+          : `🏦 Bank of ${cityObj?.name || cid} bankrupt — deposit fully recovered (${payout}g).`;
+        toast(msg, 6);
+        player.rep[cid] = (player.rep[cid] || 0) - 1; // slight rep hit from the chaos
+      } else {
+        const cityObj = getCityById(cid);
+        toast(`🏦 Bank of ${cityObj?.name || cid} has gone bankrupt. Closed for ${BANK_BANKRUPTCY_REOPEN_DAYS} days.`, 5);
+      }
+      v.reserve = 0;
+    }
+  }
+
   // Guild membership state
   const playerGuild = { joined: false, tier: 0 }; // tier 0=none,1=apprentice,2=journeyman,3=master
 
@@ -4706,32 +4775,46 @@ function drawNpcBubble() {
 
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
+      // ── Treasury → Bank funding (20% of treasury flows to bank vault each cycle) ──
+      const vaultShare = Math.floor(treasury.gold * 0.20);
+      if (vaultShare > 0 && bankVault[cid]) {
+        treasury.gold -= vaultShare;
+        bankVault[cid].reserve += vaultShare;
+      }
+
+      // ── If treasury is critically low, bank vault bleeds (no new investment) ──
+      // This is what eventually causes bankruptcy if player doesn't sell in this city
+      if (treasury.gold < 20 && bankVault[cid]) {
+        // Vault slowly drains from overhead costs (5g/cycle when treasury is starved)
+        bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - 5);
+      }
+
+      // ── City investment: spend treasury on upgrade projects ──
       const bias = CITY_INVEST_BIAS[cid] || Object.keys(INVEST_PROJECTS);
-      // Find the cheapest project that's not maxed out yet, biased toward city preference
       const candidates = bias
         .map(key => ({ key, proj: INVEST_PROJECTS[key] }))
         .filter(({ key, proj }) => {
           const current = cityBonus[cid]?.[proj.effect] || 0;
           return current < proj.max && treasury.gold >= proj.cost;
         });
-      if (!candidates.length) continue;
 
-      // Pick first affordable candidate
-      const { key, proj } = candidates[0];
-      treasury.gold -= proj.cost;
-      if (!cityBonus[cid]) cityBonus[cid] = {};
-      cityBonus[cid][proj.effect] = Math.min(proj.max, (cityBonus[cid][proj.effect] || 0) + proj.gain);
+      if (candidates.length) {
+        const { key, proj } = candidates[0];
+        treasury.gold -= proj.cost;
+        if (!cityBonus[cid]) cityBonus[cid] = {};
+        cityBonus[cid][proj.effect] = Math.min(proj.max, (cityBonus[cid][proj.effect] || 0) + proj.gain);
+        treasury.investLog.push({ day: Math.floor(time.day), project: proj.name, effect: proj.desc });
+        if (treasury.investLog.length > 8) treasury.investLog.shift();
 
-      // Log the investment
-      treasury.investLog.push({ day: Math.floor(time.day), project: proj.name, effect: proj.desc });
-      if (treasury.investLog.length > 8) treasury.investLog.shift();
-
-      // Notify player if in this city
-      const playerCity = currentCity();
-      const city = getCityById(cid);
-      if (playerCity?.id === cid) {
-        toast(`📢 ${city?.name || cid} invested in ${proj.name}!`, 3.5);
+        const playerCity = currentCity();
+        const city = getCityById(cid);
+        if (playerCity?.id === cid) {
+          toast(`📢 ${city?.name || cid} invested in ${proj.name}!`, 3.5);
+        }
       }
+
+      // ── Check bank solvency after funding changes ──
+      checkBankSolvency(cid);
     }
   }
 
@@ -4746,6 +4829,8 @@ function drawNpcBubble() {
       populationTick();
       // City investment every 7 days
       if (time.day % 7 === 0) cityInvestTick();
+      // Daily bank solvency check (catches slow vault drain between invest ticks)
+      for (const cid of Object.keys(bankVault)) checkBankSolvency(cid);
       // Contract boards refresh every CONTRACT_REGEN_DAYS days (silent background regen)
       for (const cid of Object.keys(contracts.byCity)) {
         const last = contracts.lastRegenDay[cid] || 1;
@@ -4772,11 +4857,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.0.97',
+    version: 'v0.0.98',
     whatsNew: [
-      'Contracts: accepted job removed from board immediately.',
-      'Contracts: boards auto-refresh every 3 in-game days (new postings).',
-      'Contracts: board state + regen timers saved/loaded correctly.',
+      'Bank: vault reserve system — each city bank has a real balance.',
+      'Bank: can go bankrupt if city treasury runs dry (deposits partially lost).',
+      'Bank: overdue loans now accrue 5%/day penalty. Deposit rate fixed to 0.5%/day.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -5014,6 +5099,11 @@ function drawNpcBubble() {
       key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
     } else if (kind === 'event') {
       key += `|${ui.eventTitle}|${ui.eventText}|${ui.eventSel}|${ui.eventChoices.length}`;
+    } else if (kind === 'bank') {
+      const c = currentCity();
+      const cid = c?.id;
+      const vault = cid ? bankVault[cid] : null;
+      key += `|${cid}|${ui.bankTab}|${player.gold}|${vault?.reserve ?? 0}|${vault?.bankruptDay ?? 'no'}|${playerBank.deposits[cid]?.amount ?? 0}|${playerBank.loans[cid]?.amount ?? 0}`;
     }
 
     if (dom.key === key) return;
@@ -5434,100 +5524,172 @@ function drawNpcBubble() {
       const c = currentCity();
       if (!c) { domCloseAll(); return; }
       const cid = c.id;
+
+      const vault = bankVault[cid] || { reserve: 0, bankruptDay: null };
+      const isBankrupt = bankIsBankrupt(cid);
+      const bankruptDaysLeft = isBankrupt
+        ? (vault.bankruptDay + BANK_BANKRUPTCY_REOPEN_DAYS - Math.floor(time.day))
+        : 0;
+
       const dep = playerBank.deposits[cid];
       const loan = playerBank.loans[cid];
       const daysSinceDep = dep ? Math.max(0, Math.floor(time.day) - dep.depositDay) : 0;
-      const interest = dep ? Math.floor(dep.amount * 0.02 * daysSinceDep) : 0;
+      const interest = dep ? Math.floor(dep.amount * BANK_INTEREST_RATE * daysSinceDep) : 0;
       const depTotal = dep ? dep.amount + interest : 0;
+
+      // Vault health indicator
+      const vaultHealthPct = vault.reserve > 0
+        ? Math.min(100, Math.round((vault.reserve / Math.max(bankTotalOwed(cid), vault.reserve, 1)) * 100))
+        : 0;
+      const vaultHealthColor = vaultHealthPct > 60 ? '#4ade80' : vaultHealthPct > 30 ? '#fbbf24' : '#ef4444';
+      const vaultHealthLabel = vaultHealthPct > 60 ? 'Stable' : vaultHealthPct > 30 ? 'At Risk' : 'Critical';
+
       const tabBtns = ['deposit','withdraw','loan'].map(t =>
         `<button class="cr-tab${ui.bankTab===t?' cr-tab-active':''}" data-bank-tab="${t}">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`
       ).join('');
+
       let bodyHtml = '';
-      if (ui.bankTab === 'deposit') {
-        bodyHtml = `<div class="cr-sub">Deposits earn 2% interest per day.</div>
-          <div class="cr-sub">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
-          ${dep ? '' : '<div style="display:flex;gap:8px;margin-top:10px;">'}
-          ${dep ? `<div style="margin-top:10px;"><button class="cr-tab" data-action="dep10">Deposit 10g</button> <button class="cr-tab" data-action="dep50">Deposit 50g</button> <button class="cr-tab" data-action="dep100">Deposit 100g</button></div>`
-                : `<button class="cr-tab" data-action="dep10">Deposit 10g</button> <button class="cr-tab" data-action="dep50">Deposit 50g</button> <button class="cr-tab" data-action="dep100">Deposit 100g</button></div>`}`;
+      if (isBankrupt) {
+        bodyHtml = `
+          <div style="text-align:center;padding:16px 0;">
+            <div style="font-size:28px;margin-bottom:8px;">🏚️</div>
+            <div style="color:#ef4444;font-weight:bold;font-size:15px">BANK CLOSED — BANKRUPT</div>
+            <div class="cr-sub" style="margin-top:6px">Reopens in <b>${bankruptDaysLeft}</b> day${bankruptDaysLeft !== 1 ? 's' : ''}.</div>
+            <div class="cr-sub" style="margin-top:4px">The city treasury ran dry and the bank could not meet its obligations.</div>
+          </div>`;
+      } else if (ui.bankTab === 'deposit') {
+        const rateLabel = `${(BANK_INTEREST_RATE * 100).toFixed(1)}%/day`;
+        bodyHtml = `
+          <div class="cr-sub">Deposits earn <b>${rateLabel}</b> interest.</div>
+          <div class="cr-sub">Vault reserve: <b style="color:${vaultHealthColor}">${vault.reserve}g</b> — <span style="color:${vaultHealthColor}">${vaultHealthLabel}</span></div>
+          <div class="cr-sub" style="margin-top:2px">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="cr-tab" data-action="dep10">+10g</button>
+            <button class="cr-tab" data-action="dep50">+50g</button>
+            <button class="cr-tab" data-action="dep100">+100g</button>
+          </div>`;
       } else if (ui.bankTab === 'withdraw') {
         bodyHtml = dep
           ? `<div class="cr-sub">Deposit: <b>${dep.amount}g</b> + <b>${interest}g</b> interest = <b>${depTotal}g</b></div>
+             <div class="cr-sub">Vault can cover: <b style="color:${vaultHealthColor}">${vault.reserve}g</b></div>
              <div style="margin-top:10px;"><button class="cr-tab" data-action="withdraw-all">Withdraw All (${depTotal}g)</button></div>`
           : `<div class="cr-sub">No deposit in this city.</div>`;
       } else {
         const hasLoan = !!loan;
         const overdue = loan ? Math.max(0, Math.floor(time.day) - loan.dueDay) : 0;
+        const overdueExtra = overdue > 0 ? Math.round(loan.amount * 0.05 * overdue) : 0; // 5%/day overdue penalty
+        const overdueTotal = hasLoan ? loan.amount + overdueExtra : 0;
+        const maxLoan = Math.min(200, Math.floor(vault.reserve * 0.6)); // can only lend 60% of vault
         bodyHtml = hasLoan
-          ? `<div class="cr-sub">Active loan: <b>${loan.amount}g</b> due day ${loan.dueDay}${overdue>0?` (<span style="color:#ef4444">OVERDUE ${overdue}d</span>)`:''}</div>
-             <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay Loan (${loan.amount}g)</button></div>`
-          : `<div class="cr-sub">Borrow up to 200g at 10% interest, due in 7 days.</div>
-             <div style="display:flex;gap:8px;margin-top:10px;">
-               <button class="cr-tab" data-action="loan50">Borrow 50g</button>
-               <button class="cr-tab" data-action="loan100">Borrow 100g</button>
-               <button class="cr-tab" data-action="loan200">Borrow 200g</button>
+          ? `<div class="cr-sub">Active loan: <b>${loan.amount}g</b> due day ${loan.dueDay}</div>
+             ${overdue > 0 ? `<div class="cr-sub" style="color:#ef4444">OVERDUE ${overdue}d — penalty +${overdueExtra}g → total <b>${overdueTotal}g</b></div>` : ''}
+             <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay (${overdueTotal || loan.amount}g)</button></div>`
+          : vault.reserve < 50
+          ? `<div class="cr-sub" style="color:#fbbf24">⚠️ Vault reserves too low for loans (${vault.reserve}g). Sell goods here to help the city economy.</div>`
+          : `<div class="cr-sub">Borrow up to <b>${maxLoan}g</b> at 10% interest, due in 7 days. Overdue loans accrue 5%/day.</div>
+             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+               ${maxLoan >= 50  ? '<button class="cr-tab" data-action="loan50">50g</button>' : ''}
+               ${maxLoan >= 100 ? '<button class="cr-tab" data-action="loan100">100g</button>' : ''}
+               ${maxLoan >= 200 ? '<button class="cr-tab" data-action="loan200">200g</button>' : ''}
              </div>`;
       }
+
       uiRoot.innerHTML = `
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Bank">
           <div class="cr-panel">
             ${bannerHtml}
             <div class="cr-head">
-              <div><div class="cr-title">🏦 Bank of ${htmlEscape(c.name)}</div><div class="cr-sub">Gold: ${player.gold}g</div></div>
+              <div>
+                <div class="cr-title">🏦 Bank of ${htmlEscape(c.name)}</div>
+                <div class="cr-sub">Your gold: ${player.gold}g · Vault: <span style="color:${vaultHealthColor}">${vault.reserve}g (${vaultHealthLabel})</span></div>
+              </div>
               <button class="cr-close" data-action="close">CLOSE</button>
             </div>
             <div class="cr-body">
-              <div style="display:flex;gap:8px;margin-bottom:12px;">${tabBtns}</div>
-              ${bodyHtml}
+              ${isBankrupt ? bodyHtml : `<div style="display:flex;gap:8px;margin-bottom:12px;">${tabBtns}</div>${bodyHtml}`}
             </div>
             <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
           </div>
         </div>
       `;
+
       uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.bankOpen = false; domCloseAll(); }));
       uiRoot.querySelectorAll('[data-bank-tab]').forEach(el => el.addEventListener('click', () => { ui.bankTab = el.getAttribute('data-bank-tab'); dom.key = ''; domRender(); }));
-      const bankDeposit = (amt) => {
-        if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
-        player.gold -= amt;
-        if (!playerBank.deposits[cid]) {
-          playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
-        } else {
-          // Merge: settle interest then add
+
+      if (!isBankrupt) {
+        const bankDeposit = (amt) => {
+          if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
+          player.gold -= amt;
+          // Deposit goes into vault reserve
+          if (bankVault[cid]) bankVault[cid].reserve += amt;
+          if (!playerBank.deposits[cid]) {
+            playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
+          } else {
+            const d = playerBank.deposits[cid];
+            const days = Math.max(0, Math.floor(time.day) - d.depositDay);
+            d.amount = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days) + amt;
+            d.depositDay = Math.floor(time.day);
+          }
+          toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+        };
+        uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
+        uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
+        uiRoot.querySelector('[data-action="dep100"]')?.addEventListener('click', () => bankDeposit(100));
+
+        uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
+          if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
           const d = playerBank.deposits[cid];
           const days = Math.max(0, Math.floor(time.day) - d.depositDay);
-          d.amount = d.amount + Math.floor(d.amount * 0.02 * days) + amt;
-          d.depositDay = Math.floor(time.day);
-        }
-        toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
-      };
-      uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
-      uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
-      uiRoot.querySelector('[data-action="dep100"]')?.addEventListener('click', () => bankDeposit(100));
-      uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
-        if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
-        const d = playerBank.deposits[cid];
-        const days = Math.max(0, Math.floor(time.day) - d.depositDay);
-        const total = d.amount + Math.floor(d.amount * 0.02 * days);
-        player.gold += total;
-        delete playerBank.deposits[cid];
-        toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
-      });
-      const takeLoan = (amt) => {
-        if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
-        playerBank.loans[cid] = { amount: Math.round(amt * 1.1), dueDay: Math.floor(time.day) + 7, interest: Math.round(amt * 0.1) };
-        player.gold += amt;
-        toast(`Borrowed ${amt}g. Repay ${Math.round(amt*1.1)}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
-      };
-      uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
-      uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
-      uiRoot.querySelector('[data-action="loan200"]')?.addEventListener('click', () => takeLoan(200));
-      uiRoot.querySelector('[data-action="repay"]')?.addEventListener('click', () => {
-        const l = playerBank.loans[cid];
-        if (!l) { toast('No loan here.', 2); return; }
-        if (player.gold < l.amount) { toast(`Need ${l.amount}g to repay.`, 2); return; }
-        player.gold -= l.amount;
-        delete playerBank.loans[cid];
-        toast(`Loan repaid (${l.amount}g).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
-      });
+          const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
+          const vault = bankVault[cid];
+          if (vault && vault.reserve < total) {
+            toast(`⚠️ Vault only has ${vault.reserve}g — partial withdrawal only.`, 3);
+            const partial = vault.reserve;
+            player.gold += partial;
+            vault.reserve = 0;
+            delete playerBank.deposits[cid];
+            checkBankSolvency(cid);
+            scheduleAutoSave(); dom.key = ''; domRender();
+            return;
+          }
+          player.gold += total;
+          if (vault) vault.reserve = Math.max(0, vault.reserve - total);
+          delete playerBank.deposits[cid];
+          toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+        });
+
+        const overdue = loan ? Math.max(0, Math.floor(time.day) - loan.dueDay) : 0;
+        const overdueExtra = overdue > 0 ? Math.round(loan.amount * 0.05 * overdue) : 0;
+        const overdueTotal = loan ? loan.amount + overdueExtra : 0;
+        const maxLoan = Math.min(200, Math.floor((bankVault[cid]?.reserve || 0) * 0.6));
+
+        const takeLoan = (amt) => {
+          if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
+          const v = bankVault[cid];
+          if (!v || v.reserve < amt) { toast(`Vault can only lend ${v?.reserve || 0}g right now.`, 2); return; }
+          const repayAmt = Math.round(amt * (1 + BANK_LOAN_RATE));
+          playerBank.loans[cid] = { amount: repayAmt, dueDay: Math.floor(time.day) + 7, interest: Math.round(amt * BANK_LOAN_RATE) };
+          player.gold += amt;
+          v.reserve -= amt; // loan comes out of vault
+          toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+        };
+        uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
+        uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
+        uiRoot.querySelector('[data-action="loan200"]')?.addEventListener('click', () => takeLoan(200));
+
+        uiRoot.querySelector('[data-action="repay"]')?.addEventListener('click', () => {
+          const l = playerBank.loans[cid];
+          if (!l) { toast('No loan here.', 2); return; }
+          const overdue = Math.max(0, Math.floor(time.day) - l.dueDay);
+          const penalty = overdue > 0 ? Math.round(l.amount * 0.05 * overdue) : 0;
+          const total = l.amount + penalty;
+          if (player.gold < total) { toast(`Need ${total}g to repay${penalty > 0 ? ` (incl. ${penalty}g overdue penalty)` : ''}.`, 2); return; }
+          player.gold -= total;
+          if (bankVault[cid]) bankVault[cid].reserve += total; // repayment goes back to vault
+          delete playerBank.loans[cid];
+          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g penalty` : ''}).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+        });
+      }
       return;
     }
 
@@ -5848,7 +6010,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.0.97',
+      buildVersion: 'v0.0.98',
       player: {
         x: player.x,
         y: player.y,
@@ -5877,6 +6039,7 @@ function drawNpcBubble() {
       cityTreasury: Object.fromEntries(Object.entries(cityTreasury).map(([k,v]) => [k, { gold: v.gold, investLog: [...v.investLog] }])),
       cityBonus: Object.fromEntries(Object.entries(cityBonus).map(([k,v]) => [k, {...v}])),
       playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
+      bankVault: Object.fromEntries(Object.entries(bankVault).map(([k,v]) => [k, {...v}])),
       playerGuild: { ...playerGuild },
       warehouseStash: Object.fromEntries(Object.entries(warehouseStash).map(([k,v]) => [k, {...v}])),
       aiTraders: AI_TRADERS.map(t => ({
@@ -6088,6 +6251,11 @@ function drawNpcBubble() {
       if (state.playerBank) {
         playerBank.deposits = state.playerBank.deposits || {};
         playerBank.loans = state.playerBank.loans || {};
+      }
+      if (state.bankVault) {
+        for (const cid of Object.keys(bankVault)) {
+          if (state.bankVault[cid]) Object.assign(bankVault[cid], state.bankVault[cid]);
+        }
       }
       if (state.playerGuild) Object.assign(playerGuild, state.playerGuild);
       if (state.warehouseStash) {
