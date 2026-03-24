@@ -950,9 +950,10 @@ ${line4}`;
     autoNav.destMarkerT = stateTime;
     // Reset ALL per-trip state so a re-navigate never resumes old tracking
     autoNav._blockedFrames = 0;
+    // _startX/_startY must be set AFTER the snap so minTravelMet counts from new position
     autoNav._startX = player.x;
     autoNav._startY = player.y;
-    autoNav._minTravelPx = 80; // must travel at least 80px before arrival check fires
+    autoNav._minTravelPx = 40; // reduced: 40px is enough to confirm we left the origin gate
     clickMove.active = false; // cancel any manual click-move
     const dest = getCityById(cityId);
     toast(`Navigating to ${dest?.name || cityId}…`, 2);
@@ -989,9 +990,9 @@ ${line4}`;
     const destC = getCityById(autoNav.destCityId);
     if (destC && minTravelMet) {
       const px = player.x / TILE, py = player.y / TILE;
-      // Inside city bounds OR within 2 tiles of gate (south side)
-      const gx = destC.x + Math.floor(destC.w / 2);
-      const nearGate = Math.abs(px - gx) <= 3 && py >= destC.y + destC.h - 1 && py <= destC.y + destC.h + 3;
+      // Inside city bounds OR within 4 tiles of the south gate wall (wider margin)
+      const nearGate = px >= destC.x - 1 && px <= destC.x + destC.w + 1 &&
+                       py >= destC.y + destC.h - 1 && py <= destC.y + destC.h + 5;
       const insideCity = px >= destC.x && px < destC.x + destC.w && py >= destC.y && py < destC.y + destC.h;
       if (insideCity || nearGate) {
         // Snap to city center if not already inside
@@ -1046,11 +1047,12 @@ ${line4}`;
     if (canX) player.x += stepX;
     if (canY) player.y += stepY;
 
-    // If fully blocked for too long, skip waypoint
+    // If fully blocked for too long, skip waypoints aggressively to escape
     if (!canX && !canY) {
       autoNav._blockedFrames = (autoNav._blockedFrames || 0) + 1;
-      if (autoNav._blockedFrames > 30) {
-        autoNav.pathIdx++;
+      if (autoNav._blockedFrames > 20) {
+        // Skip up to 3 waypoints at once to get past obstacle clusters
+        autoNav.pathIdx = Math.min(autoNav.pathIdx + 3, autoNav.path.length - 1);
         autoNav._blockedFrames = 0;
       }
     } else {
@@ -2816,7 +2818,8 @@ const _traderPathCache = {};
 
 function buildTraderPath(fromId, toId) {
   const cacheKey = `${fromId}→${toId}`;
-  if (_traderPathCache[cacheKey]) return _traderPathCache[cacheKey];
+  // Only return cache if it's a real A* path (length > 2 = not a straight-line fallback)
+  if (_traderPathCache[cacheKey] && _traderPathCache[cacheKey].length > 2) return _traderPathCache[cacheKey];
 
   const T = TILE;
 
@@ -2828,8 +2831,16 @@ function buildTraderPath(fromId, toId) {
     const c = world.cities.find(c => c.id === cityId);
     if (!c) return null;
     const gx = c.x + Math.floor(c.w / 2);
-    const gy = c.y + c.h + 1; // 1 tile below gate wall, on the road
-    return { tx: gx, ty: gy };
+    // Scan downward from gate wall until we find a clear walkable tile (up to 5 tiles)
+    for (let offset = 1; offset <= 5; offset++) {
+      const gy = c.y + c.h + offset;
+      const cx = (gx + 0.5) * TILE, cy = (gy + 0.5) * TILE;
+      const r = (player && player.r) ? player.r : 8;
+      const clear = !isSolidAt(cx - r, cy - r) && !isSolidAt(cx + r, cy - r) &&
+                    !isSolidAt(cx - r, cy + r) && !isSolidAt(cx + r, cy + r);
+      if (clear) return { tx: gx, ty: gy };
+    }
+    return { tx: gx, ty: c.y + c.h + 1 }; // fallback to original
   };
 
   const fromExit = getGateExit(fromId);
