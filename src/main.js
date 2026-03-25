@@ -4865,10 +4865,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.2',
+    version: 'v0.1.3',
     whatsNew: [
-      'World simulation reset — all market pressure, trader state, and economy data cleared.',
-      'Events: storm fallthrough fix, omen/escort risk, Valdenmere tax 12%, food rebalance.',
+      'Player saves stored in Supabase DB (keyed by uid). Guests (uid=0) stay localStorage-only.',
+      'On boot: real players load newest save (DB vs local by day count). Auto-saves write both.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6020,10 +6020,50 @@ function drawNpcBubble() {
     ui._saveToastUntilMs = performance.now() + 1200;
   }
 
+  // ── DB Save/Load ─────────────────────────────────────────────────────────
+  // Guest (uid=0) and QA use localStorage only.
+  // Real players (uid != '0') save to Supabase player_saves table AND localStorage.
+  // localStorage always acts as local cache / offline fallback.
+
+  const _isGuest = (_playerId === '0' || __QA.enabled);
+
+  async function saveGameToDb(state) {
+    if (_isGuest) return; // guests stay local
+    try {
+      await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
+        method: 'POST',
+        headers: {
+          ...economyHeaders(),
+          'Prefer': 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({ uid: _playerId, save_data: state, updated_at: new Date().toISOString() }),
+      });
+    } catch (e) {
+      console.warn('[SAVE] DB save failed (non-fatal, local save still written):', e.message);
+    }
+  }
+
+  async function loadGameFromDb() {
+    if (_isGuest) return null; // guests use localStorage
+    try {
+      const res = await fetch(
+        `${ECONOMY.url}/rest/v1/player_saves?uid=eq.${encodeURIComponent(_playerId)}&select=save_data`,
+        { headers: economyHeaders() }
+      );
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      return rows[0].save_data;
+    } catch (e) {
+      console.warn('[LOAD] DB load failed, falling back to localStorage:', e.message);
+      return null;
+    }
+  }
+
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.2',
+      buildVersion: 'v0.1.3',
       player: {
         x: player.x,
         y: player.y,
@@ -6068,10 +6108,12 @@ function drawNpcBubble() {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
       ui._lastSavedDay = time.day;
       notifySaved(`Saved (Day ${time.day})`);
-      console.log('[SAVE] Game saved');
+      console.log('[SAVE] Game saved (local)');
     } catch (e) {
-      console.warn('[SAVE] Failed to save:', e);
+      console.warn('[SAVE] Failed to save locally:', e);
     }
+    // Fire-and-forget DB save for real players
+    saveGameToDb(state);
   }
 
   function isObj(x) { return !!x && typeof x === 'object'; }
@@ -6191,115 +6233,123 @@ function drawNpcBubble() {
     return s;
   }
 
-  function loadGame() {
-    try {
-      const raw = localStorage.getItem(SAVE_KEY);
-      if (!raw) {
-        console.log('[LOAD] No save found');
-        return false;
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        console.warn('[LOAD] Failed to parse save JSON:', e);
-        toast('Load failed: corrupted save data.', 2.5);
-        return false;
-      }
-
-      const state = migrateSave(parsed);
-      const vr = validateSave(state);
-      if (!vr.ok) {
-        console.warn('[LOAD] Invalid save data:', vr.errors);
-        toast('Load failed: incompatible save.', 2.5);
-        return false;
-      }
-
-      // Restore player
-      Object.assign(player, state.player);
-      // Ensure gear object exists (old saves won't have it)
-      if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
-      // Apply gear stats after load
-      applyGearStats();
-      // Restore time
-      Object.assign(time, state.time);
-      // Restore market drift
-      for (const cid of Object.keys(marketDrift)) {
-        if (state.marketDrift?.[cid]) Object.assign(marketDrift[cid], state.marketDrift[cid]);
-      }
-      // Restore contracts
-      contracts.active = state.contracts?.active || null;
-      if (state.contracts?.byCity) {
-        for (const cid of Object.keys(contracts.byCity)) {
-          if (Array.isArray(state.contracts.byCity[cid]) && state.contracts.byCity[cid].length > 0) {
-            contracts.byCity[cid] = state.contracts.byCity[cid];
-          }
-        }
-      }
-      if (state.contracts?.lastRegenDay) {
-        Object.assign(contracts.lastRegenDay, state.contracts.lastRegenDay);
-      }
-
-      // Restore cityPop (with migration fallback)
-      if (state.cityPop) {
-        for (const cid of Object.keys(cityPop)) {
-          if (state.cityPop[cid]) Object.assign(cityPop[cid], state.cityPop[cid]);
-        }
-      }
-
-      // Restore city treasury + bonuses
-      if (state.cityTreasury) {
-        for (const cid of Object.keys(cityTreasury)) {
-          if (state.cityTreasury[cid]) Object.assign(cityTreasury[cid], state.cityTreasury[cid]);
-        }
-      }
-      if (state.cityBonus) {
-        for (const cid of Object.keys(cityBonus)) {
-          if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
-        }
-      }
-
-      // Restore bank, guild, warehouse
-      if (state.playerBank) {
-        playerBank.deposits = state.playerBank.deposits || {};
-        playerBank.loans = state.playerBank.loans || {};
-      }
-      if (state.bankVault) {
-        for (const cid of Object.keys(bankVault)) {
-          if (state.bankVault[cid]) Object.assign(bankVault[cid], state.bankVault[cid]);
-        }
-      }
-      if (state.playerGuild) Object.assign(playerGuild, state.playerGuild);
-      if (state.warehouseStash) {
-        for (const [k, v] of Object.entries(state.warehouseStash)) {
-          warehouseStash[k] = { ...v };
-        }
-      }
-
-      // Restore opened caches
-      openedCaches.clear();
-      if (Array.isArray(state.openedCaches)) {
-        for (const k of state.openedCaches) if (typeof k === 'string') openedCaches.add(k);
-      }
-
-      // Re-center camera on player
-      camera.x = player.x - VIEW_W/2;
-      camera.y = player.y - VIEW_H/2;
-
-      // Opportunistically re-save after migration/validation
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {
-        console.warn('[SAVE] Failed to re-save after load:', e);
-      }
-
-      console.log('[LOAD] Game loaded (day', time.day, ')');
-      toast('Game loaded (day ' + time.day + ').', 2);
-      return true;
-    } catch (e) {
-      console.warn('[LOAD] Failed to load:', e);
-      toast('Load failed.', 2.5);
-      return false;
+  function _applyLoadedState(state) {
+    // Restore player
+    Object.assign(player, state.player);
+    if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+    applyGearStats();
+    // Restore time
+    Object.assign(time, state.time);
+    // Restore market drift
+    for (const cid of Object.keys(marketDrift)) {
+      if (state.marketDrift?.[cid]) Object.assign(marketDrift[cid], state.marketDrift[cid]);
     }
+    // Restore contracts
+    contracts.active = state.contracts?.active || null;
+    if (state.contracts?.byCity) {
+      for (const cid of Object.keys(contracts.byCity)) {
+        if (Array.isArray(state.contracts.byCity[cid]) && state.contracts.byCity[cid].length > 0) {
+          contracts.byCity[cid] = state.contracts.byCity[cid];
+        }
+      }
+    }
+    if (state.contracts?.lastRegenDay) {
+      Object.assign(contracts.lastRegenDay, state.contracts.lastRegenDay);
+    }
+    // Restore cityPop
+    if (state.cityPop) {
+      for (const cid of Object.keys(cityPop)) {
+        if (state.cityPop[cid]) Object.assign(cityPop[cid], state.cityPop[cid]);
+      }
+    }
+    // Restore city treasury + bonuses
+    if (state.cityTreasury) {
+      for (const cid of Object.keys(cityTreasury)) {
+        if (state.cityTreasury[cid]) Object.assign(cityTreasury[cid], state.cityTreasury[cid]);
+      }
+    }
+    if (state.cityBonus) {
+      for (const cid of Object.keys(cityBonus)) {
+        if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
+      }
+    }
+    // Restore bank, guild, warehouse
+    if (state.playerBank) {
+      playerBank.deposits = state.playerBank.deposits || {};
+      playerBank.loans = state.playerBank.loans || {};
+    }
+    if (state.bankVault) {
+      for (const cid of Object.keys(bankVault)) {
+        if (state.bankVault[cid]) Object.assign(bankVault[cid], state.bankVault[cid]);
+      }
+    }
+    if (state.playerGuild) Object.assign(playerGuild, state.playerGuild);
+    if (state.warehouseStash) {
+      for (const [k, v] of Object.entries(state.warehouseStash)) {
+        warehouseStash[k] = { ...v };
+      }
+    }
+    // Restore opened caches
+    openedCaches.clear();
+    if (Array.isArray(state.openedCaches)) {
+      for (const k of state.openedCaches) if (typeof k === 'string') openedCaches.add(k);
+    }
+    // Re-center camera on player
+    camera.x = player.x - VIEW_W/2;
+    camera.y = player.y - VIEW_H/2;
+  }
+
+  function _parseAndApply(raw, source) {
+    let parsed;
+    try { parsed = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)); }
+    catch (e) { console.warn(`[LOAD] Bad JSON from ${source}:`, e); return false; }
+    const state = migrateSave(parsed);
+    const vr = validateSave(state);
+    if (!vr.ok) { console.warn(`[LOAD] Invalid save from ${source}:`, vr.errors); return false; }
+    _applyLoadedState(state);
+    // Write canonical migrated save back to localStorage as cache
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch {}
+    console.log(`[LOAD] Game loaded from ${source} (day ${time.day})`);
+    toast(`Game loaded (day ${time.day}).`, 2);
+    return true;
+  }
+
+  function loadGame() {
+    // Guests and QA: localStorage only
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) { console.log('[LOAD] No local save found'); return false; }
+    const ok = _parseAndApply(raw, 'localStorage');
+    if (!ok) { toast('Load failed: corrupted save.', 2.5); }
+    return ok;
+  }
+
+  // Async load for real players: try DB first, fall back to localStorage
+  async function loadGameAsync() {
+    if (_isGuest) return loadGame();
+
+    const dbData = await loadGameFromDb();
+    if (dbData) {
+      // DB save found — compare day with local to pick newest
+      let localDay = 0;
+      try {
+        const localRaw = localStorage.getItem(SAVE_KEY);
+        if (localRaw) {
+          const localParsed = JSON.parse(localRaw);
+          localDay = localParsed?.time?.day || 0;
+        }
+      } catch {}
+      const dbDay = dbData?.time?.day || 0;
+
+      if (dbDay >= localDay) {
+        console.log(`[LOAD] Using DB save (day ${dbDay}) over local (day ${localDay})`);
+        return _parseAndApply(dbData, 'database');
+      } else {
+        console.log(`[LOAD] Local save (day ${localDay}) newer than DB (day ${dbDay}), using local`);
+        return loadGame();
+      }
+    }
+    // No DB save — fall back to local
+    return loadGame();
   }
 
   function deleteSave() {
@@ -10316,6 +10366,12 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
   // Apply gear stats on fresh start (load already calls applyGearStats)
   applyGearStats();
+
+  // Auto-load save on startup: real players try DB first, guests use localStorage
+  loadGameAsync().then(loaded => {
+    if (loaded) console.log('[BOOT] Save loaded');
+    else console.log('[BOOT] No save — fresh start');
+  });
 
   tick();
 })();
