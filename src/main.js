@@ -8773,74 +8773,144 @@ if (ui._hudTapDebug) {
       }
     }
 
-    // second line: rules + hint
-    ctx.fillStyle = 'rgba(138,160,179,0.95)';
-    ctx.font = `${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    // ── line2: compact single-line status (city vibe or road hint) ──────────
     if (!IS_MOBILE) {
-
-    if (rules) {
-      const hint = nearMarketTile() ? 'Tap market to trade' : 'Find market (gold tile)';
-      const shortHint = IS_MOBILE ? `${hint}` : hint;
-      const contraTxt = IS_MOBILE ? rules.contraband.join(', ').slice(0, 18) + (rules.contraband.join(', ').length>18?'…':'') : rules.contraband.join(', ');
-      const _cpop = cityPop[c.id];
-      const _popStr = _cpop ? ((_cpop.pop >= 1000 ? (_cpop.pop/1000).toFixed(1)+'k' : Math.round(_cpop.pop).toString()) + ' pop') : '';
-      const _hungerStr = _cpop ? `Hunger: ${Math.round(_cpop.hunger*100)}%` : '';
-      const _treasury = cityTreasury[c.id];
-      const _treasuryStr = _treasury && _treasury.gold > 0 ? ` · Treasury: ${_treasury.gold}g` : '';
-      const _popPrefix = _popStr ? `${_popStr} · ` : '';
-      const _hungerSuffix = _hungerStr ? ` · ${_hungerStr}${_treasuryStr}` : '';
-      const ruleLine = IS_MOBILE ? `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · ${shortHint}` : `${_popPrefix}Tax ${Math.round(rules.taxRate*100)}% · Inspect ${Math.round(rules.inspectionChance*100)}%${_hungerSuffix} · Contraband: ${contraTxt} · ${hint}`;
-      ctx.fillText(
-        ellipsizeText(ruleLine, maxTextW),
-        titleX,
-        line2
-      );
-    } else {
-      ctx.fillText(ellipsizeText('Follow the road between cities. Encounters may trigger while traveling.', maxTextW), titleX, line2);
-    }
+      ctx.fillStyle = 'rgba(138,160,179,0.80)';
+      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textAlign = 'left';
+      if (rules) {
+        ctx.fillText(ellipsizeText(rules.vibe || c.name, maxTextW), titleX, line2);
+      } else {
+        ctx.fillText('Follow the road between cities.', titleX, line2);
+      }
     }
 
 
 
-// city hub NPC chatter (desktop; hidden during modals)
-if (!IS_MOBILE && c && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !(document.body && document.body.classList.contains('ui-open'))) {
-  const rows = getNpcPanelState(c.id);
-  if (rows && rows.length) {
-    const fontSz = Math.round(12 * UI_SCALE);
-    const rowH = Math.round(16 * UI_SCALE);
-    const x = titleX;
-    const y0 = HUD_H + Math.round(18 * UI_SCALE);
-    const padX = Math.round(10 * UI_SCALE);
-    const padY = Math.round(8 * UI_SCALE);
-    const boxW = Math.min(maxTextW, VIEW_W - x - Math.round(12 * UI_SCALE));
-    const boxH = Math.round(14 * UI_SCALE) + rows.length * rowH + padY;
-    const boxX = x;
-    const boxY = y0 - Math.round(14 * UI_SCALE);
+// ── Combined City State + People panel (desktop, below HUD, hidden during modals) ──
+if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !(document.body && document.body.classList.contains('ui-open'))) {
+  const npcRows  = getNpcPanelState(c.id) || [];
+  const _cpop     = cityPop[c.id];
+  const _treasury = cityTreasury[c.id];
+  const _rep      = player.rep?.[c.id] || 0;
+  const popVal    = _cpop ? (_cpop.pop >= 1000 ? (_cpop.pop / 1000).toFixed(1) + 'k' : Math.round(_cpop.pop).toString()) : '–';
+  const hungerPct = _cpop ? Math.round(_cpop.hunger * 100) : 0;
+  const hungerCol = hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
+  const treVal    = (_treasury && _treasury.gold > 0) ? `${_treasury.gold}g` : '–';
+  const taxVal    = `${Math.round(rules.taxRate * 100)}%`;
+  const inspVal   = `${Math.round(rules.inspectionChance * 100)}%`;
+  const repStr    = _rep >= 10 ? 'Trusted' : _rep >= 5 ? 'Known' : _rep >= 0 ? 'Neutral' : 'Suspect';
+  const repCol    = _rep >= 10 ? '#86efac' : _rep >= 5 ? '#fbbf24' : _rep >= 0 ? '#94a3b8' : '#f87171';
+  const contraTxt = rules.contraband.join(', ') || 'none';
+  const hint      = nearMarketTile() ? '⚡ Market nearby — tap to trade' : '★ Find market (gold tile)';
 
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.strokeStyle = 'rgba(30, 42, 54, 0.80)';
+  const x        = titleX;
+  const padX     = Math.round(10 * UI_SCALE);
+  const padY     = Math.round(8 * UI_SCALE);
+  const colW     = Math.round(130 * UI_SCALE);
+  const rowH     = Math.round(15 * UI_SCALE);
+  const fSz      = Math.round(11 * UI_SCALE);
+  const fSzSm    = Math.round(10 * UI_SCALE);
+  const boxW     = Math.min(maxTextW, VIEW_W - x - Math.round(12 * UI_SCALE));
+
+  // Stat rows: [labelA, valueA, colorA, labelB, valueB, colorB]
+  const LABEL    = 'rgba(138,160,179,0.75)';
+  const VAL      = '#cfe6ff';
+  const statRows = [
+    ['Population', popVal,              VAL,      'Tax',      taxVal,  VAL],
+    ['Hunger',     `${hungerPct}%`,     hungerCol,'Inspect',  inspVal, VAL],
+    ['Treasury',   treVal,              VAL,      'Rep',      repStr,  repCol],
+  ];
+
+  // Height: section header + stat rows + contraband + hint + npc header + npc rows
+  const npcSection = npcRows.length > 0 ? (Math.round(18 * UI_SCALE) + npcRows.length * rowH) : 0;
+  const boxH = padY
+    + Math.round(14 * UI_SCALE)          // "CITY STATE" header
+    + statRows.length * rowH
+    + rowH                                // contraband
+    + rowH                                // hint
+    + npcSection
+    + padY;
+
+  const boxX = x;
+  const boxY = HUD_H + Math.round(4 * UI_SCALE);
+
+  ctx.save();
+
+  // Card background + border
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.78)';
+  ctx.strokeStyle = 'rgba(30, 42, 54, 0.90)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 10);
+  else ctx.rect(boxX, boxY, boxW, boxH);
+  ctx.fill();
+  ctx.stroke();
+
+  let cy = boxY + padY;
+
+  // ── Section: CITY STATE ─────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(160,184,203,0.60)';
+  ctx.font = `900 ${Math.round(9 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText('CITY STATE', boxX + padX, cy);
+  cy += Math.round(14 * UI_SCALE);
+
+  ctx.font = `${fSz}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  for (const [lA, vA, cA, lB, vB, cB] of statRows) {
+    // Column A
+    ctx.fillStyle = LABEL;
+    ctx.fillText(lA + ':', boxX + padX, cy);
+    const lAW = ctx.measureText(lA + ':  ').width;
+    ctx.fillStyle = cA;
+    ctx.fillText(vA, boxX + padX + lAW, cy);
+    // Column B
+    ctx.fillStyle = LABEL;
+    ctx.fillText(lB + ':', boxX + padX + colW, cy);
+    const lBW = ctx.measureText(lB + ':  ').width;
+    ctx.fillStyle = cB;
+    ctx.fillText(vB, boxX + padX + colW + lBW, cy);
+    cy += rowH;
+  }
+
+  // Contraband row
+  ctx.font = `${fSzSm}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.fillStyle = LABEL;
+  ctx.fillText('Contraband:', boxX + padX, cy);
+  const cbLW = ctx.measureText('Contraband:  ').width;
+  ctx.fillStyle = '#fca5a5';
+  ctx.fillText(ellipsizeText(contraTxt, boxW - padX * 2 - cbLW), boxX + padX + cbLW, cy);
+  cy += rowH;
+
+  // Hint row
+  ctx.fillStyle = 'rgba(251,191,36,0.75)';
+  ctx.fillText(hint, boxX + padX, cy);
+  cy += rowH;
+
+  // ── Section: PEOPLE (NPC chatter) ──────────────────────────────────
+  if (npcRows.length > 0) {
+    // Thin divider
+    ctx.strokeStyle = 'rgba(30, 42, 54, 0.70)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 12);
-    else ctx.rect(boxX, boxY, boxW, boxH);
-    ctx.fill();
+    ctx.moveTo(boxX + padX, cy - Math.round(4 * UI_SCALE));
+    ctx.lineTo(boxX + boxW - padX, cy - Math.round(4 * UI_SCALE));
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(160,184,203,0.95)';
-    ctx.font = `900 ${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText('PEOPLE', boxX + padX, boxY + Math.round(14 * UI_SCALE));
+    ctx.fillStyle = 'rgba(160,184,203,0.60)';
+    ctx.font = `900 ${Math.round(9 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText('PEOPLE', boxX + padX, cy + Math.round(10 * UI_SCALE));
+    cy += Math.round(18 * UI_SCALE);
 
     ctx.fillStyle = '#cfe6ff';
-    ctx.font = `700 ${fontSz}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    let y = boxY + Math.round(30 * UI_SCALE);
-    for (const r of rows) {
-      ctx.fillText(ellipsizeText(r.line, boxW - padX * 2), boxX + padX, y);
-      y += rowH;
+    ctx.font = `${fSz}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    for (const r of npcRows) {
+      ctx.fillText(ellipsizeText(r.line, boxW - padX * 2), boxX + padX, cy);
+      cy += rowH;
     }
-
-    ctx.restore();
   }
+
+  ctx.restore();
 }
 
 // npc diag overlay
