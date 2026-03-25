@@ -176,7 +176,7 @@
 <body>
 
 <h1>🗺 The Amber Road — Live World</h1>
-<div class="subtitle">Global economy + your local save · Auto-refreshes every <span>30s</span></div>
+<div class="subtitle">Global economy · Player saves by UID · Auto-refreshes every <span>30s</span></div>
 
 <div class="status-bar">
   <div class="dot" id="dot"></div>
@@ -184,10 +184,19 @@
   <button class="refresh-btn" onclick="refresh()">↻ Refresh</button>
 </div>
 
-<!-- Player save summary -->
-<div class="section-title">📦 Your Save</div>
-<div class="grid" id="save-grid">
-  <div class="card"><div class="empty">No save found. Play the game to create one.</div></div>
+<!-- Player UID lookup -->
+<div class="section-title">📦 Player Saves</div>
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+  <input id="uid-input" placeholder="Enter UID (e.g. A3F2) or leave blank for all"
+    style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#e0e8f0;
+           padding:7px 12px;border-radius:8px;font-size:13px;width:260px;outline:none"
+    onkeydown="if(event.key==='Enter')lookupUid()" />
+  <button class="refresh-btn" onclick="lookupUid()" style="margin-left:0">🔍 Look Up</button>
+  <button class="refresh-btn" onclick="lookupUid('0')" style="margin-left:0;color:#f59e0b">👾 QA / Guest (uid=0)</button>
+  <button class="refresh-btn" onclick="lookupAllPlayers()" style="margin-left:0">👥 All Players</button>
+</div>
+<div id="save-grid" class="grid">
+  <div class="card"><div class="empty">Enter a UID above or click All Players to view saves.</div></div>
 </div>
 
 <!-- Economy heatmap -->
@@ -327,72 +336,6 @@ function readSave() {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────
-function renderSave(save) {
-  const grid = document.getElementById('save-grid');
-  if (!save) {
-    grid.innerHTML = '<div class="card"><div class="empty">No save found. Play the game to create one.</div></div>';
-    return;
-  }
-  const p = save.data.player;
-  const t = save.data.time || {};
-  const g = p.gear || { pack:0, boots:0, tool:0 };
-  const inv = p.inv || {};
-  const rep = p.rep || {};
-  const contracts = save.data.contracts;
-
-  const invItems = ITEMS.filter(it => (inv[it.id] || 0) > 0)
-    .map(it => `${inv[it.id]}× ${it.name}`).join(', ') || '—';
-
-  const repHtml = Object.entries(rep).map(([cid, v]) => {
-    const city = CITIES.find(c => c.id === cid);
-    const name = city?.name || cid;
-    const pct = Math.min(100, Math.round((v / 20) * 100));
-    return `
-      <div style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-          <span style="color:#94a3b8">${name}</span><span style="color:#e8d4a0">${v} rep</span>
-        </div>
-        <div class="rep-bar"><div class="rep-fill" style="width:${pct}%;background:${city?.color||'#60a5fa'}"></div></div>
-      </div>`;
-  }).join('');
-
-  const gearHtml = ['pack','boots','tool'].map(slot => {
-    const tier = g[slot] || 0;
-    const name = GEAR_NAMES[slot]?.[tier] || `T${tier}`;
-    return `<span class="gear-badge">${name}</span>`;
-  }).join('');
-
-  const contractHtml = contracts?.active
-    ? `<div style="color:#f59e0b;font-size:12px">📋 Active: deliver ${contracts.active.qty}× ${contracts.active.want} → ${CITIES.find(c=>c.id===contracts.active.toId)?.name || contracts.active.toId} (+${contracts.active.reward}g)</div>`
-    : `<div style="color:#4a6a80;font-size:12px">No active contract</div>`;
-
-  grid.innerHTML = `
-    <div class="card">
-      <div class="card-title">Player</div>
-      <div class="stat"><span class="stat-label">Save key</span><span class="stat-val" style="font-size:11px;color:#6a8aa0">${save.key}</span></div>
-      <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${p.gold}g</span></div>
-      <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${Object.values(inv).reduce((a,b)=>a+b,0)} / ${p.capacity}</span></div>
-      <div class="stat"><span class="stat-label">Day / Time</span><span class="stat-val">Day ${Math.floor(t.day||1)} · ${String(Math.floor((t.hour||8))).padStart(2,'0')}:${String(Math.round(((t.hour||8)%1)*60)).padStart(2,'0')}</span></div>
-      <div class="stat"><span class="stat-label">Speed</span><span class="stat-val">${p.speed||90} px/s</span></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Gear</div>
-      <div style="margin-bottom:12px">${gearHtml}</div>
-      <div class="card-title">Inventory</div>
-      <div style="font-size:12px;color:#94a3b8;line-height:1.6">${invItems}</div>
-    </div>
-    <div class="card">
-      <div class="card-title">Reputation</div>
-      ${repHtml}
-    </div>
-    <div class="card">
-      <div class="card-title">Contract</div>
-      ${contractHtml}
-      ${p.intelLedger?.length ? `<div style="margin-top:8px;font-size:12px;color:#94a3b8">🕵️ ${p.intelLedger.filter(c=>!c.sold).length} active intel card(s)</div>` : ''}
-    </div>
-  `;
-}
-
 function renderHeatmap(pressure) {
   const hm = document.getElementById('heatmap');
   const cityNames = { valdenmere:'Vald.', ashport:'Ash.', crosshaven:'Cross.', ironholt:'Iron.' };
@@ -740,6 +683,157 @@ function renderTraders(liveRows, save, source) {
   grid.innerHTML = cards;
 }
 
+// ── DB player save fetch ──────────────────────────────────────────────────
+async function fetchPlayerSave(uid) {
+  const url = `${SUPABASE_URL}/rest/v1/player_saves?uid=eq.${encodeURIComponent(uid)}&select=uid,save_data,updated_at`;
+  const res = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  const rows = await res.json();
+  if (!rows.length) return null;
+  return { uid: rows[0].uid, data: rows[0].save_data, updatedAt: rows[0].updated_at, source: 'db' };
+}
+
+async function fetchAllPlayerSaves() {
+  const url = `${SUPABASE_URL}/rest/v1/player_saves?select=uid,save_data,updated_at&order=updated_at.desc`;
+  const res = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  const rows = await res.json();
+  return rows.map(r => ({ uid: r.uid, data: r.save_data, updatedAt: r.updated_at, source: 'db' }));
+}
+
+function renderSaveCard(save) {
+  if (!save) return `<div class="card"><div class="empty">No save found for this UID.</div></div>`;
+
+  const p = save.data?.player;
+  const t = save.data?.time || {};
+  if (!p) return `<div class="card"><div class="empty">Save data invalid.</div></div>`;
+
+  const g = p.gear || { pack:0, boots:0, tool:0 };
+  const inv = p.inv || {};
+  const rep = p.rep || {};
+  const contracts = save.data.contracts;
+
+  const invItems = ITEMS.filter(it => (inv[it.id] || 0) > 0)
+    .map(it => `${inv[it.id]}× ${it.name}`).join(', ') || '—';
+
+  const repHtml = Object.entries(rep).map(([cid, v]) => {
+    const city = CITIES.find(c => c.id === cid);
+    const name = city?.name || cid;
+    const pct = Math.min(100, Math.round((v / 20) * 100));
+    return `<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span style="color:#94a3b8">${name}</span><span style="color:#e8d4a0">${v} rep</span>
+      </div>
+      <div class="rep-bar"><div class="rep-fill" style="width:${pct}%;background:${city?.color||'#60a5fa'}"></div></div>
+    </div>`;
+  }).join('');
+
+  const gearHtml = ['pack','boots','tool'].map(slot => {
+    const tier = g[slot] || 0;
+    const name = GEAR_NAMES[slot]?.[tier] || `T${tier}`;
+    return `<span class="gear-badge">${name}</span>`;
+  }).join('');
+
+  const contractHtml = contracts?.active
+    ? `<div style="color:#f59e0b;font-size:12px">📋 Active: deliver ${contracts.active.qty}× ${contracts.active.want} → ${CITIES.find(c=>c.id===contracts.active.toId)?.name || contracts.active.toId} (+${contracts.active.reward}g)</div>`
+    : `<div style="color:#4a6a80;font-size:12px">No active contract</div>`;
+
+  const sourceLabel = save.source === 'db'
+    ? `<span style="font-size:10px;padding:1px 7px;border-radius:999px;background:rgba(74,222,128,0.15);color:#4ade80">🟢 DB</span>`
+    : `<span style="font-size:10px;padding:1px 7px;border-radius:999px;background:rgba(148,163,184,0.1);color:#94a3b8">⚪ local</span>`;
+
+  const updatedLabel = save.updatedAt
+    ? `<span style="font-size:10px;color:#4a6a80"> · ${new Date(save.updatedAt).toLocaleString()}</span>`
+    : '';
+
+  const bankHtml = (() => {
+    const vault = save.data?.bankVault || {};
+    const parts = Object.entries(vault).map(([cid, v]) => {
+      const city = CITIES.find(c => c.id === cid);
+      if (!v || (!v.reserve && !v.bankruptDay)) return '';
+      const isBankrupt = v.bankruptDay !== null;
+      const col = isBankrupt ? '#ef4444' : v.reserve > 60 ? '#4ade80' : '#f59e0b';
+      return `<span style="font-size:11px;color:${col}">${city?.name||cid}: ${isBankrupt ? '💥 BANKRUPT' : v.reserve+'g'}</span>`;
+    }).filter(Boolean);
+    return parts.length ? parts.join(' · ') : '—';
+  })();
+
+  return `
+    <div class="card">
+      <div class="card-title" style="display:flex;gap:8px;align-items:center">
+        UID: <b style="color:#e8d4a0;font-size:13px">${save.uid || '?'}</b>
+        ${sourceLabel}${updatedLabel}
+      </div>
+      <div class="stat"><span class="stat-label">Gold</span><span class="stat-val">💰 ${p.gold}g</span></div>
+      <div class="stat"><span class="stat-label">Day</span><span class="stat-val">Day ${Math.floor(t.day||1)}</span></div>
+      <div class="stat"><span class="stat-label">Cargo</span><span class="stat-val">${Object.values(inv).reduce((a,b)=>a+b,0)} / ${p.capacity}</span></div>
+      <div class="stat"><span class="stat-label">Bank Vaults</span><span class="stat-val" style="font-size:11px">${bankHtml}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Gear</div>
+      <div style="margin-bottom:12px">${gearHtml}</div>
+      <div class="card-title">Inventory</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.6">${invItems}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Reputation</div>
+      ${repHtml || '<div class="empty">No rep yet.</div>'}
+    </div>
+    <div class="card">
+      <div class="card-title">Contract</div>
+      ${contractHtml}
+      ${p.intelLedger?.length ? `<div style="margin-top:8px;font-size:12px;color:#94a3b8">🕵️ ${p.intelLedger.filter(c=>!c.sold).length} active intel card(s)</div>` : ''}
+    </div>`;
+}
+
+function renderSaves(saves) {
+  const grid = document.getElementById('save-grid');
+  if (!saves || saves.length === 0) {
+    grid.innerHTML = '<div class="card"><div class="empty">No player saves found.</div></div>';
+    return;
+  }
+  grid.innerHTML = saves.map(s => renderSaveCard(s)).join('');
+}
+
+async function lookupUid(forceUid) {
+  const grid = document.getElementById('save-grid');
+  const uid = (forceUid !== undefined ? forceUid : document.getElementById('uid-input').value.trim().toUpperCase()) || '';
+  grid.innerHTML = '<div class="card"><div class="empty">Looking up…</div></div>';
+  try {
+    if (!uid) { grid.innerHTML = '<div class="card"><div class="empty">Enter a UID above.</div></div>'; return; }
+    const save = await fetchPlayerSave(uid);
+    if (!save) {
+      // Fallback: try localStorage for guest/local
+      const local = readSave();
+      if (local && uid === '0') { renderSaves([{ ...local, uid: '0 (local)', source: 'local' }]); return; }
+      grid.innerHTML = `<div class="card"><div class="empty">No save found for UID <b>${uid}</b>.</div></div>`;
+      return;
+    }
+    renderSaves([save]);
+  } catch (e) {
+    grid.innerHTML = `<div class="card"><div class="empty">Error: ${e.message}</div></div>`;
+  }
+}
+
+async function lookupAllPlayers() {
+  const grid = document.getElementById('save-grid');
+  grid.innerHTML = '<div class="card"><div class="empty">Loading all players…</div></div>';
+  try {
+    const saves = await fetchAllPlayerSaves();
+    // Also include local guest save if present
+    const local = readSave();
+    if (local && !saves.find(s => s.uid === '0')) {
+      saves.push({ ...local, uid: '0 (local)', source: 'local' });
+    }
+    renderSaves(saves);
+  } catch (e) {
+    grid.innerHTML = `<div class="card"><div class="empty">Error: ${e.message}</div></div>`;
+  }
+}
+
+// Legacy: keep renderSave for internal use (uses local save)
+function renderSave(save) { renderSaves(save ? [save] : []); }
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function refresh() {
   const dot = document.getElementById('dot');
@@ -747,9 +841,10 @@ async function refresh() {
   dot.className = 'dot';
   statusText.textContent = 'Fetching…';
 
-  // Read local save
+  // Read local save for population/trader fallback
   const save = readSave();
-  renderSave(save);
+  // Default view: show all DB players (non-blocking)
+  lookupAllPlayers();
 
   // Fetch Supabase data in parallel
   const [pressureResult, tradersResult, strategyResult, treasuryResult] = await Promise.allSettled([
