@@ -2027,7 +2027,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   const CITY_RULES = {
     valdenmere: {
-      taxRate: 0.18,
+      taxRate: 0.12,          // was 0.18 — reduced so big-city trading is rewarding, not punishing
       inspectionChance: 0.65,
       contraband: ['Demon Ink'],
       fineBase: 18,
@@ -4865,11 +4865,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.0',
+    version: 'v0.1.1',
     whatsNew: [
-      'Prices: replaced real-time sine wobble with day-based wobble (no more per-frame flicker).',
-      'Prices: quoteFor and priceFor now use identical wobble — display matches trade price.',
-      'Prices: still vary meaningfully day-to-day; stable within the same day.',
+      'Events: fixed storm firing for all 8/10 event types (if/else if chain, not fallthrough).',
+      'Events: Omen and Escort now have real risk (pickpocket 25%, ambush 20%).',
+      'Balance: Valdenmere tax 18%→12%; Crosshaven food buy price raised.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6024,7 +6024,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.0',
+      buildVersion: 'v0.1.1',
       player: {
         x: player.x,
         y: player.y,
@@ -6361,7 +6361,7 @@ function drawNpcBubble() {
       ashport:    { food: 0.88, ore: 1.05, herbs: 1.12, potion: 1.08, relic: 1.25, ink: 1.10 },
       // Crosshaven: farming village — cheapest food/herbs, average other goods
       // Between Valdenmere and Ashport → moderate margins on both sides
-      crosshaven: { food: 0.76, ore: 1.02, herbs: 0.85, potion: 1.02, relic: 1.00, ink: 1.00 },
+      crosshaven: { food: 0.88, ore: 1.02, herbs: 0.85, potion: 1.02, relic: 1.00, ink: 1.00 },
       // Ironholt: mining town — very cheap ore, expensive food/herbs
       // Near Ashport but sells ORE (Ashport has average ore) → short-trip ore viable
       // but NOT relic/ink (similar prices) → prevents short Ironholt→Ashport exploit
@@ -6972,13 +6972,7 @@ function drawNpcBubble() {
         ],
       });
 
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
-      return;
-    }
-
-    if (kind === 'toll') {
+    } else if (kind === 'toll') {
       openEvent({
         title: 'Toll Checkpoint',
         text: 'A petty lord has stationed guards here. Pay the toll or detour through rough terrain.',
@@ -6988,56 +6982,75 @@ function drawNpcBubble() {
         ],
       });
 
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
-      return;
-    }
-
-    // storm
-    openEvent({
-      title: 'Sudden Storm',
-      text: 'Wind and rain hammer the road. Your pack gets soaked.',
-      choices: [
-        { label: 'Push through', run: () => {
-            road.cooldown = 10.0;
-            // 40% chance lose 1 fragile item
-            const fragile = ['herbs', 'potion'];
-            if (Math.random() < 0.4) {
-              const id = randChoice(fragile);
-              if ((player.inv[id] || 0) > 0) { player.inv[id] -= 1; toast('A fragile item was ruined by the storm.', 3); }
-              else toast('You weather the storm.', 2.4);
-            } else {
-              toast('You weather the storm.', 2.4);
+    } else if (kind === 'storm') {
+      openEvent({
+        title: 'Sudden Storm',
+        text: 'Wind and rain hammer the road. Your pack gets soaked.',
+        choices: [
+          { label: 'Push through', run: () => {
+              road.cooldown = 10.0;
+              const fragile = ['herbs', 'potion'];
+              if (Math.random() < 0.4) {
+                const id = randChoice(fragile);
+                if ((player.inv[id] || 0) > 0) { player.inv[id] -= 1; toast('A fragile item was ruined by the storm.', 3); }
+                else toast('You weather the storm.', 2.4);
+              } else {
+                toast('You weather the storm.', 2.4);
+              }
+              closeEvent();
             }
-            closeEvent();
-          }
-        },
-        { label: 'Take shelter (-5g)', run: () => { const paid = Math.min(player.gold, 5); player.gold -= paid; toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
-      ],
-    });
+          },
+          { label: 'Take shelter (-5g)', run: () => { const paid = Math.min(player.gold, 5); player.gold -= paid; toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
+        ],
+      });
 
-    if (kind === 'omen') {
-      const g = 5 + Math.floor(rand01() * 8);
-      player.gold += g;
-      toast(`Good omen on the road! Found ${g}g.`, 2.4);
-      closeEvent();
-      return;
-    }
+    } else if (kind === 'omen') {
+      // Omen is a lucky find — but 25% chance it's a lure and a pickpocket strikes
+      openEvent({
+        title: 'Strange Omen',
+        text: 'A glint of gold on the roadside catches your eye. Could be luck — or a lure.',
+        choices: [
+          { label: 'Investigate', run: () => {
+              if (rand01() < 0.25) {
+                const loss = 5 + Math.floor(rand01() * 8);
+                const paid = Math.min(player.gold, loss);
+                player.gold -= paid;
+                toast(`A pickpocket strikes while you look! Lost ${paid}g.`, 3.2);
+              } else {
+                const g = 5 + Math.floor(rand01() * 8);
+                player.gold += g;
+                toast(`Good omen! Found ${g}g.`, 2.4);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Ignore and press on', run: () => { toast('You keep walking. Better safe than sorry.', 2); closeEvent(); } },
+        ],
+      });
 
-    if (kind === 'escort') {
+    } else if (kind === 'escort') {
+      // Escort now has risk — 20% chance of ambush, costing you both 10g
       openEvent({
         title: 'Merchant Escort',
-        text: 'A nervous merchant asks for protection through a rough stretch. Tip: 8g.',
+        text: 'A nervous merchant asks for protection through a rough stretch. He will pay 12g — but the road ahead looks dangerous.',
         choices: [
-          { label: 'Escort (+8g)', run: () => { player.gold += 8; toast('You escort the merchant safely. (+8g)', 2.4); closeEvent(); } },
+          { label: 'Escort (earn 12g, some risk)', run: () => {
+              if (rand01() < 0.20) {
+                const loss = Math.min(player.gold, 10);
+                player.gold -= loss;
+                toast(`Ambush! You drove them off but took a hit. Lost ${loss}g.`, 3.2);
+              } else {
+                player.gold += 12;
+                toast('You escort the merchant safely. +12g.', 2.4);
+              }
+              closeEvent();
+            }
+          },
           { label: 'Decline', run: () => { toast('The merchant finds others.', 2); closeEvent(); } },
         ],
       });
-      return;
-    }
 
-    if (kind === 'wandering_merchant') {
+    } else if (kind === 'wandering_merchant') {
       const it = ITEMS[Math.floor(rand01() * ITEMS.length)];
       const nearCityId = (world.cities.length > 0) ? world.cities[Math.floor(rand01() * world.cities.length)].id : 'valdenmere';
       const fullPrice = priceFor(nearCityId, it);
@@ -7059,10 +7072,17 @@ function drawNpcBubble() {
           { label: 'Pass', run: closeEvent },
         ],
       });
-      return;
-    }
 
-    if (kind === 'wounded_soldier') {
+    } else if (kind === 'wounded_soldier') {
+      // Rep goes to the nearest city ahead (player's destination), not current (they're on the road)
+      const destCity = world.cities.find(c2 => c2.id === player.lastCityId)
+        || world.cities.reduce((best, c2) => {
+          const dx = (c2.x + c2.w/2) * TILE - player.x;
+          const dy = (c2.y + c2.h/2) * TILE - player.y;
+          const dist = Math.hypot(dx, dy);
+          return (!best || dist < best.dist) ? { city: c2, dist } : best;
+        }, null)?.city
+        || world.cities[0];
       openEvent({
         title: 'Wounded Soldier',
         text: 'A soldier collapsed on the road, uniform torn. He needs food and rest.',
@@ -7070,19 +7090,16 @@ function drawNpcBubble() {
           { label: 'Help (spend 1 ration)', run: () => {
               if ((player.inv['food'] || 0) < 1) { toast('No rations to spare.', 2); closeEvent(); return; }
               player.inv['food'] -= 1;
-              const nearCity = currentCity() || world.cities[0];
-              player.rep[nearCity.id] = (player.rep[nearCity.id] || 0) + 2;
-              toast(`You helped the soldier. +2 rep in ${nearCity.name}.`, 3);
+              player.rep[destCity.id] = (player.rep[destCity.id] || 0) + 2;
+              toast(`You helped the soldier. +2 rep in ${destCity.name}.`, 3);
               closeEvent();
             }
           },
           { label: 'Ignore and move on', run: () => { toast('You walk past. The road feels heavier.', 2.5); closeEvent(); } },
         ],
       });
-      return;
-    }
 
-    if (kind === 'plague_cart') {
+    } else if (kind === 'plague_cart') {
       openEvent({
         title: 'Quarantine Barrier',
         text: 'Guards in masks block the road — a plague cart passed through. Pay a 15g disinfection fee, or wait it out.',
@@ -7102,10 +7119,8 @@ function drawNpcBubble() {
           },
         ],
       });
-      return;
-    }
 
-    if (kind === 'lost_cargo') {
+    } else if (kind === 'lost_cargo') {
       openEvent({
         title: 'Abandoned Crate',
         text: 'A sealed crate sits in the ditch, no markings. Might be valuable — or dangerous.',
@@ -7132,10 +7147,8 @@ function drawNpcBubble() {
           { label: 'Leave it', run: closeEvent },
         ],
       });
-      return;
-    }
 
-    if (kind === 'wild_animal') {
+    } else if (kind === 'wild_animal') {
       openEvent({
         title: 'Wolf Pack',
         text: 'A hungry wolf pack circles the road ahead, blocking your path.',
@@ -7168,7 +7181,6 @@ function drawNpcBubble() {
           },
         ],
       });
-      return;
     }
   }
 
