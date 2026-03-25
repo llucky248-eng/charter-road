@@ -4867,7 +4867,7 @@ function drawNpcBubble() {
   const ITERATION = {
     version: 'v0.1.2',
     whatsNew: [
-      '🔄 Reset World button in FAB bar — wipe save and start a fresh run.',
+      'World simulation reset — all market pressure, trader state, and economy data cleared.',
       'Events: storm fallthrough fix, omen/escort risk, Valdenmere tax 12%, food rebalance.',
     ],
     whatsNext: [
@@ -8441,20 +8441,7 @@ function drawEntities() {
     }
     if (!c) {
       addFab('💾', 'Save Game', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); });
-      addFab('🔄', 'Reset World', () => confirmResetWorld());
     }
-  }
-
-  function confirmResetWorld() {
-    // Show a native confirm so it's hard to trigger accidentally
-    const ok = window.confirm(
-      'Reset the world?\n\nThis will erase all progress — gold, inventory, reputation, contracts, bank, and day count — and start a fresh run.\n\nThis cannot be undone.'
-    );
-    if (!ok) return;
-    try { localStorage.removeItem(SAVE_KEY); } catch {}
-    try { localStorage.removeItem(NPC_CACHE_KEY); } catch {}
-    toast('World reset. Starting fresh…', 2);
-    setTimeout(() => location.reload(), 800);
   }
 
   function drawHUD() {
