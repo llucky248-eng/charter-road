@@ -652,7 +652,9 @@ ${line4}`;
   // or null if no path found within budget.
 
   function astar(sx, sy, gx, gy, maxNodes = 4000) {
-    const PR = player.r || 8;
+    // Use 1px inset from actual player radius so A* finds paths through gaps
+    // the player can navigate with the relaxed click-move collision tolerance.
+    const PR = Math.max((player.r || 8) - 1, 1);
     function tileClear(tx, ty) {
       const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
       return !isSolidAt(cx - PR, cy - PR) &&
@@ -802,9 +804,8 @@ ${line4}`;
     const goalTileY  = Math.floor(worldY / TILE);
 
     // Snap goal to nearest walkable tile with enough clearance for the player.
-    // A tile is "reachable" only if the player's collision box fits — we check
-    // a half-tile radius around the tile center (not just the center itself).
-    const PR = player.r || 8;
+    // Use 1px inset to match relaxed click-move collision tolerance.
+    const PR = Math.max((player.r || 8) - 1, 1);
     function tileReachable(tx, ty) {
       const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
       return !isSolidAt(cx - PR, cy - PR) &&
@@ -6439,6 +6440,20 @@ function drawNpcBubble() {
 
     // ── Click/tap-to-move (path-following) ──────────────────────────
     if (clickMove.active && !kbActive) {
+      // ── Waypoint lookahead: skip any waypoints the player has already passed ──
+      // This prevents "orbiting" when the player slides past a waypoint center.
+      if (clickMove.path.length > 0) {
+        while (clickMove.pathIdx < clickMove.path.length - 1) {
+          const wp = clickMove.path[clickMove.pathIdx];
+          const wdx = wp.x - player.x, wdy = wp.y - player.y;
+          if (Math.hypot(wdx, wdy) < TILE * 0.9) {
+            clickMove.pathIdx++;
+          } else {
+            break;
+          }
+        }
+      }
+
       // Determine current target: next waypoint or final dest
       let curTx = clickMove.tx, curTy = clickMove.ty;
       if (clickMove.path.length > 0 && clickMove.pathIdx < clickMove.path.length) {
@@ -6450,9 +6465,9 @@ function drawNpcBubble() {
       const dy = curTy - player.y;
       const dist = Math.hypot(dx, dy);
 
-      // Stuck recovery: if player hasn't moved for 45+ frames at this waypoint,
-      // skip to the next one rather than stopping dead.
-      if (dist > TILE * 0.6) {
+      // Stuck recovery: if player hasn't moved for 15+ frames at this waypoint,
+      // replan the path from current position to avoid getting locked on corners.
+      if (dist > TILE * 0.9) {
         const stuckKey = `${clickMove.pathIdx}`;
         if (clickMove._stuckKey !== stuckKey) {
           clickMove._stuckKey = stuckKey;
@@ -6462,16 +6477,23 @@ function drawNpcBubble() {
         } else {
           const movedDist = Math.hypot(player.x - (clickMove._stuckX || player.x),
                                        player.y - (clickMove._stuckY || player.y));
-          if (movedDist < 0.5) {
+          if (movedDist < 1.0) {
             clickMove._stuckFrames = (clickMove._stuckFrames || 0) + 1;
-            if (clickMove._stuckFrames > 45) {
-              // Skip this waypoint
+            if (clickMove._stuckFrames > 15) {
               clickMove._stuckFrames = 0;
-              if (clickMove.path.length > 0 && clickMove.pathIdx < clickMove.path.length - 1) {
-                clickMove.pathIdx++;
-              } else {
-                clickMove.active = false; // truly unreachable
-              }
+              // Try to replan from current position to remaining destination
+              const destWp = clickMove.path[clickMove.path.length - 1];
+              const destX = destWp ? destWp.x : clickMove.tx;
+              const destY = destWp ? destWp.y : clickMove.ty;
+              const savedAction = clickMove._tapAction;
+              const savedTarget = clickMove._tapTarget;
+              planClickPath(destX, destY, savedAction, savedTarget);
+              // planClickPath overwrites _tapAction/_tapTarget — restore
+              clickMove._tapAction = savedAction;
+              clickMove._tapTarget = savedTarget;
+              // Exit this frame's logic; new path will be followed next frame
+              ax = 0; ay = 0;
+              // Fall through to movement with zero input (no-op this frame)
             }
           } else {
             clickMove._stuckFrames = 0;
@@ -6481,28 +6503,13 @@ function drawNpcBubble() {
         }
       }
 
-      const arrivedAtWp = dist < TILE * 0.6;
+      const arrivedAtWp = dist < TILE * 0.9;
       const arrivedAtFinal = clickMove.path.length === 0
-        ? dist < TILE * 0.6
-        : clickMove.pathIdx >= clickMove.path.length - 1 && arrivedAtWp;
+        ? dist < TILE * 0.9
+        : clickMove.pathIdx >= clickMove.path.length - 1 && dist < TILE * 0.9;
 
       if (arrivedAtWp && clickMove.path.length > 0 && !arrivedAtFinal) {
-        // Micro-nudge player to waypoint center (max 2px) to correct float drift
-        // without adding free teleport distance.
-        const wp = clickMove.path[clickMove.pathIdx];
-        if (wp) {
-          const MAX_NUDGE = 2;
-          const nx = clamp(wp.x, player.x - MAX_NUDGE, player.x + MAX_NUDGE);
-          const ny = clamp(wp.y, player.y - MAX_NUDGE, player.y + MAX_NUDGE);
-          if (!isSolidAt(nx - player.r, ny - player.r) &&
-              !isSolidAt(nx + player.r, ny - player.r) &&
-              !isSolidAt(nx - player.r, ny + player.r) &&
-              !isSolidAt(nx + player.r, ny + player.r)) {
-            player.x = nx;
-            player.y = ny;
-          }
-        }
-        // Advance to next waypoint and immediately recalculate direction
+        // Advance to next waypoint
         clickMove.pathIdx++;
         if (clickMove.pathIdx < clickMove.path.length) {
           const nwp = clickMove.path[clickMove.pathIdx];
@@ -6512,7 +6519,7 @@ function drawNpcBubble() {
         }
       }
 
-      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 0.6)) {
+      if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 0.9)) {
         // Arrived at destination — trigger tap action if any
         clickMove.active = false;
         ax = 0; ay = 0;
@@ -6583,11 +6590,14 @@ function drawNpcBubble() {
     }
 
     // X axis collision
+    // Use a 1px inset on the collision radius during click-move to avoid
+    // snagging on single-pixel wall corners while staying on A* path.
+    const cr = clickMove.active ? Math.max(player.r - 1, 1) : player.r;
     let nxPos = player.x + stepX;
-    if (!isSolidAt(nxPos - player.r, player.y - player.r) &&
-        !isSolidAt(nxPos + player.r, player.y - player.r) &&
-        !isSolidAt(nxPos - player.r, player.y + player.r) &&
-        !isSolidAt(nxPos + player.r, player.y + player.r) &&
+    if (!isSolidAt(nxPos - cr, player.y - cr) &&
+        !isSolidAt(nxPos + cr, player.y - cr) &&
+        !isSolidAt(nxPos - cr, player.y + cr) &&
+        !isSolidAt(nxPos + cr, player.y + cr) &&
         !isNpcBlocking(nxPos, player.y)) {
       player.x = nxPos;
     }
@@ -6595,10 +6605,10 @@ function drawNpcBubble() {
 
     // Y axis collision
     let nyPos = player.y + stepY;
-    if (!isSolidAt(player.x - player.r, nyPos - player.r) &&
-        !isSolidAt(player.x + player.r, nyPos - player.r) &&
-        !isSolidAt(player.x - player.r, nyPos + player.r) &&
-        !isSolidAt(player.x + player.r, nyPos + player.r) &&
+    if (!isSolidAt(player.x - cr, nyPos - cr) &&
+        !isSolidAt(player.x + cr, nyPos - cr) &&
+        !isSolidAt(player.x - cr, nyPos + cr) &&
+        !isSolidAt(player.x + cr, nyPos + cr) &&
         !isNpcBlocking(player.x, nyPos)) {
       player.y = nyPos;
     }
