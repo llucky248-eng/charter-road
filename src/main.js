@@ -6021,14 +6021,13 @@ function drawNpcBubble() {
   }
 
   // ── DB Save/Load ─────────────────────────────────────────────────────────
-  // Guest (uid=0) and QA use localStorage only.
-  // Real players (uid != '0') save to Supabase player_saves table AND localStorage.
-  // localStorage always acts as local cache / offline fallback.
+  // All players (incl. guest uid=0 and QA) save to Supabase player_saves.
+  // localStorage always acts as fast local cache / offline fallback.
 
-  const _isGuest = (_playerId === '0' || __QA.enabled);
+  const _isGuest = false; // always write to DB so world.html can see every player
 
   async function saveGameToDb(state) {
-    if (_isGuest) return; // guests stay local
+    if (!ECONOMY.enabled && !__QA.enabled) return; // skip only if economy is fully disabled AND not QA
     try {
       await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
         method: 'POST',
@@ -6044,7 +6043,6 @@ function drawNpcBubble() {
   }
 
   async function loadGameFromDb() {
-    if (_isGuest) return null; // guests use localStorage
     try {
       const res = await fetch(
         `${ECONOMY.url}/rest/v1/player_saves?uid=eq.${encodeURIComponent(_playerId)}&select=save_data`,
@@ -6325,7 +6323,6 @@ function drawNpcBubble() {
 
   // Async load for real players: try DB first, fall back to localStorage
   async function loadGameAsync() {
-    if (_isGuest) return loadGame();
 
     const dbData = await loadGameFromDb();
     if (dbData) {
