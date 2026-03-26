@@ -185,68 +185,39 @@
       }
     }
 
-    /* Minimap toggle button — small dot bottom-right, only on mobile */
-    #minimap-toggle {
-      display: none;
-    }
+    /* ── Always-visible minimap corner widget ── */
+    /* Desktop: hidden (minimap drawn on canvas HUD) */
+    #minimap-widget { display: none; }
+
+    /* Mobile: small fixed panel bottom-left, always visible */
     @media (pointer: coarse) {
-      #minimap-toggle {
-        display: flex;
+      #minimap-widget {
+        display: block;
         position: fixed;
-        right: 12px;
-        bottom: 72px; /* above action bar */
-        width: 40px; height: 40px;
-        border-radius: 50%;
-        border: 1.5px solid rgba(251,191,36,0.45);
-        background: rgba(8,11,16,0.82);
-        align-items: center; justify-content: center;
-        font-size: 18px;
-        color: #d4943a;
-        cursor: pointer;
-        z-index: 501;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        left: 10px;
+        bottom: calc(62px + env(safe-area-inset-bottom)); /* above action bar */
+        width: 100px; height: 100px;
+        border-radius: 10px;
+        border: 1.5px solid rgba(251,191,36,0.35);
+        background: rgba(8,11,16,0.85);
+        z-index: 499;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5);
         touch-action: manipulation;
-        transition: border-color 0.15s, transform 0.1s, opacity 0.15s;
+        /* Fade out behind modals */
+        transition: opacity 0.15s;
       }
-      #minimap-toggle:active { transform: scale(0.9); }
-      /* Hide map toggle when a modal is open — it would sit underneath and confuse */
-      body.ui-open #minimap-toggle { opacity: 0; pointer-events: none; }
-      body.ui-open #minimap-overlay { display: none !important; }
+      body.ui-open #minimap-widget { opacity: 0; pointer-events: none; }
+      #minimap-widget canvas#minimap-canvas {
+        width: 100%; height: 100%;
+        display: block;
+        image-rendering: pixelated;
+      }
     }
 
-    /* Minimap overlay — shown when toggle is pressed */
-    #minimap-overlay {
-      display: none;
-    }
-    @media (pointer: coarse) {
-      #minimap-overlay {
-        position: fixed;
-        right: 10px;
-        bottom: 120px;
-        width: 160px; height: 160px;
-        border-radius: 14px;
-        border: 1.5px solid rgba(251,191,36,0.45);
-        background: rgba(8,11,16,0.92);
-        z-index: 502;
-        overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-        display: none; /* JS toggles this */
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-      }
-      #minimap-overlay.open { display: flex; }
-      #minimap-overlay canvas#minimap-canvas {
-        width: 140px; height: 140px;
-        image-rendering: pixelated;
-        border-radius: 6px;
-      }
-      #minimap-overlay .mm-label {
-        color: #8aa0b3; font-size: 10px; font-weight: 700;
-        padding: 4px 0 0;
-        letter-spacing: 0.04em;
-      }
-    }
+    /* Hide old toggle + overlay elements — no longer used */
+    #minimap-toggle  { display: none !important; }
+    #minimap-overlay { display: none !important; }
 
     /* HTML UI overlay (modals above the canvas) */
     #ui-root { position:absolute; inset:0; pointer-events:none; display:none; }
@@ -594,12 +565,13 @@
       <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;pointer-events:auto;z-index:200"></div>
     </div>
 
-    <!-- Mobile-only minimap toggle + overlay (outside stage so fixed positioning works) -->
-    <button id="minimap-toggle" aria-label="Toggle map" title="Map">🗺️</button>
-    <div id="minimap-overlay" role="dialog" aria-label="Minimap">
-      <canvas id="minimap-canvas" width="140" height="140"></canvas>
-      <div class="mm-label">TAP MAP TO NAVIGATE</div>
+    <!-- Minimap corner widget (visible on mobile always, hidden on desktop — desktop uses canvas HUD) -->
+    <div id="minimap-widget" aria-label="Minimap">
+      <canvas id="minimap-canvas" width="100" height="100"></canvas>
     </div>
+    <!-- Legacy elements kept so JS getElementById calls don't null-crash -->
+    <button id="minimap-toggle" style="display:none" aria-hidden="true"></button>
+    <div id="minimap-overlay" style="display:none" aria-hidden="true"></div>
 
     <div class="hint">
       Click / tap to move &nbsp;·&nbsp; Tap NPCs to talk &nbsp;·&nbsp; Tap a building to interact

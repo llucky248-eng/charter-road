@@ -4885,12 +4885,12 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.5',
+    version: 'v0.1.6',
     whatsNew: [
-      'Mobile UI overhaul: no more blocking canvas overlays.',
-      'FAB buttons → slim horizontal pill bar at screen bottom (slides in only when actions available).',
-      'Minimap moved to tap-toggle overlay (🗺️ button bottom-right) — gameplay fully unobstructed.',
-      'Mobile HUD slimmed to single 36px strip: location · Day · gold/pack + active contract indicator.',
+      'Building labels: one label per building cluster (no more stacked overlapping bubbles).',
+      'Labels use flood-fill centroid — single dot + pill for each Market/Inn/Bank/etc.',
+      'Minimap: always-visible small corner widget (bottom-left), live player dot + nav route.',
+      'Tap minimap to navigate directly to any city.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6083,7 +6083,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.5',
+      buildVersion: 'v0.1.6',
       player: {
         x: player.x,
         y: player.y,
@@ -7792,120 +7792,159 @@ function drawNpcBubble() {
   }
 
 
-// Building discovery layer: pulsing icons + labels on interactive tiles
+// Building discovery layer: ONE label per building cluster, not per tile.
+// Algorithm: flood-fill connected same-type tiles → compute centroid → draw once.
 function drawBuildingLabels() {
-  if (!currentCity()) return; // only inside cities
+  if (!currentCity()) return;
 
   const INTERACT = {
-    6:  { label: 'Market',     icon: '🛒', color: '#fbbf24', nearDist: 6 },
-    12: { label: 'Contracts',  icon: '📋', color: '#60a5fa', nearDist: 6 },
-    7:  { label: 'Tavern',     icon: '🍺', color: '#f97316', nearDist: 5 },
-    8:  { label: 'Warehouse',  icon: '📦', color: '#a78bfa', nearDist: 5 },
-    13: { label: 'Bank',       icon: '🏦', color: '#fbbf24', nearDist: 6 },
-    14: { label: 'Inn',        icon: '🏨', color: '#f97316', nearDist: 6 },
-    15: { label: 'Guild Hall', icon: '🏛', color: '#a78bfa', nearDist: 6 },
+    6:  { label: 'Market',     color: '#fbbf24', nearDist: 6 },
+    12: { label: 'Contracts',  color: '#60a5fa', nearDist: 6 },
+    7:  { label: 'Tavern',     color: '#f97316', nearDist: 5 },
+    8:  { label: 'Warehouse',  color: '#a78bfa', nearDist: 5 },
+    13: { label: 'Bank',       color: '#fbbf24', nearDist: 6 },
+    14: { label: 'Inn',        color: '#f97316', nearDist: 6 },
+    15: { label: 'Guild Hall', color: '#a78bfa', nearDist: 6 },
   };
 
   const px = player.x, py = player.y;
   const camX = camera.x, camY = camera.y;
 
-  // Scan visible tiles
-  const tileX0 = Math.max(0, Math.floor(camX / TILE) - 1);
-  const tileY0 = Math.max(0, Math.floor(camY / TILE) - 1);
-  const tileX1 = Math.min(MAP_W - 1, Math.floor((camX + VIEW_W) / TILE) + 1);
-  const tileY1 = Math.min(MAP_H - 1, Math.floor((camY + VIEW_H) / TILE) + 1);
+  // Scan visible tiles + small padding
+  const tileX0 = Math.max(0, Math.floor(camX / TILE) - 2);
+  const tileY0 = Math.max(0, Math.floor(camY / TILE) - 2);
+  const tileX1 = Math.min(MAP_W - 1, Math.floor((camX + VIEW_W) / TILE) + 2);
+  const tileY1 = Math.min(MAP_H - 1, Math.floor((camY + VIEW_H) / TILE) + 2);
+
+  // Collect all interactive tiles in the visible region
+  // Then cluster them: two tiles are in the same cluster if they share an edge AND same type
+  const visited = new Set();
+  const clusters = []; // [{id, info, tiles:[{tx,ty}], cx, cy}]
 
   for (let ty = tileY0; ty <= tileY1; ty++) {
     for (let tx = tileX0; tx <= tileX1; tx++) {
       const id = tileAt(tx, ty);
+      if (!INTERACT[id]) continue;
+      const key = ty * MAP_W + tx;
+      if (visited.has(key)) continue;
+
+      // BFS flood-fill to find all connected tiles of this type
       const info = INTERACT[id];
-      if (!info) continue;
+      const tiles = [];
+      const queue = [{ tx, ty }];
+      visited.add(key);
 
-      const sx = tx * TILE - camX;
-      const sy = ty * TILE - camY;
-      const cx = sx + TILE / 2;
-      const cy = sy + TILE / 2;
+      while (queue.length) {
+        const { tx: qx, ty: qy } = queue.shift();
+        tiles.push({ tx: qx, ty: qy });
+        // 4-connected neighbours
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const nx = qx + dx, ny = qy + dy;
+          if (nx < tileX0 || nx > tileX1 || ny < tileY0 || ny > tileY1) continue;
+          const nk = ny * MAP_W + nx;
+          if (visited.has(nk)) continue;
+          if (tileAt(nx, ny) !== id) continue;
+          visited.add(nk);
+          queue.push({ tx: nx, ty: ny });
+        }
+      }
 
-      const distTiles = Math.max(Math.abs(tx - px / TILE), Math.abs(ty - py / TILE));
-      const isNear = distTiles <= info.nearDist + 1;
+      // Centroid of the cluster in tile coords
+      const sumX = tiles.reduce((s, t) => s + t.tx, 0);
+      const sumY = tiles.reduce((s, t) => s + t.ty, 0);
+      const cTx = sumX / tiles.length;
+      const cTy = sumY / tiles.length;
 
-      // ── Pulsing glow ring (outside tile edge, doesn't cover building art) ──
-      const iconDist0 = info.nearDist + 3;
-      if (distTiles <= iconDist0) {
-        const pulse = 0.3 + 0.18 * Math.sin(stateTime * 0.003 + tx * 1.7 + ty * 2.3);
-        const fadeIn = Math.min(1, (iconDist0 - distTiles + 1) / 3);
-        ctx.save();
-        ctx.globalAlpha = pulse * fadeIn * (isNear ? 0.85 : 0.45);
-        ctx.strokeStyle = info.color;
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = info.color;
-        ctx.shadowBlur = isNear ? 8 : 4;
-        // Draw just outside the tile so building art is never covered
+      clusters.push({ id, info, tiles, cTx, cTy });
+    }
+  }
+
+  // Draw one glow + label per cluster
+  for (const { id, info, tiles, cTx, cTy } of clusters) {
+    // Screen coords of cluster centroid
+    const scx = (cTx + 0.5) * TILE - camX;
+    const scy = (cTy + 0.5) * TILE - camY;
+
+    // Distance from player to cluster centroid (in tiles)
+    const distTiles = Math.hypot(cTx + 0.5 - px / TILE, cTy + 0.5 - py / TILE);
+    const isNear = distTiles <= info.nearDist + 1;
+    const showDot = distTiles <= info.nearDist + 3;
+
+    // Parse color components once
+    const pillR = parseInt(info.color.slice(1,3), 16);
+    const pillG = parseInt(info.color.slice(3,5), 16);
+    const pillB = parseInt(info.color.slice(5,7), 16);
+
+    // ── Pulsing glow outline around each tile in the cluster ──────────
+    if (showDot) {
+      const pulse = 0.25 + 0.15 * Math.sin(stateTime * 0.003 + cTx * 1.7 + cTy * 2.3);
+      const fadeIn = Math.min(1, (info.nearDist + 4 - distTiles) / 3);
+      ctx.save();
+      ctx.globalAlpha = pulse * fadeIn * (isNear ? 0.75 : 0.35);
+      ctx.strokeStyle = info.color;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = info.color;
+      ctx.shadowBlur = isNear ? 6 : 3;
+      for (const { tx, ty } of tiles) {
+        const sx = tx * TILE - camX;
+        const sy = ty * TILE - camY;
         ctx.strokeRect(sx - 0.5, sy - 0.5, TILE + 1, TILE + 1);
-        ctx.shadowBlur = 0;
-        ctx.restore();
       }
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
 
-      // ── Dot indicator above tile (replaces emoji — avoids canvas emoji black-box on mobile Safari) ──
-      const iconDist = info.nearDist + 3;
-      if (distTiles <= iconDist) {
-        const iconAlpha = Math.min(1, (iconDist - distTiles + 1) / 2);
-        const bobY = Math.sin(stateTime * 0.004 + tx + ty) * 2;
-        const dotR = Math.round(3 * UI_SCALE);
-        ctx.save();
-        ctx.globalAlpha = iconAlpha * 0.85;
-        ctx.fillStyle = info.color;
-        ctx.shadowColor = info.color;
-        ctx.shadowBlur = 5;
-        ctx.beginPath();
-        ctx.arc(cx, sy - dotR - 2 + bobY, dotR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.restore();
-      }
+    // ── Single dot above the cluster centroid ────────────────────────
+    if (showDot) {
+      const alpha = Math.min(1, (info.nearDist + 4 - distTiles) / 2);
+      const bobY = Math.sin(stateTime * 0.004 + cTx + cTy) * 2;
+      const dotR = Math.round(3 * UI_SCALE);
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.fillStyle = info.color;
+      ctx.shadowColor = info.color;
+      ctx.shadowBlur = 5;
+      ctx.beginPath();
+      ctx.arc(scx, scy - dotR * 3 + bobY, dotR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
 
-      // ── Label + interaction hint when close ─────────────────────────
-      if (isNear) {
-        const labelAlpha = Math.min(1, (info.nearDist + 1 - distTiles + 1));
-        const bobY = Math.sin(stateTime * 0.004 + tx + ty) * 1.5;
-        const labelY = sy - 4 + bobY;
+    // ── Single label above the cluster when close ─────────────────────
+    if (isNear) {
+      const labelAlpha = Math.min(1, (info.nearDist + 2 - distTiles) / 2);
+      const bobY = Math.sin(stateTime * 0.004 + cTx + cTy) * 1.5;
+      // Place label above the top-most tile of the cluster
+      const topTileY = Math.min(...tiles.map(t => t.ty));
+      const labelScreenY = topTileY * TILE - camY - 4 + bobY;
 
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, labelAlpha * 0.92);
-        ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, labelAlpha * 0.92);
+      ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
 
-        // Background pill
-        const lw = ctx.measureText(info.label).width + Math.round(10 * UI_SCALE);
-        const lh = Math.round(12 * UI_SCALE);
-        const lx = cx - lw / 2;
-        const ly = labelY - lh;
-        // Pill: colored tint, not black — blends with scene
-        const pillR = parseInt(info.color.slice(1,3),16);
-        const pillG = parseInt(info.color.slice(3,5),16);
-        const pillB = parseInt(info.color.slice(5,7),16);
-        ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.22)`;
-        if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-        else ctx.fillRect(lx, ly, lw, lh);
-        ctx.fill();
-        // Subtle outline
-        ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.55)`;
-        ctx.lineWidth = 1;
-        if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-        else ctx.strokeRect(lx, ly, lw, lh);
-        ctx.stroke();
+      const lw = ctx.measureText(info.label).width + Math.round(10 * UI_SCALE);
+      const lh = Math.round(12 * UI_SCALE);
+      const lx = clamp(scx - lw / 2, 4, VIEW_W - lw - 4);
+      const ly = Math.max(4, labelScreenY - lh);
 
-        // Label text with shadow for readability
-        ctx.shadowColor = 'rgba(0,0,0,0.9)';
-        ctx.shadowBlur = 3;
-        ctx.fillStyle = info.color;
-        ctx.fillText(info.label, cx, ly + lh - Math.round(3 * UI_SCALE));
-        ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.22)`;
+      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
+      else ctx.fillRect(lx, ly, lw, lh);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.55)`;
+      ctx.lineWidth = 1;
+      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
+      else ctx.strokeRect(lx, ly, lw, lh);
+      ctx.stroke();
 
-
-
-        ctx.restore();
-      }
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur = 3;
+      ctx.fillStyle = info.color;
+      ctx.fillText(info.label, lx + lw / 2, ly + lh - Math.round(3 * UI_SCALE));
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
   }
 }
@@ -8387,59 +8426,66 @@ function drawEntities() {
 
   // ── Mobile minimap DOM overlay ────────────────────────────────────────────
   // Separate canvas rendered each frame when open; tapping navigates to nearest city.
-  const _mmOverlay  = document.getElementById('minimap-overlay');
+  // ── Mobile minimap corner widget — always rendered each frame ───────────
   const _mmCanvas   = document.getElementById('minimap-canvas');
   const _mmCtx      = _mmCanvas ? _mmCanvas.getContext('2d') : null;
-  const _mmToggleEl = document.getElementById('minimap-toggle');
-  let   _mmOpen     = false;
 
   function _mmRender() {
-    if (!_mmCtx || !_mmOpen) return;
-    const S = 140; // minimap canvas size
+    if (!_mmCtx || !IS_MOBILE) return;
+    const S = _mmCanvas.width; // 100px
     _mmCtx.clearRect(0, 0, S, S);
     _mmCtx.imageSmoothingEnabled = false;
-    // Draw world minimap into the canvas
+    // World map
     _mmCtx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, 0, 0, S, S);
-    // City labels
+    // City dots + short name labels
     for (const c2 of world.cities) {
       const cx2 = ((c2.x + c2.w/2) / MAP_W) * S;
       const cy2 = ((c2.y + c2.h/2) / MAP_H) * S;
       _mmCtx.fillStyle = '#fbbf24';
-      _mmCtx.beginPath(); _mmCtx.arc(cx2, cy2, 4, 0, Math.PI*2); _mmCtx.fill();
-      _mmCtx.fillStyle = 'rgba(255,255,255,0.85)';
-      _mmCtx.font = 'bold 9px system-ui,sans-serif';
+      _mmCtx.beginPath(); _mmCtx.arc(cx2, cy2, 3, 0, Math.PI*2); _mmCtx.fill();
+      _mmCtx.fillStyle = 'rgba(255,255,255,0.8)';
+      _mmCtx.font = 'bold 7px system-ui,sans-serif';
       _mmCtx.textAlign = 'left';
-      _mmCtx.fillText(c2.name.slice(0,4), cx2 + 5, cy2 + 3);
+      _mmCtx.fillText(c2.name.slice(0,4), cx2 + 4, cy2 + 3);
     }
-    // Player dot
-    const px = (player.x / (MAP_W * TILE)) * S;
-    const py = (player.y / (MAP_H * TILE)) * S;
-    _mmCtx.fillStyle = '#f43f5e';
-    _mmCtx.beginPath(); _mmCtx.arc(px, py, 4, 0, Math.PI*2); _mmCtx.fill();
-    _mmCtx.strokeStyle = '#fff'; _mmCtx.lineWidth = 1.5;
-    _mmCtx.stroke();
-    // Active contract destination highlight
+    // Active contract destination ring
     if (contracts.active) {
       const dest = getCityById(contracts.active.toId);
       if (dest) {
         const dx = ((dest.x + dest.w/2) / MAP_W) * S;
         const dy = ((dest.y + dest.h/2) / MAP_H) * S;
-        _mmCtx.strokeStyle = '#60a5fa'; _mmCtx.lineWidth = 2;
-        _mmCtx.beginPath(); _mmCtx.arc(dx, dy, 8, 0, Math.PI*2); _mmCtx.stroke();
+        _mmCtx.strokeStyle = '#60a5fa'; _mmCtx.lineWidth = 1.5;
+        _mmCtx.beginPath(); _mmCtx.arc(dx, dy, 6, 0, Math.PI*2); _mmCtx.stroke();
       }
     }
+    // Auto-nav route line
+    if (autoNav.active && autoNav.path.length > 0) {
+      _mmCtx.strokeStyle = 'rgba(251,191,36,0.6)';
+      _mmCtx.lineWidth = 1;
+      _mmCtx.setLineDash([2,3]);
+      _mmCtx.beginPath();
+      const startPx = (player.x / (MAP_W * TILE)) * S;
+      const startPy = (player.y / (MAP_H * TILE)) * S;
+      _mmCtx.moveTo(startPx, startPy);
+      // Sample every few waypoints to keep it readable
+      for (let i = autoNav.pathIdx; i < autoNav.path.length; i += 4) {
+        _mmCtx.lineTo((autoNav.path[i].x / (MAP_W * TILE)) * S, (autoNav.path[i].y / (MAP_H * TILE)) * S);
+      }
+      const last = autoNav.path[autoNav.path.length - 1];
+      _mmCtx.lineTo((last.x / (MAP_W * TILE)) * S, (last.y / (MAP_H * TILE)) * S);
+      _mmCtx.stroke();
+      _mmCtx.setLineDash([]);
+    }
+    // Player dot (on top of everything)
+    const px = (player.x / (MAP_W * TILE)) * S;
+    const py = (player.y / (MAP_H * TILE)) * S;
+    _mmCtx.fillStyle = '#f43f5e';
+    _mmCtx.beginPath(); _mmCtx.arc(px, py, 3.5, 0, Math.PI*2); _mmCtx.fill();
+    _mmCtx.strokeStyle = 'rgba(255,255,255,0.9)'; _mmCtx.lineWidth = 1;
+    _mmCtx.stroke();
   }
 
-  if (_mmToggleEl) {
-    _mmToggleEl.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      _mmOpen = !_mmOpen;
-      if (_mmOverlay) _mmOverlay.classList.toggle('open', _mmOpen);
-      if (_mmOpen) _mmRender();
-    });
-  }
-
-  // Tap on minimap overlay navigates to nearest city
+  // Tap minimap widget to navigate to nearest city
   if (_mmCanvas) {
     _mmCanvas.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -8448,23 +8494,17 @@ function drawEntities() {
       const fy = (e.clientY - r.top) / r.height;
       const mapTX = fx * MAP_W;
       const mapTY = fy * MAP_H;
-      let best = null, bestD = 999;
+      let best = null, bestD = 14;
       for (const c2 of world.cities) {
         const d = Math.hypot((c2.x + c2.w/2) - mapTX, (c2.y + c2.h/2) - mapTY);
         if (d < bestD) { bestD = d; best = c2; }
       }
-      if (best && bestD < 10) {
-        startNavTo(best.id);
-        _mmOpen = false;
-        if (_mmOverlay) _mmOverlay.classList.remove('open');
-      }
+      if (best) startNavTo(best.id);
     });
   }
 
-  // Close minimap if modal opens
-  function _mmClose() {
-    if (_mmOpen) { _mmOpen = false; if (_mmOverlay) _mmOverlay.classList.remove('open'); }
-  }
+  // No-op: was used by toggle, kept so call sites don't crash
+  function _mmClose() {}
   // ── FAB / ACTION BAR — context-sensitive action buttons ──────────────
   // Desktop: stacked round FABs (bottom-right of canvas).
   // Mobile: slim horizontal pill bar at bottom of screen — max 3 actions, always labelled.
@@ -8655,7 +8695,7 @@ if (IS_MOBILE) {
     ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 4 * UI_SCALE));
   }
 
-  // Render minimap overlay canvas each frame when open
+  // Render the DOM minimap widget each frame (keeps it live as player moves)
   _mmRender();
 
   return;
