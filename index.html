@@ -103,7 +103,13 @@
     }
     .devlog-body { color: #8aa0b3; font-size: 12px; white-space: pre-line; max-height: 120px; overflow: auto; line-height: 1.6; }
 
-    /* Floating action buttons */
+    /* ── Mobile bottom action bar ── */
+    #fab-bar {
+      /* Desktop: stacked column, bottom-right */
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
     #fab-bar .fab {
       width: 44px; height: 44px; border-radius: 50%;
       border: 2px solid rgba(251,191,36,0.6);
@@ -119,6 +125,127 @@
       position:absolute; right:52px; top:50%; transform:translateY(-50%);
       background:rgba(0,0,0,0.7); color:#e0d0a0; padding:2px 7px;
       border-radius:4px; font-size:11px; white-space:nowrap; pointer-events:none;
+    }
+
+    /* Mobile: replace stacked FABs with a slim horizontal action bar at screen bottom */
+    @media (pointer: coarse) {
+      #fab-bar {
+        /* Take over the full bottom strip — positioned fixed over the page, not inside #stage */
+        position: fixed !important;
+        left: 0; right: 0; bottom: 0;
+        top: auto !important;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+        background: rgba(8, 11, 16, 0.92);
+        border-top: 1px solid rgba(212,148,58,0.22);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.45);
+        z-index: 500;
+        pointer-events: auto;
+        box-sizing: border-box;
+        /* Slide in/out via transform — JS toggles .fab-bar-visible */
+        transform: translateY(100%);
+        transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #fab-bar.fab-bar-visible {
+        transform: translateY(0);
+      }
+      /* Mobile pill buttons — wider and labelled, not round */
+      #fab-bar .fab {
+        width: auto;
+        height: 44px;
+        border-radius: 22px;
+        padding: 0 16px;
+        gap: 6px;
+        font-size: 16px;
+        flex-direction: row;
+        flex: 1;
+        max-width: 160px;
+        border-width: 1.5px;
+        position: relative;
+      }
+      #fab-bar .fab-label {
+        /* Show label inline inside the pill */
+        position: static;
+        transform: none;
+        background: none;
+        color: #e0d0a0;
+        padding: 0;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        pointer-events: none;
+        display: block;
+      }
+    }
+
+    /* Minimap toggle button — small dot bottom-right, only on mobile */
+    #minimap-toggle {
+      display: none;
+    }
+    @media (pointer: coarse) {
+      #minimap-toggle {
+        display: flex;
+        position: fixed;
+        right: 12px;
+        bottom: 72px; /* above action bar */
+        width: 40px; height: 40px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(251,191,36,0.45);
+        background: rgba(8,11,16,0.82);
+        align-items: center; justify-content: center;
+        font-size: 18px;
+        color: #d4943a;
+        cursor: pointer;
+        z-index: 501;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        touch-action: manipulation;
+        transition: border-color 0.15s, transform 0.1s, opacity 0.15s;
+      }
+      #minimap-toggle:active { transform: scale(0.9); }
+      /* Hide map toggle when a modal is open — it would sit underneath and confuse */
+      body.ui-open #minimap-toggle { opacity: 0; pointer-events: none; }
+      body.ui-open #minimap-overlay { display: none !important; }
+    }
+
+    /* Minimap overlay — shown when toggle is pressed */
+    #minimap-overlay {
+      display: none;
+    }
+    @media (pointer: coarse) {
+      #minimap-overlay {
+        position: fixed;
+        right: 10px;
+        bottom: 120px;
+        width: 160px; height: 160px;
+        border-radius: 14px;
+        border: 1.5px solid rgba(251,191,36,0.45);
+        background: rgba(8,11,16,0.92);
+        z-index: 502;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+        display: none; /* JS toggles this */
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      #minimap-overlay.open { display: flex; }
+      #minimap-overlay canvas#minimap-canvas {
+        width: 140px; height: 140px;
+        image-rendering: pixelated;
+        border-radius: 6px;
+      }
+      #minimap-overlay .mm-label {
+        color: #8aa0b3; font-size: 10px; font-weight: 700;
+        padding: 4px 0 0;
+        letter-spacing: 0.04em;
+      }
     }
 
     /* HTML UI overlay (modals above the canvas) */
@@ -463,7 +590,15 @@
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Amber Road game canvas"></canvas>
       <div id="ui-root" aria-hidden="true"></div>
-      <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:200"></div>
+      <!-- Desktop FAB bar stays inside stage; mobile CSS repositions it fixed to viewport bottom -->
+      <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;pointer-events:auto;z-index:200"></div>
+    </div>
+
+    <!-- Mobile-only minimap toggle + overlay (outside stage so fixed positioning works) -->
+    <button id="minimap-toggle" aria-label="Toggle map" title="Map">🗺️</button>
+    <div id="minimap-overlay" role="dialog" aria-label="Minimap">
+      <canvas id="minimap-canvas" width="140" height="140"></canvas>
+      <div class="mm-label">TAP MAP TO NAVIGATE</div>
     </div>
 
     <div class="hint">

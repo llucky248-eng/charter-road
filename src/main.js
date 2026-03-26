@@ -4885,12 +4885,12 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.4',
+    version: 'v0.1.5',
     whatsNew: [
-      'Economic rebalance: all item base prices tuned for smoother early→late progression.',
-      'City price mults rebalanced: grain viable, ink contraband worth the risk, relic less dominant.',
-      'Contract rewards: diminishing qty multiplier prevents high-qty contracts going net-negative; cap raised 160→200g.',
-      'No-food penalty: 3g→8g/day so carrying rations is a real decision.',
+      'Mobile UI overhaul: no more blocking canvas overlays.',
+      'FAB buttons → slim horizontal pill bar at screen bottom (slides in only when actions available).',
+      'Minimap moved to tap-toggle overlay (🗺️ button bottom-right) — gameplay fully unobstructed.',
+      'Mobile HUD slimmed to single 36px strip: location · Day · gold/pack + active contract indicator.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6083,7 +6083,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.4',
+      buildVersion: 'v0.1.5',
       player: {
         x: player.x,
         y: player.y,
@@ -8381,54 +8381,107 @@ function drawEntities() {
   }
   function drawMobileOverlay() {
     if (!IS_MOBILE) return;
-
-    // bottom-left minimap + mini hud overlay on gameplay
-    const pad = Math.round(10 * UI_SCALE);
-    const size = Math.round(86 * UI_SCALE);
-    const x = pad;
-    const y = VIEW_H - size - pad;
-
-    // panel
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x - 6, y - 6, size + 12, size + 12, 12);
-    else ctx.rect(x - 6, y - 6, size + 12, size + 12);
-    ctx.fill();
-
-    // minimap
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, x, y, size, size);
-
-    // player marker
-    const px = (player.x / (MAP_W * TILE)) * size;
-    const py = (player.y / (MAP_H * TILE)) * size;
-    ctx.fillStyle = '#f43f5e';
-    ctx.fillRect(x + Math.floor(px) - 1, y + Math.floor(py) - 1, 3, 3);
-
-    // contract compass
-    drawCompassArrowOnMinimap(x, y, size);
-
-    // tiny stats strip above minimap
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.72)';
-    ctx.fillRect(x - 6, y - Math.round(30 * UI_SCALE) - 6, size + 12, Math.round(30 * UI_SCALE));
-    ctx.fillStyle = '#cfe6ff';
-    ctx.font = `800 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText(`${player.gold}g`, x, y - Math.round(12 * UI_SCALE));
-    ctx.textAlign = 'right';
-    ctx.fillText(`${invWeight()}/${player.capacity}`, x + size, y - Math.round(12 * UI_SCALE));
-    ctx.textAlign = 'left';
+    // Mobile minimap is now a DOM overlay (tap 🗺️ toggle).
+    // Nothing to draw on canvas here — keeps the gameplay viewport fully clear.
   }
-  // ── FAB BAR — update DOM action buttons based on context ─────────────
+
+  // ── Mobile minimap DOM overlay ────────────────────────────────────────────
+  // Separate canvas rendered each frame when open; tapping navigates to nearest city.
+  const _mmOverlay  = document.getElementById('minimap-overlay');
+  const _mmCanvas   = document.getElementById('minimap-canvas');
+  const _mmCtx      = _mmCanvas ? _mmCanvas.getContext('2d') : null;
+  const _mmToggleEl = document.getElementById('minimap-toggle');
+  let   _mmOpen     = false;
+
+  function _mmRender() {
+    if (!_mmCtx || !_mmOpen) return;
+    const S = 140; // minimap canvas size
+    _mmCtx.clearRect(0, 0, S, S);
+    _mmCtx.imageSmoothingEnabled = false;
+    // Draw world minimap into the canvas
+    _mmCtx.drawImage(mini.canvas, 0, 0, mini.w, mini.h, 0, 0, S, S);
+    // City labels
+    for (const c2 of world.cities) {
+      const cx2 = ((c2.x + c2.w/2) / MAP_W) * S;
+      const cy2 = ((c2.y + c2.h/2) / MAP_H) * S;
+      _mmCtx.fillStyle = '#fbbf24';
+      _mmCtx.beginPath(); _mmCtx.arc(cx2, cy2, 4, 0, Math.PI*2); _mmCtx.fill();
+      _mmCtx.fillStyle = 'rgba(255,255,255,0.85)';
+      _mmCtx.font = 'bold 9px system-ui,sans-serif';
+      _mmCtx.textAlign = 'left';
+      _mmCtx.fillText(c2.name.slice(0,4), cx2 + 5, cy2 + 3);
+    }
+    // Player dot
+    const px = (player.x / (MAP_W * TILE)) * S;
+    const py = (player.y / (MAP_H * TILE)) * S;
+    _mmCtx.fillStyle = '#f43f5e';
+    _mmCtx.beginPath(); _mmCtx.arc(px, py, 4, 0, Math.PI*2); _mmCtx.fill();
+    _mmCtx.strokeStyle = '#fff'; _mmCtx.lineWidth = 1.5;
+    _mmCtx.stroke();
+    // Active contract destination highlight
+    if (contracts.active) {
+      const dest = getCityById(contracts.active.toId);
+      if (dest) {
+        const dx = ((dest.x + dest.w/2) / MAP_W) * S;
+        const dy = ((dest.y + dest.h/2) / MAP_H) * S;
+        _mmCtx.strokeStyle = '#60a5fa'; _mmCtx.lineWidth = 2;
+        _mmCtx.beginPath(); _mmCtx.arc(dx, dy, 8, 0, Math.PI*2); _mmCtx.stroke();
+      }
+    }
+  }
+
+  if (_mmToggleEl) {
+    _mmToggleEl.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      _mmOpen = !_mmOpen;
+      if (_mmOverlay) _mmOverlay.classList.toggle('open', _mmOpen);
+      if (_mmOpen) _mmRender();
+    });
+  }
+
+  // Tap on minimap overlay navigates to nearest city
+  if (_mmCanvas) {
+    _mmCanvas.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const r = _mmCanvas.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width;
+      const fy = (e.clientY - r.top) / r.height;
+      const mapTX = fx * MAP_W;
+      const mapTY = fy * MAP_H;
+      let best = null, bestD = 999;
+      for (const c2 of world.cities) {
+        const d = Math.hypot((c2.x + c2.w/2) - mapTX, (c2.y + c2.h/2) - mapTY);
+        if (d < bestD) { bestD = d; best = c2; }
+      }
+      if (best && bestD < 10) {
+        startNavTo(best.id);
+        _mmOpen = false;
+        if (_mmOverlay) _mmOverlay.classList.remove('open');
+      }
+    });
+  }
+
+  // Close minimap if modal opens
+  function _mmClose() {
+    if (_mmOpen) { _mmOpen = false; if (_mmOverlay) _mmOverlay.classList.remove('open'); }
+  }
+  // ── FAB / ACTION BAR — context-sensitive action buttons ──────────────
+  // Desktop: stacked round FABs (bottom-right of canvas).
+  // Mobile: slim horizontal pill bar at bottom of screen — max 3 actions, always labelled.
+  //         Hidden when no contextual actions available; slides in when relevant.
   let _fabLastKey = '';
   function updateFabBar() {
     const fabBar = document.getElementById('fab-bar');
     if (!fabBar) return;
 
-    // Modals open — hide FAB
-    if (ui.marketOpen || ui.contractsOpen || ui.eventOpen ||
-        document.getElementById('cr-intel-modal') ||
-        document.getElementById('cr-trader-modal')) {
+    // Close minimap overlay when any modal opens
+    const anyModal = ui.marketOpen || ui.contractsOpen || ui.eventOpen ||
+      ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen ||
+      document.getElementById('cr-intel-modal') ||
+      document.getElementById('cr-trader-modal');
+
+    if (anyModal) {
+      if (IS_MOBILE) { fabBar.classList.remove('fab-bar-visible'); _mmClose(); }
       if (fabBar.children.length) fabBar.innerHTML = '';
       _fabLastKey = 'modal';
       return;
@@ -8439,7 +8492,6 @@ function drawEntities() {
     const atContracts = nearContractsTile();
     const nearNpc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS + 6);
     const nearTrader = findNearestTrader(player.x, player.y);
-    const nearIntel = nearNpc && !intelUI.open;
 
     // Build key to avoid unnecessary DOM thrashing
     const key = [
@@ -8448,6 +8500,7 @@ function drawEntities() {
       atContracts ? 'c' : '',
       nearNpc?.id || '',
       nearTrader?.id || '',
+      autoNav.active ? 'nav' : '',
     ].join('|');
 
     if (key === _fabLastKey) return;
@@ -8458,64 +8511,76 @@ function drawEntities() {
     const addFab = (icon, label, onClick) => {
       const btn = document.createElement('button');
       btn.className = 'fab';
-      btn.innerHTML = icon;
-      btn.title = label;
       btn.setAttribute('aria-label', label);
-      // Label tooltip
-      const lbl = document.createElement('span');
-      lbl.className = 'fab-label';
-      lbl.textContent = label;
-      btn.style.position = 'relative';
-      btn.appendChild(lbl);
+      btn.title = label;
+
+      if (IS_MOBILE) {
+        // Pill with icon + short label side by side
+        const iconSpan = document.createElement('span');
+        iconSpan.textContent = icon;
+        iconSpan.style.cssText = 'font-size:16px;line-height:1;flex-shrink:0';
+        const lbl = document.createElement('span');
+        lbl.className = 'fab-label';
+        // Truncate label to keep pills compact
+        lbl.textContent = label.length > 14 ? label.slice(0, 13) + '…' : label;
+        btn.appendChild(iconSpan);
+        btn.appendChild(lbl);
+      } else {
+        // Desktop: round icon only, label as tooltip
+        btn.innerHTML = icon;
+        btn.style.position = 'relative';
+        const lbl = document.createElement('span');
+        lbl.className = 'fab-label';
+        lbl.textContent = label;
+        btn.appendChild(lbl);
+      }
+
       btn.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); onClick(); });
       fabBar.appendChild(btn);
     };
 
+    // ── Priority order: most important first (mobile shows max 3) ────────
+    const actions = [];
+
     if (nearTrader) {
-      addFab('🛒', `Trade with ${nearTrader.name}`, () => openTraderUI(nearTrader));
+      actions.push(['🛒', `Trade`, () => openTraderUI(nearTrader)]);
     }
     if (nearNpc) {
-      addFab('💬', `Talk to ${nearNpc.id.replace(/_/g,' ')}`, () => {
-        triggerNpcTalk(nearNpc);
-      });
-      if (!intelUI.open) {
-        addFab('🕵️', 'Buy Intel (5g)', () => {
-          if (c) openIntelUI(nearNpc, c.id);
-          else toast('Must be in a city.', 2);
-        });
-      }
+      actions.push(['💬', `Talk`, () => triggerNpcTalk(nearNpc)]);
     }
     if (atMarket && c) {
-      addFab('🏪', 'Open Market', () => {
-        ui.contractsOpen = false;
-        ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy';
-        toast(`Market opened in ${c.name}`, 1.8);
-        _fabLastKey = '';
-      });
+      actions.push(['🏪', 'Market', () => {
+        ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy';
+        toast(`Market opened in ${c.name}`, 1.8); _fabLastKey = '';
+      }]);
     }
     if (atContracts && c) {
-      addFab('📋', 'Contracts Board', () => {
-        ui.marketOpen = false;
-        ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
-        toast('Contracts board opened', 1.8);
-        _fabLastKey = '';
-      });
+      actions.push(['📋', 'Contracts', () => {
+        ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
+        toast('Contracts board opened', 1.8); _fabLastKey = '';
+      }]);
     }
-    // Navigate button — always show when not in a city, or show city list
-    if (!atMarket && !atContracts) {
-      if (autoNav.active) {
-        const destName = getCityById(autoNav.destCityId)?.name || '';
-        addFab('✕', `Cancel nav to ${destName}`, () => {
-          autoNav.active = false;
-          toast('Navigation cancelled.', 1.5);
-          _fabLastKey = '';
-        });
-      } else {
-        addFab('🗺️', 'Navigate to city…', () => showNavPicker());
-      }
+    if (autoNav.active) {
+      const destName = getCityById(autoNav.destCityId)?.name || '';
+      actions.push(['✕', `Cancel: ${destName}`, () => {
+        autoNav.active = false; toast('Navigation cancelled.', 1.5); _fabLastKey = '';
+      }]);
+    } else if (!atMarket && !atContracts && !nearNpc && !nearTrader) {
+      // Only show Navigate when there's nothing else to do (avoids crowding)
+      actions.push(['🗺️', 'Navigate', () => showNavPicker()]);
     }
-    if (!c) {
-      addFab('💾', 'Save Game', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); });
+    if (!c && !IS_MOBILE) {
+      // Desktop save button; mobile uses autosave so no need to show
+      actions.push(['💾', 'Save', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); }]);
+    }
+
+    // Mobile: limit to 3 most relevant; desktop: show all
+    const shown = IS_MOBILE ? actions.slice(0, 3) : actions;
+    for (const [icon, label, onClick] of shown) addFab(icon, label, onClick);
+
+    // Mobile: show/hide the bar with animation
+    if (IS_MOBILE) {
+      fabBar.classList.toggle('fab-bar-visible', shown.length > 0);
     }
   }
 
@@ -8527,60 +8592,71 @@ function drawEntities() {
     const pad = Math.round(14 * UI_SCALE);
 
 
-// MOBILE HUD (compact by default)
+// MOBILE HUD — single slim bar, no expand needed (map is in separate toggle)
 if (IS_MOBILE) {
-  const expanded = ui.mobileHudExpanded && !ui.marketOpen && !ui.contractsOpen && !ui.eventOpen && !ui.bankOpen && !ui.innOpen && !ui.guildOpen && !ui.warehouseOpen;
-  const topH = Math.round((expanded ? 58 : 38) * UI_SCALE);
+  const topH = Math.round(36 * UI_SCALE);
   ui._hudTopH = topH;
   const padX = Math.round(10 * UI_SCALE);
-  const y1 = Math.round(22 * UI_SCALE);
+  const midY = Math.round(22 * UI_SCALE);
 
-  ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
+  // Background strip
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
   ctx.fillRect(0, 0, VIEW_W, topH);
-  ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
+  ctx.strokeStyle = 'rgba(30, 42, 54, 0.9)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, topH + 0.5);
   ctx.lineTo(VIEW_W, topH + 0.5);
   ctx.stroke();
 
-  const title = c ? c.name : 'On the road';
-  ctx.fillStyle = '#e8edf2';
-  ctx.font = `800 ${Math.round(14 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  const titleText = ellipsizeText(title, Math.round(VIEW_W * 0.55));
-  ctx.fillText(titleText, padX, y1);
-  const titleW = ctx.measureText(titleText).width;
-  ui._hudCityTap = { x: Math.max(0, padX - 6), y: 0, w: Math.min(titleW + 12, VIEW_W * 0.6), h: topH };
+  // Left: location name
+  const title = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '…'}` : 'Road');
+  ctx.fillStyle = c ? '#e8edf2' : '#94a3b8';
+  ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  const maxTitleW = Math.round(VIEW_W * 0.45);
+  ctx.fillText(ellipsizeText(title, maxTitleW), padX, midY);
+  // Keep tap zone for expand (legacy, still wired in handleMobileHudTap)
+  ui._hudCityTap = { x: 0, y: 0, w: Math.round(VIEW_W * 0.5), h: topH };
 
+  // Center: day counter
+  const day = Math.floor(time.day || 1);
+  ctx.fillStyle = 'rgba(160,184,203,0.75)';
+  ctx.font = `600 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`Day ${day}`, VIEW_W / 2, midY);
+  ctx.textAlign = 'left';
+
+  // Right: gold + pack
   ctx.textAlign = 'right';
   ctx.fillStyle = '#cfe6ff';
   ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  ctx.fillText(`${player.gold}g · ${w}/${player.capacity}`, VIEW_W - padX, y1);
-  // Player ID (mobile, small, bottom-right of top bar)
-  ctx.fillStyle = 'rgba(251,191,36,0.55)';
-  ctx.font = `700 ${Math.round(8 * UI_SCALE)}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
-  ctx.fillText(`ID:${_playerId}`, VIEW_W - padX, Math.round(34 * UI_SCALE));
+  ctx.fillText(`${player.gold}g  ${w}/${player.capacity}`, VIEW_W - padX, midY);
   ctx.textAlign = 'left';
+
+  // Active contract mini-indicator (small dot + destination)
+  if (contracts.active) {
+    const dest = getCityById(contracts.active.toId);
+    if (dest) {
+      const prog = activeContractProgressLabel();
+      ctx.fillStyle = 'rgba(96,165,250,0.80)';
+      ctx.font = `600 ${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`📦 → ${dest.name} (${prog})`, VIEW_W / 2, topH - Math.round(4 * UI_SCALE));
+      ctx.textAlign = 'left';
+    }
+  }
 
   ui._hudExpandedVisible = false;
   ui._hudExpandedText = '';
-  if (expanded) {
-    const day = Math.floor(time.day || 1);
-    const hour = Math.round((time.frac || 0) * 24);
-    const detail = rules ? `${rules.vibe}` : 'Travel the road.';
-    const line = `Day ${day} · ${hour}h · ${detail}`;
-    ctx.fillStyle = 'rgba(160,184,203,0.92)';
-    ctx.font = `${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText(ellipsizeText(line, VIEW_W - padX * 2), padX, Math.round(40 * UI_SCALE));
-    ui._hudExpandedVisible = true;
-    ui._hudExpandedText = line;
+
+  if (ui._hudTapDebug) {
+    ctx.fillStyle = 'rgba(239,68,68,0.9)';
+    ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 4 * UI_SCALE));
   }
 
-
-if (ui._hudTapDebug) {
-  ctx.fillStyle = 'rgba(239,68,68,0.9)';
-  ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 6 * UI_SCALE));
-}
+  // Render minimap overlay canvas each frame when open
+  _mmRender();
 
   return;
 }
