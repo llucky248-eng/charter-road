@@ -880,7 +880,15 @@ ${line4}`;
     const buttons = world.cities
       .filter(c2 => !currentC || c2.id !== currentC.id)
       .map(c2 => {
-        const rules = CITY_RULES[c2.id] || {};
+        const rules    = CITY_RULES[c2.id] || {};
+        const _cpop    = cityPop[c2.id];
+        const _tre     = cityTreasury[c2.id];
+        const popVal   = _cpop
+          ? (_cpop.pop >= 1000 ? (_cpop.pop / 1000).toFixed(1) + 'k' : Math.round(_cpop.pop).toString())
+          : '–';
+        const treVal   = (_tre && _tre.gold > 0) ? `${_tre.gold}g` : '–';
+        const hungerPct= _cpop ? Math.round(_cpop.hunger * 100) : 0;
+        const hungerCol= hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
         return `
           <button data-city="${c2.id}" style="
             display:flex; flex-direction:column; align-items:flex-start;
@@ -888,8 +896,15 @@ ${line4}`;
             padding:10px 14px; cursor:pointer; color:#e0cfa0; text-align:left;
             width:100%; margin-bottom:6px; transition:border-color 0.15s;
           ">
-            <span style="font-size:14px;font-weight:700;color:#f0d080">📍 ${c2.name}</span>
-            <span style="font-size:11px;color:#888;margin-top:2px">${rules.vibe || ''}</span>
+            <span style="font-size:14px;font-weight:700;color:#f0d080">📍 ${htmlEscape(c2.name)}</span>
+            <span style="font-size:11px;color:#888;margin-top:2px">${htmlEscape(rules.vibe || '')}</span>
+            <span style="font-size:11px;color:#a09060;margin-top:4px">
+              👥 Pop: <b style="color:#cfe6ff">${popVal}</b>
+              &nbsp;·&nbsp;
+              💰 Treasury: <b style="color:#cfe6ff">${treVal}</b>
+              &nbsp;·&nbsp;
+              Hunger: <b style="color:${hungerCol}">${hungerPct}%</b>
+            </span>
           </button>`;
       }).join('');
 
