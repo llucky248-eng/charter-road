@@ -389,7 +389,7 @@ ${line4}`;
         advanceDays(n, 'travel');
         for (let i = 0; i < n; i++) {
           if ((player.inv['food'] || 0) > 0) player.inv['food'] -= 1;
-          else player.gold = Math.max(0, player.gold - 3);
+          else player.gold = Math.max(0, player.gold - 8); // matches live penalty (was 3g)
         }
         scheduleAutoSave();
         return { ok: true };
@@ -2391,13 +2391,13 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const ITEMS = [
-    { id: 'grain', name: 'Grain', base: 6, weight: 2 },
-    { id: 'food', name: 'Dried Rations', base: 12, weight: 1 },
-    { id: 'ore', name: 'Iron Ore', base: 18, weight: 2 },
-    { id: 'herbs', name: 'Moon Herbs', base: 16, weight: 1 },
-    { id: 'potion', name: 'Minor Potion', base: 34, weight: 1 },
-    { id: 'relic', name: 'Old Relic', base: 55, weight: 2 },
-    { id: 'ink', name: 'Demon Ink', base: 70, weight: 1, contrabandName: 'Demon Ink' },
+    { id: 'grain',  name: 'Grain',         base: 8,  weight: 2 },  // up from 6 — now viable as bulk route
+    { id: 'food',   name: 'Dried Rations', base: 14, weight: 1 },  // up from 12 — better early-game earner
+    { id: 'ore',    name: 'Iron Ore',      base: 20, weight: 2 },  // up from 18 — small bump
+    { id: 'herbs',  name: 'Moon Herbs',    base: 18, weight: 1 },  // up from 16 — stronger starter route
+    { id: 'potion', name: 'Minor Potion',  base: 36, weight: 1 },  // up from 34 — mid-game tier
+    { id: 'relic',  name: 'Old Relic',     base: 50, weight: 2 },  // down from 55 — reduced dominance
+    { id: 'ink',    name: 'Demon Ink',     base: 80, weight: 1, contrabandName: 'Demon Ink' },  // up from 70 — contraband pays off
   ];
 
   // --- Market model (minimal, deterministic)
@@ -2573,10 +2573,14 @@ const NPC_INTERACT_RADIUS = 18;
   function rewardForContract(want, qty) {
     const it = ITEMS.find(x => x.id === want);
     const base = it ? it.base : 20;
-    // Scale with item value and quantity; add a small premium so contracts feel worthwhile.
-    const premium = want === 'relic' ? 22 : (want === 'potion' ? 10 : 6);
-    const r = 10 + premium + Math.round(base * qty * 0.85);
-    return clamp(r, 18, 160);
+    // Premium per item type — ensures at least a small net positive vs buy cost
+    const premium = want === 'relic' ? 18 : (want === 'potion' ? 12 : 8);
+    // Diminishing multiplier on qty to prevent high-qty contracts going net-negative
+    // (old formula scaled linearly and hit the 160g cap before covering costs)
+    const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.7 : 2.2;
+    const r = Math.round((10 + premium + base * 0.9) * qtyMult);
+    // Raised cap from 160 to 200 so high-value multi-item contracts are always worth taking
+    return clamp(r, 20, 200);
   }
 
   const CONTRACT_TIER_THRESHOLDS = [3, 7]; // Tier0 <3, Tier1 3-6, Tier2 7+
@@ -4881,10 +4885,12 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.3',
+    version: 'v0.1.4',
     whatsNew: [
-      'Player saves stored in Supabase DB (keyed by uid). Guests (uid=0) stay localStorage-only.',
-      'On boot: real players load newest save (DB vs local by day count). Auto-saves write both.',
+      'Economic rebalance: all item base prices tuned for smoother early→late progression.',
+      'City price mults rebalanced: grain viable, ink contraband worth the risk, relic less dominant.',
+      'Contract rewards: diminishing qty multiplier prevents high-qty contracts going net-negative; cap raised 160→200g.',
+      'No-food penalty: 3g→8g/day so carrying rations is a real decision.',
     ],
     whatsNext: [
       'Mobile: optional bottom action bar for market/contract.',
@@ -6077,7 +6083,7 @@ function drawNpcBubble() {
   function saveGame() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.3',
+      buildVersion: 'v0.1.4',
       player: {
         x: player.x,
         y: player.y,
@@ -6412,22 +6418,19 @@ function drawNpcBubble() {
 
   function priceFor(cityId, item) {
     // City-specific price multipliers
+    // Each city has a clear economic identity with 2–3 cheap items and 2–3 expensive ones.
+    // Routes designed so no single item dominates; relic nerfed, ink contraband buffed,
+    // grain given a niche, early herbs/food routes are starter-friendly.
     const mults = {
-      //            food   ore    herbs  potion  relic   ink
-      //              food   ore    herbs  potion  relic   ink
-      // Valdenmere: trade capital — buys ore/relics high, brews potions cheap
-      // Far from Ashport (3 days) → big relic margin reward for long haul
-      valdenmere: { food: 1.05, ore: 1.18, herbs: 1.0,  potion: 0.82, relic: 1.20, ink: 1.05 },
-      // Ashport: port — cheap food (sea imports), very high relic/ink demand
-      // Far from Valdenmere → high margin. Near Ironholt but different speciality
-      ashport:    { food: 0.88, ore: 1.05, herbs: 1.12, potion: 1.08, relic: 1.25, ink: 1.10 },
-      // Crosshaven: farming village — cheapest food/herbs, average other goods
-      // Between Valdenmere and Ashport → moderate margins on both sides
-      crosshaven: { food: 0.88, ore: 1.02, herbs: 0.85, potion: 1.02, relic: 1.00, ink: 1.00 },
-      // Ironholt: mining town — very cheap ore, expensive food/herbs
-      // Near Ashport but sells ORE (Ashport has average ore) → short-trip ore viable
-      // but NOT relic/ink (similar prices) → prevents short Ironholt→Ashport exploit
-      ironholt:   { food: 1.25, ore: 0.70, herbs: 1.20, potion: 1.10, relic: 0.88, ink: 0.92 },
+      // Valdenmere: trade capital — imports ore, exports relics, hates potions (local alchemy)
+      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
+      // Ashport: port city — imports food via sea (cheap), strong demand for ink+relics
+      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
+      // Crosshaven: farming village — cheapest grain+food+herbs, average everything else
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 0.85, potion: 1.00, relic: 1.00, ink: 1.00 },
+      // Ironholt: mining town — dirt cheap ore, expensive food+herbs (isolated supply)
+      // Ink is cheap too (mining camps stockpile it) — must travel far to profit on ink
+      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
     };
     const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
     // Same day-based wobble as quoteFor — no real-time flicker, changes once per in-game day
@@ -9665,10 +9668,11 @@ function drawEvent() {
               player.inv['food'] -= 1;
               toast('Consumed 1 rations.', 1.4);
             } else {
-              // No food: small gold penalty (starvation/hire help)
-              const penalty = 3;
+              // No food: meaningful penalty — roughly the cost of buying rations + inconvenience
+              // Old value was 3g (too cheap to care), now 8g so carrying food actually matters
+              const penalty = 8;
               player.gold = Math.max(0, player.gold - penalty);
-              toast(`No rations! Paid ${penalty}g for supplies.`, 1.8);
+              toast(`No rations! Paid ${penalty}g for road supplies.`, 1.8);
             }
           }
           scheduleAutoSave();
