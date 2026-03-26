@@ -8816,17 +8816,18 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
   // Stat rows: [labelA, valueA, colorA, labelB, valueB, colorB]
   const LABEL    = 'rgba(138,160,179,0.75)';
   const VAL      = '#cfe6ff';
+  // Population + Treasury share one combined row; remaining stats in 2 columns
   const statRows = [
-    ['Population', popVal,              VAL,      'Tax',      taxVal,  VAL],
-    ['Hunger',     `${hungerPct}%`,     hungerCol,'Inspect',  inspVal, VAL],
-    ['Treasury',   treVal,              VAL,      'Rep',      repStr,  repCol],
+    ['Hunger',  `${hungerPct}%`, hungerCol, 'Tax',     taxVal,  VAL    ],
+    ['Inspect', inspVal,         VAL,       'Rep',     repStr,  repCol ],
   ];
 
   // Height: section header + stat rows + contraband + hint + npc header + npc rows
   const npcSection = npcRows.length > 0 ? (Math.round(18 * UI_SCALE) + npcRows.length * rowH) : 0;
   const boxH = padY
     + Math.round(14 * UI_SCALE)          // "CITY STATE" header
-    + statRows.length * rowH
+    + rowH                                // combined Pop · Treasury row
+    + statRows.length * rowH             // Hunger/Tax, Inspect/Rep
     + rowH                                // contraband
     + rowH                                // hint
     + npcSection
@@ -8857,6 +8858,30 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
   cy += Math.round(14 * UI_SCALE);
 
   ctx.font = `${fSz}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+
+  // ── Combined Population · Treasury row (full width) ─────────────────
+  {
+    ctx.fillStyle = LABEL;
+    ctx.fillText('Pop:', boxX + padX, cy);
+    const popLW = ctx.measureText('Pop:  ').width;
+    ctx.fillStyle = VAL;
+    ctx.fillText(popVal, boxX + padX + popLW, cy);
+    const popValW = ctx.measureText(popVal + '  ').width;
+
+    // separator dot
+    ctx.fillStyle = 'rgba(138,160,179,0.40)';
+    ctx.fillText('·', boxX + padX + popLW + popValW, cy);
+    const dotW = ctx.measureText('·  ').width;
+
+    ctx.fillStyle = LABEL;
+    ctx.fillText('Treasury:', boxX + padX + popLW + popValW + dotW, cy);
+    const treLW = ctx.measureText('Treasury:  ').width;
+    ctx.fillStyle = VAL;
+    ctx.fillText(treVal, boxX + padX + popLW + popValW + dotW + treLW, cy);
+    cy += rowH;
+  }
+
+  // ── Remaining stat rows (2 columns each) ───────────────────────────
   for (const [lA, vA, cA, lB, vB, cB] of statRows) {
     // Column A
     ctx.fillStyle = LABEL;
