@@ -214,18 +214,13 @@
   <div class="card"><div class="empty">Loading…</div></div>
 </div>
 
-<div class="section-title">👥 City Populations</div>
-<div class="grid" id="pop-grid">
+<div class="section-title">🏙 City Overview</div>
+<div class="grid" id="city-overview-grid">
   <div class="card"><div class="empty">Loading…</div></div>
 </div>
 
 <div class="section-title">🛒 AI Traders on the Road</div>
 <div class="grid" id="trader-grid">
-  <div class="card"><div class="empty">Loading…</div></div>
-</div>
-
-<div class="section-title">🏛 City Treasuries</div>
-<div class="grid" id="treasury-grid" style="margin-bottom:24px">
   <div class="card"><div class="empty">Loading…</div></div>
 </div>
 
@@ -396,9 +391,10 @@ const INVEST_PROJECT_LABELS = {
   popIncentive:   '👥 Pop Incentive',
 };
 
-function renderPopulations(save, liveTreasuries) {
-  const grid = document.getElementById('pop-grid');
+function renderCityOverview(save, liveTreasuries) {
+  const grid = document.getElementById('city-overview-grid');
   const BASE_POPS = { valdenmere: 8000, ashport: 4000, crosshaven: 1500, ironholt: 2500 };
+  const CITY_TAX_RATES = { valdenmere: '12%', ashport: '8%', crosshaven: '5%', ironholt: '15%' };
 
   // Build lookup from live Supabase treasury rows
   const liveByCity = {};
@@ -411,41 +407,59 @@ function renderPopulations(save, liveTreasuries) {
     const live = liveByCity[city.id];
     const local = cityPopData[city.id];
 
+    // Population
     const population = live?.population || local?.pop || BASE_POPS[city.id] || 0;
     const popStr = population >= 1000 ? (population / 1000).toFixed(1) + 'k' : Math.round(population).toString();
 
-    // Hunger from local save only (world sim doesn't track it yet)
+    // Hunger from local save only
     const hungerPct = Math.round((local?.hunger || 0) * 100);
     const hungerColor = hungerPct < 20 ? '#34d399' : hungerPct < 50 ? '#f59e0b' : '#ef4444';
 
     const source = live ? '🟢 live' : local ? '⚪ local' : '⭕ default';
 
-    // Recent investments from live treasury
+    // Trade activity
+    const taxCollected = live?.tax_collected || 0;
+    const tradeLabel = taxCollected > 2000 ? '🔥 Booming' : taxCollected > 500 ? '📈 Active' : taxCollected > 0 ? '🌱 Growing' : '😴 Quiet';
+
+    // Treasury
+    const gold = live?.gold ?? '—';
+    const taxRate = CITY_TAX_RATES[city.id] || '?%';
+    const permitCollected = live?.permit_collected ?? 0;
+    const spent = live?.spent ?? 0;
+
+    // Investments log
     const log = Array.isArray(live?.invest_log) ? live.invest_log.slice(-3).reverse() : [];
     const logHtml = log.length
       ? log.map(e => `<div style="font-size:11px;color:#6a8aa0;padding:2px 0">📜 ${e.project} <span style="color:#4a6a80">(${e.cost}g)</span></div>`).join('')
       : '<div style="font-size:11px;color:#4a6a80">No investments yet</div>';
 
-    // Trade activity indicator based on tax collected
-    const taxTotal = live?.tax_collected || 0;
-    const tradeLabel = taxTotal > 2000 ? '🔥 Booming' : taxTotal > 500 ? '📈 Active' : taxTotal > 0 ? '🌱 Growing' : '😴 Quiet';
-
     return `
-      <div class="card">
+      <div class="card" style="border-color:${city.color}33">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <div class="card-title" style="margin:0">Population</div>
+          <div class="card-title" style="margin:0">City</div>
           <span style="font-size:10px;color:#4a6a80">${source}</span>
         </div>
         <div class="city-name" style="color:${city.color}">${city.name}</div>
-        <div style="margin:8px 0;font-size:18px;font-weight:700;color:#e8d4a0">👥 ${popStr}</div>
-        <div style="font-size:12px;color:#94a3b8;margin-bottom:10px">${tradeLabel} · ${taxTotal}g tax collected</div>
+        <div style="font-size:12px;color:#6a8aa0;margin-bottom:10px">${tradeLabel}</div>
+
+        <div class="stat"><span class="stat-label">👥 Population</span><span class="stat-val">${popStr}</span></div>
         ${hungerPct > 0 ? `
-        <div style="font-size:12px;color:#94a3b8;margin-bottom:4px">Hunger: ${hungerPct}%</div>
-        <div style="background:#1e293b;border-radius:4px;height:6px;overflow:hidden;margin-bottom:10px">
-          <div style="width:${hungerPct}%;height:100%;background:${hungerColor}"></div>
+        <div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span class="stat-label">Hunger</span><span class="stat-val" style="color:${hungerColor}">${hungerPct}%</span>
+          </div>
+          <div style="background:#1e293b;border-radius:4px;height:5px;overflow:hidden">
+            <div style="width:${hungerPct}%;height:100%;background:${hungerColor}"></div>
+          </div>
         </div>` : ''}
-        <div style="border-top:1px solid #1e293b;padding-top:8px;margin-top:4px">
-          <div style="font-size:10px;color:#4a6a80;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">City Investments</div>
+        <div class="stat"><span class="stat-label">💰 Treasury</span><span class="stat-val">${gold === '—' ? '—' : gold + 'g'}</span></div>
+        <div class="stat"><span class="stat-label">Tax Rate</span><span class="stat-val">${taxRate}</span></div>
+        <div class="stat"><span class="stat-label">Tax Collected</span><span class="stat-val" style="color:#4ade80">+${taxCollected}g</span></div>
+        <div class="stat"><span class="stat-label">Permit Fees</span><span class="stat-val" style="color:#a78bfa">+${permitCollected}g</span></div>
+        <div class="stat"><span class="stat-label">Spent</span><span class="stat-val" style="color:#f87171">-${spent}g</span></div>
+
+        <div style="border-top:1px solid #1e293b;padding-top:8px;margin-top:8px">
+          <div style="font-size:10px;color:#4a6a80;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">Investments</div>
           ${logHtml}
         </div>
       </div>`;
@@ -480,37 +494,6 @@ async function fetchTreasuries() {
   );
   if (!res.ok) throw new Error(`Supabase ${res.status}`);
   return res.json();
-}
-
-function renderTreasuries(rows) {
-  const grid = document.getElementById('treasury-grid');
-  if (!rows || rows.length === 0) {
-    grid.innerHTML = '<div class="card"><div class="empty">No treasury data yet.</div></div>';
-    return;
-  }
-  const CITY_TAX_RATES = { valdenmere: '12%', ashport: '8%', crosshaven: '5%', ironholt: '15%' };
-  const CITY_COLORS = { valdenmere: '#60a5fa', ashport: '#34d399', crosshaven: '#f59e0b', ironholt: '#f87171' };
-  grid.innerHTML = rows.map(r => {
-    const color = CITY_COLORS[r.city_id] || '#94a3b8';
-    const taxRate = CITY_TAX_RATES[r.city_id] || '?%';
-    const log = Array.isArray(r.invest_log) ? r.invest_log.slice(-3).reverse() : [];
-    const logHtml = log.length
-      ? log.map(e => `<div style="font-size:11px;color:#94a3b8;margin-top:4px">📜 ${e.project} <span style="color:#4a6a80">(${e.cost}g)</span></div>`).join('')
-      : `<div style="font-size:11px;color:#4a6a80">No investments yet</div>`;
-    return `
-      <div class="card" style="border-color:${color}33">
-        <div class="city-name" style="color:${color};margin-bottom:8px">${r.city_id.charAt(0).toUpperCase()+r.city_id.slice(1)}</div>
-        <div class="stat"><span class="stat-label">Treasury</span><span class="stat-val">💰 ${r.gold}g</span></div>
-        <div class="stat"><span class="stat-label">Tax Rate</span><span class="stat-val">${taxRate}</span></div>
-        <div class="stat"><span class="stat-label">Tax Collected</span><span class="stat-val" style="color:#4ade80">+${r.tax_collected}g</span></div>
-        <div class="stat"><span class="stat-label">Permit Fees</span><span class="stat-val" style="color:#a78bfa">+${r.permit_collected}g</span></div>
-        <div class="stat"><span class="stat-label">Spent</span><span class="stat-val" style="color:#f87171">-${r.spent}g</span></div>
-        <div style="margin-top:10px;border-top:1px solid #1e293b;padding-top:8px">
-          <div style="font-size:10px;color:#4a6a80;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">Recent Investments</div>
-          ${logHtml}
-        </div>
-      </div>`;
-  }).join('');
 }
 
 async function fetchStrategyLog() {
@@ -854,7 +837,7 @@ async function refresh() {
     fetchTreasuries(),
   ]);
 
-  renderPopulations(save, treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
+  renderCityOverview(save, treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
 
   // Economy
   const pressure = pressureResult.status === 'fulfilled' ? pressureResult.value : {};
@@ -877,9 +860,6 @@ async function refresh() {
 
   // Strategy log
   renderStrategyLog(strategyResult.status === 'fulfilled' ? strategyResult.value : []);
-
-  // City treasuries
-  renderTreasuries(treasuryResult.status === 'fulfilled' ? treasuryResult.value : []);
 
   // Always update status — never leave page stuck on "Fetching…"
   const now = new Date().toLocaleTimeString();
