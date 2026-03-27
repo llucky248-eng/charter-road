@@ -1,5 +1,13 @@
 # Iteration Log — The Charter Road
 
+## v0.2.2 — 2026-03-27
+- **City Building Slots**: each city now has named investable building slots (market, barracks, granary, guild, warehouse, inn — per-city availability).
+- **Vacant lots (tile 16)**: unbuilt slots appear on the map as rubble patches with a red stake marker. Walkable and tappable.
+- **Auto-invest rewrite**: city treasury auto-invests in building slots (cheapest available first) instead of the old flat project system. Buildings physically appear on the map when funded.
+- **Player donation modal**: tap a vacant lot → see build cost, city treasury, your donations; donate 10g / 50g / all. If player fully funds a slot it builds immediately.
+- **guardDiscount effect**: barracks buildings reduce inspection chance proportionally per level.
+- **Save/load**: cityBuildings state (level, built, playerFunded) persists and rebuilds map tiles on load.
+
 ## v0.2.1 — 2026-03-14
 - Buildings: full pixel-art redraw for all city tile types.
 - Market stall (tile 6): amber awning, display counter, colored goods, sign.

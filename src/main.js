@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.42'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.3.43'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -435,7 +435,8 @@ ${line4}`;
             if (rules) {
               const roll = 0.9999; // deterministic: avoid random inspection side-effects in QA.
               const permit = !!player.permits[nowId];
-              const inspChance = permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance;
+              const _guardDisc = cityBonus[nowId]?.guardDiscount || 0;
+              const inspChance = (permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance) * (1 - _guardDisc);
               if (roll < inspChance) {
                 const contraN = contrabandCountForCity(nowId);
                 if (contraN > 0) {
@@ -1276,7 +1277,7 @@ if (IS_MOBILE && !window.__npcGlobalTapListener) {
 
 function handleMobileHudTap(sx, sy) {
   if (!IS_MOBILE) return false;
-  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen || ui.buildingDonateOpen) return false;
   const T = ui._hudCityTap;
   if (T && sx >= T.x && sx <= T.x + T.w && sy >= T.y && sy <= T.y + T.h) {
     ui.mobileHudExpanded = !ui.mobileHudExpanded;
@@ -1292,7 +1293,7 @@ function handleMobileHudTap(sx, sy) {
 
 function handleGlobalHudTap(clientX, clientY, e) {
   if (!IS_MOBILE) return false;
-  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen) return false;
+  if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen || ui.buildingDonateOpen) return false;
   const now = performance.now();
   if (now - (ui._hudTapLastTs || 0) < 280) return false;
   ui._hudTapLastTs = now;
@@ -1408,7 +1409,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // Building tap-to-interact: open immediately if close enough + in city,
     // otherwise walk to the tile first then open on arrival.
-    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild' };
+    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant' };
 
     // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
     // nearest building interior tile so tapping on a building's visible art still works.
@@ -1445,6 +1446,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (action === 'inn') { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
         else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
         else if (action === 'warehouse') { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
+        else if (action === 'vacant') { showBuildingDonateModal(c.id, resolvedTileX, resolvedTileY); }
       } else {
         // Walk to building interior tile, open on arrival
         clickMove.markerX = sx; clickMove.markerY = sy;
@@ -1547,8 +1549,11 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable)
   const SOLID = new Set([2, 3]);
+
+  // Live reference to the map array — set by makeMap(), used by buildSlotOnMap()
+  let mapData = null;
 
   function makeMap() {
     const m = new Uint8Array(MAP_W * MAP_H);
@@ -1952,6 +1957,48 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     for (let i = 0; i < 3; i++) placeCache();
 
+    // ── Assign building slot tile positions ──────────────────────────────
+    // Valdenmere (x=8, y=8, w=28, h=20)
+    cityBuildings.valdenmere.inn.tileX       = 8+3;  cityBuildings.valdenmere.inn.tileY       = 8+2;
+    cityBuildings.valdenmere.granary.tileX   = 8+3;  cityBuildings.valdenmere.granary.tileY   = 8+8;
+    cityBuildings.valdenmere.market.tileX    = 8+6;  cityBuildings.valdenmere.market.tileY    = 8+13;
+    cityBuildings.valdenmere.barracks.tileX  = 8+16; cityBuildings.valdenmere.barracks.tileY  = 8+13;
+    cityBuildings.valdenmere.warehouse.tileX = 8+3;  cityBuildings.valdenmere.warehouse.tileY = 8+14;
+    cityBuildings.valdenmere.guild.tileX     = 8+16; cityBuildings.valdenmere.guild.tileY     = 8+2;
+
+    // Ashport (x=96, y=55, w=24, h=16)
+    cityBuildings.ashport.inn.tileX       = 96+2;  cityBuildings.ashport.inn.tileY       = 55+2;
+    cityBuildings.ashport.market.tileX    = 96+3;  cityBuildings.ashport.market.tileY    = 55+7;
+    cityBuildings.ashport.guild.tileX     = 96+2;  cityBuildings.ashport.guild.tileY     = 55+10;
+    cityBuildings.ashport.warehouse.tileX = 96+12; cityBuildings.ashport.warehouse.tileY = 55+11;
+
+    // Crosshaven (x=55, y=65, w=14, h=10)
+    cityBuildings.crosshaven.granary.tileX = 55+2;  cityBuildings.crosshaven.granary.tileY = 65+2;
+    cityBuildings.crosshaven.inn.tileX     = 55+2;  cityBuildings.crosshaven.inn.tileY     = 65+5;
+    cityBuildings.crosshaven.market.tileX  = 55+8;  cityBuildings.crosshaven.market.tileY  = 65+2;
+
+    // Ironholt (x=105, y=14, w=20, h=14)
+    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;
+    cityBuildings.ironholt.market.tileX    = 105+12; cityBuildings.ironholt.market.tileY    = 14+2;
+    cityBuildings.ironholt.granary.tileX   = 105+12; cityBuildings.ironholt.granary.tileY   = 14+9;
+    cityBuildings.ironholt.warehouse.tileX = 105+2;  cityBuildings.ironholt.warehouse.tileY = 14+9;
+
+    // ── Paint vacant lots (tile 16) for unbuilt slots ────────────────────
+    for (const slots of Object.values(cityBuildings)) {
+      for (const slot of Object.values(slots)) {
+        if (!slot.built && slot.tileX > 0 && slot.tileY > 0) {
+          for (let dy = 0; dy < 2; dy++)
+            for (let dx = 0; dx < 2; dx++) {
+              const idx = (slot.tileY + dy) * MAP_W + (slot.tileX + dx);
+              if (m[idx] === 4) m[idx] = 16; // only overwrite city floor
+            }
+        }
+      }
+    }
+
+    // Expose map array for dynamic building placement
+    mapData = m;
+
     return { m, cities: [cityA, cityB, cityC, cityD] };
   }
 
@@ -1987,6 +2034,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (id === 8) { r=217; g=119; b=6; }   // camp
         else if (id === 9) { r=156; g=163; b=175; } // ruins
         else if (id === 13) { r=246; g=196; b=74; } // cache
+        else if (id === 16) { r=100; g=70;  b=30;  } // vacant lot
         const i = (y * mini.w + x) * 4;
         d[i+0]=r; d[i+1]=g; d[i+2]=b; d[i+3]=255;
       }
@@ -2766,25 +2814,49 @@ const NPC_INTERACT_RADIUS = 18;
 
   // City upgrades — multiplicative bonuses unlocked by investment
   const cityBonus = {
-    valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
-    ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
-    crosshaven: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
-    ironholt:   { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0 },
+    valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
+    ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
+    crosshaven: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
+    ironholt:   { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
   };
 
-  // Investment projects per city (each city has a bias toward certain projects)
-  const CITY_INVEST_BIAS = {
-    valdenmere: ['market', 'pop'],       // big city: market + immigration
-    ashport:    ['road', 'market'],      // port: trade routes + market
-    crosshaven: ['food', 'pop'],         // small town: food security + people
-    ironholt:   ['food', 'road'],        // mining: food for miners + road for ore
+  // ── City Building Slots ───────────────────────────────────────────────────
+  // Each slot: level (0=unbuilt), maxLevel, costPerLevel[], effect, gain, built flag,
+  // tileX/Y (set after makeMap), tileW/H (building footprint), tileType, doorSide, playerFunded
+  const cityBuildings = {
+    valdenmere: {
+      market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'west',  playerFunded:0 },
+      granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
+      guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:15, doorSide:'south', playerFunded:0 },
+      warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
+      inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:7,  doorSide:'east',  playerFunded:0 },
+    },
+    ashport: {
+      market:    { level:0, maxLevel:2, costPerLevel:[80,160],      effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      warehouse: { level:0, maxLevel:3, costPerLevel:[70,140,250],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
+      inn:       { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:5, tileType:7,  doorSide:'east',  playerFunded:0 },
+      guild:     { level:0, maxLevel:1, costPerLevel:[150],         effect:'popIncentive',   gain:0.08, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:15, doorSide:'east',  playerFunded:0 },
+    },
+    crosshaven: {
+      granary:   { level:0, maxLevel:2, costPerLevel:[50,100],      effect:'foodSubsidy',    gain:0.12, built:false, tileX:0, tileY:0, tileW:3, tileH:3, tileType:8,  doorSide:'west',  playerFunded:0 },
+      inn:       { level:0, maxLevel:1, costPerLevel:[55],          effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:7,  doorSide:'east',  playerFunded:0 },
+      market:    { level:0, maxLevel:1, costPerLevel:[70],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:3, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+    },
+    ironholt: {
+      barracks:  { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'east',  playerFunded:0 },
+      warehouse: { level:0, maxLevel:3, costPerLevel:[80,160,280],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
+      granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+    },
   };
 
+  // Keep INVEST_PROJECTS for legacy save compat (no longer drives auto-invest)
   const INVEST_PROJECTS = {
-    market: { name: 'Market Expansion',   cost: 80,  effect: 'marketDiscount', gain: 0.04, max: 0.30, desc: 'Goods cost 4% less to buy' },
-    road:   { name: 'Road Improvements',  cost: 60,  effect: 'roadSpeed',      gain: 0.05, max: 0.25, desc: '5% faster travel through city region' },
-    food:   { name: 'Food Subsidy',       cost: 50,  effect: 'foodSubsidy',    gain: 0.10, max: 0.50, desc: 'Slows daily hunger increase by 10%' },
-    pop:    { name: 'Population Incentive',cost:70,  effect: 'popIncentive',   gain: 0.05, max: 0.30, desc: 'Boosts migrant attraction by 5%' },
+    market: { name: 'Market Expansion',    cost: 80, effect: 'marketDiscount', gain: 0.04, max: 0.30, desc: 'Goods cost 4% less to buy' },
+    road:   { name: 'Road Improvements',   cost: 60, effect: 'roadSpeed',      gain: 0.05, max: 0.25, desc: '5% faster travel through city region' },
+    food:   { name: 'Food Subsidy',        cost: 50, effect: 'foodSubsidy',    gain: 0.10, max: 0.50, desc: 'Slows daily hunger increase by 10%' },
+    pop:    { name: 'Population Incentive',cost: 70, effect: 'popIncentive',   gain: 0.05, max: 0.30, desc: 'Boosts migrant attraction by 5%' },
   };
 
   const marketDrift = {
@@ -4801,6 +4873,104 @@ function drawNpcBubble() {
     }
   }
 
+  // ── Find building slot by map tile position ──────────────────────────────
+  function findSlotAtTile(cityId, tx, ty) {
+    const slots = cityBuildings[cityId];
+    if (!slots) return null;
+    for (const [key, slot] of Object.entries(slots)) {
+      if (slot.built) continue;
+      if (Math.abs(tx - slot.tileX) <= 1 && Math.abs(ty - slot.tileY) <= 1) return { key, slot };
+    }
+    return null;
+  }
+
+  // ── Player donation modal for vacant building slots ───────────────────────
+  function showBuildingDonateModal(cityId, tx, ty) {
+    const found = findSlotAtTile(cityId, tx, ty);
+    if (!found) { toast('No building planned here.', 2); return; }
+    const { key, slot } = found;
+    const nextCost = slot.costPerLevel[slot.level];
+    if (nextCost === undefined) { toast('This building is fully upgraded.', 2); return; }
+    const city = getCityById(cityId);
+    const cityGold = cityTreasury[cityId]?.gold || 0;
+    const funded = slot.playerFunded || 0;
+    const remaining = nextCost - funded;
+    const slotLabel = key.charAt(0).toUpperCase() + key.slice(1);
+    const levelLabel = slot.level === 0 ? '' : ` (upgrade to Lv${slot.level+1})`;
+
+    // Effect description
+    const effectDesc = {
+      marketDiscount: 'Cheaper goods to buy',
+      roadSpeed:      'Faster travel speed',
+      foodSubsidy:    'Slower hunger drain',
+      popIncentive:   'City grows faster',
+      guardDiscount:  'Guards inspect you less',
+    }[slot.effect] || slot.effect;
+
+    ui.buildingDonateOpen = true;
+    dom._buildingDonate = { cityId, key, slot, nextCost, remaining, slotLabel, effectDesc, levelLabel };
+    domEnsureOpen();
+    dom.key = '';
+    domRender();
+  }
+
+  function donateToSlot(cityId, key, amount) {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    amount = Math.floor(Math.min(amount, player.gold));
+    if (amount <= 0) { toast('Not enough gold.', 2); return; }
+    const slot = cityBuildings[cityId]?.[key];
+    if (!slot) return;
+    const nextCost = slot.costPerLevel[slot.level];
+    if (nextCost === undefined) { toast('Already maxed.', 2); return; }
+    player.gold -= amount;
+    slot.playerFunded = Math.min((slot.playerFunded || 0) + amount, nextCost);
+    const slotLabel = key.charAt(0).toUpperCase() + key.slice(1);
+    toast(`You donated ${amount}g toward the ${slotLabel}!`, 2.5);
+    // If player fully funded → build immediately
+    if (slot.playerFunded >= nextCost) {
+      slot.level += 1;
+      slot.built = true;
+      slot.playerFunded = 0;
+      if (cityBonus[cityId] && slot.effect && cityBonus[cityId][slot.effect] !== undefined) {
+        cityBonus[cityId][slot.effect] = Math.min(
+          (cityBonus[cityId][slot.effect] || 0) + slot.gain,
+          slot.gain * slot.maxLevel
+        );
+      }
+      buildSlotOnMap(cityId, key, slot);
+      toast(`🏛 ${slotLabel} built! The city cheers!`, 4);
+      if (cityTreasury[cityId]) {
+        cityTreasury[cityId].investLog.push({ day: Math.floor(time.day), project: `${slotLabel} Lv${slot.level} (player-funded)`, effect: slot.effect });
+        if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
+      }
+    }
+    ui.buildingDonateOpen = false;
+    dom.key = '';
+    domRender();
+    saveGame();
+  }
+
+  // ── Build a slot visually on the map ────────────────────────────────────
+  function buildSlotOnMap(cid, slotKey, slot) {
+    if (!mapData || !slot || slot.tileX <= 0) return;
+    const bx = slot.tileX, by = slot.tileY;
+    const bw = slot.tileW, bh = slot.tileH;
+    const interior = slot.tileType;
+    const door = slot.doorSide || 'south';
+    for (let dy = 0; dy < bh; dy++) {
+      for (let dx = 0; dx < bw; dx++) {
+        const isWall = dx === 0 || dx === bw-1 || dy === 0 || dy === bh-1;
+        mapData[(by+dy)*MAP_W + (bx+dx)] = isWall ? 3 : interior;
+      }
+    }
+    if (door === 'south' && bh > 1) mapData[(by+bh-1)*MAP_W + (bx+Math.floor(bw/2))] = 4;
+    if (door === 'north' && bh > 1) mapData[by*MAP_W + (bx+Math.floor(bw/2))] = 4;
+    if (door === 'east')  mapData[(by+Math.floor(bh/2))*MAP_W + (bx+bw-1)] = 4;
+    if (door === 'west')  mapData[(by+Math.floor(bh/2))*MAP_W + bx] = 4;
+    // Redraw minimap after map change
+    if (typeof drawMinimap === 'function') try { drawMinimap(); } catch(_) {}
+  }
+
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
       // ── Treasury → Bank funding (20% of treasury flows to bank vault each cycle) ──
@@ -4811,33 +4981,52 @@ function drawNpcBubble() {
       }
 
       // ── If treasury is critically low, bank vault bleeds (no new investment) ──
-      // This is what eventually causes bankruptcy if player doesn't sell in this city
       if (treasury.gold < 20 && bankVault[cid]) {
-        // Vault slowly drains from overhead costs (5g/cycle when treasury is starved)
         bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - 5);
       }
 
-      // ── City investment: spend treasury on upgrade projects ──
-      const bias = CITY_INVEST_BIAS[cid] || Object.keys(INVEST_PROJECTS);
-      const candidates = bias
-        .map(key => ({ key, proj: INVEST_PROJECTS[key] }))
-        .filter(({ key, proj }) => {
-          const current = cityBonus[cid]?.[proj.effect] || 0;
-          return current < proj.max && treasury.gold >= proj.cost;
-        });
+      // ── City investment: spend treasury on building slots ──
+      const slots = cityBuildings[cid];
+      if (!slots) { checkBankSolvency(cid); continue; }
+
+      // Find affordable next-level slots, cheapest first
+      const candidates = Object.entries(slots)
+        .filter(([, slot]) => {
+          const nextCost = slot.costPerLevel[slot.level];
+          return nextCost !== undefined && slot.level < slot.maxLevel &&
+                 treasury.gold >= (nextCost - (slot.playerFunded || 0));
+        })
+        .sort((a, b) => (a[1].costPerLevel[a[1].level] || 999) - (b[1].costPerLevel[b[1].level] || 999));
 
       if (candidates.length) {
-        const { key, proj } = candidates[0];
-        treasury.gold -= proj.cost;
+        const [slotKey, slot] = candidates[0];
+        const nextCost = slot.costPerLevel[slot.level];
+        const cityPay = Math.max(0, nextCost - (slot.playerFunded || 0));
+        treasury.gold -= cityPay;
+        slot.playerFunded = 0;
+        slot.level += 1;
+        slot.built = true;
+
+        // Apply bonus effect
         if (!cityBonus[cid]) cityBonus[cid] = {};
-        cityBonus[cid][proj.effect] = Math.min(proj.max, (cityBonus[cid][proj.effect] || 0) + proj.gain);
-        treasury.investLog.push({ day: Math.floor(time.day), project: proj.name, effect: proj.desc });
+        if (slot.effect && cityBonus[cid][slot.effect] !== undefined) {
+          cityBonus[cid][slot.effect] = Math.min(
+            (cityBonus[cid][slot.effect] || 0) + slot.gain,
+            slot.gain * slot.maxLevel
+          );
+        }
+
+        // Paint building onto map
+        buildSlotOnMap(cid, slotKey, slot);
+
+        const slotLabel = slotKey.charAt(0).toUpperCase() + slotKey.slice(1);
+        treasury.investLog.push({ day: Math.floor(time.day), project: `${slotLabel} Lv${slot.level}`, effect: slot.effect });
         if (treasury.investLog.length > 8) treasury.investLog.shift();
 
         const playerCity = currentCity();
         const city = getCityById(cid);
         if (playerCity?.id === cid) {
-          toast(`📢 ${city?.name || cid} invested in ${proj.name}!`, 3.5);
+          toast(`📢 ${city?.name || cid} built a ${slotLabel}!`, 3.5);
         }
       }
 
@@ -4943,6 +5132,7 @@ function drawNpcBubble() {
     innOpen: false,
     guildOpen: false,
     warehouseOpen: false,
+    buildingDonateOpen: false,
   };
 
   // Render iteration notes into the bottom textbox (if present)
@@ -4972,6 +5162,7 @@ function drawNpcBubble() {
     ui.innOpen = false;
     ui.guildOpen = false;
     ui.warehouseOpen = false;
+    ui.buildingDonateOpen = false;
   }
 
   function domEnsureOpen() {
@@ -5109,7 +5300,7 @@ function drawNpcBubble() {
   function domRender() {
     if (!USE_DOM_MODALS || !uiRoot) return;
 
-    const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : (ui.bankOpen ? 'bank' : (ui.innOpen ? 'inn' : (ui.guildOpen ? 'guild' : (ui.warehouseOpen ? 'warehouse' : null))))));
+    const kind = ui.eventOpen ? 'event' : (ui.marketOpen ? 'market' : (ui.contractsOpen ? 'contracts' : (ui.bankOpen ? 'bank' : (ui.innOpen ? 'inn' : (ui.guildOpen ? 'guild' : (ui.warehouseOpen ? 'warehouse' : (ui.buildingDonateOpen ? 'building-donate' : null)))))));
     if (!kind) { domCloseAll(); return; }
 
     // Banner is rendered whenever a modal is open (keeps scope minimal).
@@ -5879,6 +6070,67 @@ function drawNpcBubble() {
       }));
       return;
     }
+
+    if (kind === 'building-donate') {
+      const d = dom._buildingDonate;
+      if (!d) { domCloseAll(); return; }
+      const { cityId, key, slot, nextCost, slotLabel, effectDesc, levelLabel } = d;
+      const cityGold = cityTreasury[cityId]?.gold || 0;
+      const funded = slot.playerFunded || 0;
+      const remaining = nextCost - funded;
+      const canDonate10  = player.gold >= 10  && funded < nextCost;
+      const canDonate50  = player.gold >= 50  && funded < nextCost;
+      const maxDonate = Math.min(player.gold, Math.max(0, nextCost - funded));
+
+      uiRoot.innerHTML = `
+        <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Build ${htmlEscape(slotLabel)}">
+          <div class="cr-panel">
+            ${bannerHtml}
+            <div class="cr-head">
+              <div><div class="cr-title">🏗 Build ${htmlEscape(slotLabel)}${levelLabel}</div>
+                   <div class="cr-sub">${htmlEscape(effectDesc)}</div></div>
+              <button class="cr-close" data-action="close">CLOSE</button>
+            </div>
+            <div class="cr-body">
+              <div class="cr-card">
+                <div style="width:100%">
+                  <div class="cr-sub" style="margin-bottom:6px">Construction Funding</div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span>Total cost</span><strong>${nextCost}g</strong>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span>City treasury</span><strong>${cityGold}g</strong>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span>Your donations</span><strong style="color:#4ade80">${funded}g</strong>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span>Still needed</span><strong style="color:#f59e0b">${Math.max(0, remaining - cityGold)}g</strong>
+                  </div>
+                  <div style="display:flex;justify-content:space-between">
+                    <span>Your gold</span><strong>💰 ${player.gold}g</strong>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+                <button class="cr-tab${canDonate10 ? '' : ' cr-tab-disabled'}" data-donate="10">Donate 10g</button>
+                <button class="cr-tab${canDonate50 ? '' : ' cr-tab-disabled'}" data-donate="50">Donate 50g</button>
+                ${maxDonate > 0 ? `<button class="cr-tab" data-donate="${maxDonate}" style="background:rgba(74,222,128,0.15);color:#4ade80">Fund it all (${maxDonate}g) 🏛</button>` : ''}
+              </div>
+              <div class="cr-sub" style="margin-top:10px">The city will also contribute automatically from its treasury over time.</div>
+            </div>
+            <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
+          </div>
+        </div>
+      `;
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.buildingDonateOpen = false; domCloseAll(); }));
+      uiRoot.querySelectorAll('[data-donate]').forEach(el => el.addEventListener('click', () => {
+        const amt = parseInt(el.getAttribute('data-donate'), 10);
+        if (el.classList.contains('cr-tab-disabled')) return;
+        donateToSlot(cityId, key, amt);
+      }));
+      return;
+    }
   }
 
   // --- Player
@@ -6111,6 +6363,9 @@ function drawNpcBubble() {
       cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
       cityTreasury: Object.fromEntries(Object.entries(cityTreasury).map(([k,v]) => [k, { gold: v.gold, investLog: [...v.investLog] }])),
       cityBonus: Object.fromEntries(Object.entries(cityBonus).map(([k,v]) => [k, {...v}])),
+      cityBuildings: Object.fromEntries(Object.entries(cityBuildings).map(([cid, slots]) => [
+        cid, Object.fromEntries(Object.entries(slots).map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }]))
+      ])),
       playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
       bankVault: Object.fromEntries(Object.entries(bankVault).map(([k,v]) => [k, {...v}])),
       playerGuild: { ...playerGuild },
@@ -6291,6 +6546,22 @@ function drawNpcBubble() {
     if (state.cityBonus) {
       for (const cid of Object.keys(cityBonus)) {
         if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
+      }
+    }
+    // Restore city buildings (and rebuild map tiles for built slots)
+    if (state.cityBuildings) {
+      for (const [cid, slots] of Object.entries(state.cityBuildings)) {
+        if (!cityBuildings[cid]) continue;
+        for (const [key, saved] of Object.entries(slots)) {
+          const slot = cityBuildings[cid][key];
+          if (!slot) continue;
+          slot.level = saved.level ?? 0;
+          slot.built = saved.built ?? false;
+          slot.playerFunded = saved.playerFunded ?? 0;
+          if (slot.built) {
+            buildSlotOnMap(cid, key, slot);
+          }
+        }
       }
     }
     // Restore bank, guild, warehouse
@@ -7758,6 +8029,34 @@ function drawNpcBubble() {
       ctx.fillStyle = '#7c4a1a';
       ctx.fillRect(x+TILE/2-2, y+TILE-6, 2, 4);
       ctx.fillRect(x+TILE/2+1, y+TILE-6, 2, 4);
+      return;
+    }
+
+    if (id === 16) {
+      // Vacant building lot — rubble / bare dirt
+      const n = hash2(tx, ty);
+      ctx.fillStyle = '#4a3820';
+      ctx.fillRect(x, y, TILE, TILE);
+      // Dirt texture variation
+      ctx.fillStyle = '#3d2f18';
+      if (n > 0.5) ctx.fillRect(x+2, y+3, TILE-4, TILE-6);
+      // Scattered rubble stones
+      ctx.fillStyle = '#6a6058';
+      ctx.fillRect(x+2, y+2, 3, 2);
+      ctx.fillRect(x+TILE-5, y+TILE-5, 4, 3);
+      ctx.fillStyle = '#7a7068';
+      ctx.fillRect(x+TILE-6, y+3, 3, 2);
+      ctx.fillRect(x+3, y+TILE-5, 3, 3);
+      ctx.fillRect(x+6, y+7, 2, 2);
+      // Highlight fleck on stones
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x+2, y+2, 2, 1);
+      ctx.fillRect(x+TILE-5, y+3, 2, 1);
+      // Small construction stake
+      ctx.fillStyle = '#8b5e2a';
+      ctx.fillRect(x+TILE/2-1, y+4, 2, 5);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(x+TILE/2-2, y+3, 4, 2);
       return;
     }
 
@@ -9675,7 +9974,8 @@ function drawEvent() {
         if (rules) {
           const roll = Math.random();
           const permit = !!player.permits[nowId];
-          const inspChance = permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance;
+          const _guardDisc = cityBonus[nowId]?.guardDiscount || 0;
+              const inspChance = (permit ? Math.max(0.05, rules.inspectionChance * 0.45) : rules.inspectionChance) * (1 - _guardDisc);
           if (roll < inspChance) {
             const contraN = contrabandCountForCity(nowId);
             if (contraN > 0) {
