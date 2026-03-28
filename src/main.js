@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.5'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.6'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5336,7 +5336,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.5',
+    version: 'v0.4.6',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6821,6 +6821,48 @@ function drawNpcBubble() {
     // Re-center camera on player
     camera.x = player.x - VIEW_W/2;
     camera.y = player.y - VIEW_H/2;
+
+    // ── Solid-tile escape: city layout can change between versions, which may
+    // leave a saved player position inside a wall. Nudge to a safe tile.
+    _escapeIfStuck();
+  }
+
+  function _escapeIfStuck() {
+    // Check if player is inside a solid tile; if so, snap to city center or nearest open tile.
+    const pr = player.r || 8;
+    function blocked() {
+      return isSolidAt(player.x - pr, player.y - pr) ||
+             isSolidAt(player.x + pr, player.y - pr) ||
+             isSolidAt(player.x - pr, player.y + pr) ||
+             isSolidAt(player.x + pr, player.y + pr);
+    }
+    if (!blocked()) return; // already fine
+
+    // Try nudging in expanding squares first
+    for (let d = 1; d <= 8; d++) {
+      for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+        player.x += dx * TILE * d * 0.5;
+        player.y += dy * TILE * d * 0.5;
+        if (!blocked()) {
+          camera.x = player.x - VIEW_W/2;
+          camera.y = player.y - VIEW_H/2;
+          console.warn('[LOAD] Player was in solid tile — nudged to safety');
+          return;
+        }
+        player.x -= dx * TILE * d * 0.5;
+        player.y -= dy * TILE * d * 0.5;
+      }
+    }
+
+    // Last resort: snap to last known city center
+    const city = getCityById(player.lastCityId) || world.cities[0];
+    if (city) {
+      player.x = (city.x + Math.floor(city.w / 2)) * TILE;
+      player.y = (city.y + Math.floor(city.h / 2)) * TILE;
+      camera.x = player.x - VIEW_W/2;
+      camera.y = player.y - VIEW_H/2;
+      console.warn('[LOAD] Player stuck in solid tile — snapped to city center:', city.id);
+    }
   }
 
   function _parseAndApply(raw, source) {
