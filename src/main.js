@@ -1,4 +1,4 @@
-/* The Amber Road — web prototype (tiles + free roam)
+/* The Amber Road - web prototype (tiles + free roam)
    Step goal: tile engine + collision + 2 city zones with different rules.
 */
 
@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.0'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.1'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -507,7 +507,7 @@ ${line4}`;
       },
 
       // ── City walking helpers ──────────────────────────────────────────
-      /** Start a click-move to world pixel (wx, wy) — uses A* pathfinding */
+      /** Start a click-move to world pixel (wx, wy) - uses A* pathfinding */
       setClickMove: (wx, wy, tapAction = null) => {
         planClickPath(wx, wy, tapAction);
       },
@@ -621,7 +621,7 @@ ${line4}`;
   function ellipsizeText(str, maxW) {
     if (!str) return '';
     if (ctx.measureText(str).width <= maxW) return str;
-    const ell = '…';
+    const ell = '...';
     let lo = 0;
     let hi = str.length;
     while (lo < hi) {
@@ -832,7 +832,7 @@ ${line4}`;
     }
 
     const tilePath = astar(startTileX, startTileY, gx, gy, 3000);
-    // Skip smoothing — A* already gives a valid tile path; smoothing creates
+    // Skip smoothing - A* already gives a valid tile path; smoothing creates
     // straight-line shortcuts that cut through walls the player can't fit through.
     const smoothed = tilePath;
 
@@ -886,8 +886,8 @@ ${line4}`;
         const _tre     = cityTreasury[c2.id];
         const popVal   = _cpop
           ? (_cpop.pop >= 1000 ? (_cpop.pop / 1000).toFixed(1) + 'k' : Math.round(_cpop.pop).toString())
-          : '–';
-        const treVal   = (_tre && _tre.gold > 0) ? `${_tre.gold}g` : '–';
+          : '-';
+        const treVal   = (_tre && _tre.gold > 0) ? `${_tre.gold}g` : '-';
         const hungerPct= _cpop ? Math.round(_cpop.hunger * 100) : 0;
         const hungerCol= hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
         return `
@@ -951,7 +951,7 @@ ${line4}`;
 
     // If player is inside the origin city, snap them to the gate exit tile.
     // Cities have internal obstacles that block straight-south navigation.
-    // The gate exit (path[0]) is just outside the south wall — safe to warp to.
+    // The gate exit (path[0]) is just outside the south wall - safe to warp to.
     if (fromCity) {
       const gateExit = path[0];
       if (gateExit) {
@@ -973,7 +973,7 @@ ${line4}`;
     autoNav._minTravelPx = 40; // reduced: 40px is enough to confirm we left the origin gate
     clickMove.active = false; // cancel any manual click-move
     const dest = getCityById(cityId);
-    toast(`Navigating to ${dest?.name || cityId}…`, 2);
+    toast(`Navigating to ${dest?.name || cityId}...`, 2);
   }
 
   function _nearestCityId() {
@@ -1003,7 +1003,7 @@ ${line4}`;
     const traveledPx = Math.hypot(player.x - autoNav._startX, player.y - autoNav._startY);
     const minTravelMet = traveledPx >= (autoNav._minTravelPx || 80);
 
-    // Check if already inside the destination city — done!
+    // Check if already inside the destination city - done!
     const destC = getCityById(autoNav.destCityId);
     if (destC && minTravelMet) {
       const px = player.x / TILE, py = player.y / TILE;
@@ -1024,7 +1024,7 @@ ${line4}`;
     }
 
     if (autoNav.pathIdx >= autoNav.path.length) {
-      // Path exhausted — snap player into destination city
+      // Path exhausted - snap player into destination city
       if (destC) {
         player.x = (destC.x + destC.w / 2) * TILE;
         player.y = (destC.y + destC.h / 2) * TILE;
@@ -1039,7 +1039,7 @@ ${line4}`;
     const dy = wp.y - player.y;
     const dist = Math.hypot(dx, dy);
 
-    // Arrival threshold — generous so player flows smoothly between waypoints
+    // Arrival threshold - generous so player flows smoothly between waypoints
     if (dist < TILE * 2) {
       autoNav.pathIdx++;
       return;
@@ -1146,7 +1146,7 @@ ${line4}`;
     return true;
   };
 
-  
+
 
   function handleMarketTap(sx, sy) {
     if (!ui.marketOpen) return false;
@@ -1254,7 +1254,7 @@ if (IS_MOBILE && !window.__npcGlobalTapListener) {
 
 
 
-  
+
 
   function dragScrollMove(dy) {
     if (!ui._drag) return;
@@ -1439,7 +1439,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       const distTiles = Math.max(Math.abs(resolvedTileX - playerTX), Math.abs(resolvedTileY - playerTY));
       const c = currentOrNearestCity(8);
       if (c && distTiles <= 6) {
-        // Close enough — open immediately
+        // Close enough - open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
         else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
         else if (action === 'bank') { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
@@ -1552,7 +1552,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
   // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable)
   const SOLID = new Set([2, 3]);
 
-  // Live reference to the map array — set by makeMap(), used by buildSlotOnMap()
+  // Live reference to the map array - set by makeMap(), used by buildSlotOnMap()
   let mapData = null;
 
   function makeMap() {
@@ -1587,13 +1587,13 @@ function handleGlobalHudTap(clientX, clientY, e) {
       // Carve 3-wide road so player (r=8px, TILE=16px) can navigate cleanly.
       // Horizontal leg: widen north+south. Vertical leg: widen east+west.
       // Paint a 3×3 patch at corners to avoid gaps at L-turns.
-      const paint3h = (tx, ty) => { // horizontal — widen N/S
+      const paint3h = (tx, ty) => { // horizontal - widen N/S
         for (let dy = -1; dy <= 1; dy++) {
           const ny = ty + dy;
           if (ny >= 0 && ny < MAP_H) m[ny*MAP_W + tx] = 1;
         }
       };
-      const paint3v = (tx, ty) => { // vertical — widen E/W
+      const paint3v = (tx, ty) => { // vertical - widen E/W
         for (let dx = -1; dx <= 1; dx++) {
           const nx = tx + dx;
           if (nx >= 0 && nx < MAP_W) m[ty*MAP_W + nx] = 1;
@@ -1608,7 +1608,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       let x=x0, y=y0;
       while (x !== x1) { paint3h(x, y); x += x < x1 ? 1 : -1; }
       while (y !== y1) { paint3v(x, y); y += y < y1 ? 1 : -1; }
-      paint3x3(x, y); // endpoint / corner — fill 3×3 to close gap
+      paint3x3(x, y); // endpoint / corner - fill 3×3 to close gap
     };
 
     // ── CITIES ──────────────────────────────────────────────────────────────
@@ -1621,7 +1621,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Ironholt: medium mining town (NE)
     const cityD = { id:'ironholt',   name:'Ironholt',   x: 105, y: 14, w: 20, h: 14 };
 
-    // Helper: place a building block — outer wall ring (tile 3) with interior tile
+    // Helper: place a building block - outer wall ring (tile 3) with interior tile
     // bx,by = top-left tile of block, bw,bh = size including walls
     // interiorTile = tile to fill inside (4=floor, 6=market, 7=inn, 8=warehouse, 12=contracts)
     const placeBuilding = (bx, by, bw, bh, interiorTile = 4, doorSide = 'south') => {
@@ -1641,7 +1641,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // Helper: carve a horizontal or vertical road stripe inside city
     const carveStreet = (x0, y0, x1, y1) => {
-      // Only overwrite city floor (4) — don't carve through walls
+      // Only overwrite city floor (4) - don't carve through walls
       let x=x0, y=y0;
       while (x !== x1 || y !== y1) {
         if (m[y*MAP_W+x] === 4 || m[y*MAP_W+x] === 9) m[y*MAP_W+x] = 1;
@@ -1676,7 +1676,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[yy*MAP_W+(x0+W)] = 3;
       }
 
-      // 3. Gate (south center, wide) — 7 tiles wide to match 3-wide road + margin
+      // 3. Gate (south center, wide) - 7 tiles wide to match 3-wide road + margin
       const gx = x0 + Math.floor(W/2);
       const gy = y0 + H;
       for (let ox=-3; ox<=3; ox++) {
@@ -1703,7 +1703,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[(csY-4)*MAP_W + msX] = 6;       // market stall north
         m[(csY-2)*MAP_W + msX] = 12;      // contracts board in square
 
-        // ── Guildhall (faces south side of square — NE of crossing) ──
+        // ── Guildhall (faces south side of square - NE of crossing) ──
         placeBuilding(msX+2, csY-5, 5, 3, 15, 'south');
 
         // ── Bank (NW of square, easy access from main road) ──
@@ -1763,7 +1763,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[mktY*MAP_W+(gx-2)] = 6;
         m[mktY*MAP_W+gx] = 12;
 
-        // ── Inn/Tavern (west side, near top — first building travelers see) ──
+        // ── Inn/Tavern (west side, near top - first building travelers see) ──
         placeBuilding(x0+1, y0+2, 4, 3, 7, 'east');
 
         // ── Warehouse (east side, small) ──
@@ -1775,7 +1775,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // ── Inn building (west side, south section) ──
         placeBuilding(x0+1, mktY+2, 3, 3, 14, 'east');
 
-        // No guild — village too small
+        // No guild - village too small
 
       } else if (c.id === 'ironholt') {
         // Mining town: industrial feel
@@ -1837,7 +1837,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Same junction(30,30) → south(30,55) → east to Crosshaven gate
     carveRoad(30, 30, 30, 55);                    // 25 tiles S
     carveRoad(30, 55, gateC.gx, gateC.gy+1);     // 32+10 = ~42 tiles → segment = 67 tiles
-    // Total from Valdenmere: 10+67 = 77 tiles = 1.03 days — add extra loop for realism
+    // Total from Valdenmere: 10+67 = 77 tiles = 1.03 days - add extra loop for realism
     // Extra: road winds through valley before Crosshaven
     carveRoad(30, 55, 48, 55);                    // extra east segment (18 tiles)
     carveRoad(48, 55, 48, 70);                    // south (15 tiles)
@@ -1852,7 +1852,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     carveRoad(80, 72, gateB.gx, gateB.gy+1);          // 28+7 tiles = 35 tiles → total CH→A: 70 tiles = 0.93 days
 
     // ── Ironholt → Ashport (long loop east+south, NO shortcut) ─────────
-    // Forces traders to travel far — long haul route for big margins
+    // Forces traders to travel far - long haul route for big margins
     // Gate(115,28) → SE(130,28) → south(130,55) → west(108,55) → south to Ashport
     carveRoad(gateD.gx, gateD.gy+1, 130, gateD.gy+1);  // E 15 tiles
     carveRoad(130, gateD.gy+1, 130, 55);                 // S ~27 tiles
@@ -1879,7 +1879,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       }
     };
 
-    // Forests and swamp — spread across the new larger map
+    // Forests and swamp - spread across the new larger map
     paintPatch(46, 38, 14, 10, 0.85);  // central forest
     paintPatch(82, 72, 14, 10, 0.80);  // SE forest
     paintPatch(18, 50, 10, 10, 0.78);  // W forest
@@ -2010,7 +2010,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
   // ── GEAR SYSTEM ─────────────────────────────────────────────────────────────
   // Three upgrade slots: pack (capacity), boots (speed), tool (trade bonus)
   const GEAR = {
-    // Pack — cargo capacity, carriage body grows
+    // Pack - cargo capacity, carriage body grows
     pack: [
       { id: 'satchel',        name: 'Satchel',           icon: '🎒', desc: 'A worn cloth bag. Fits barely anything.',         cost: 0,    capacity: 18 },
       { id: 'traders_pack',   name: "Trader's Pack",     icon: '🗃️', desc: 'Leather-bound. Room to breathe.',                 cost: 120,  capacity: 28 },
@@ -2018,7 +2018,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       { id: 'cargo_wagon',    name: 'Cargo Wagon',       icon: '🪵', desc: 'Reinforced wagon bed. Double the goods.',         cost: 800,  capacity: 60 },
       { id: 'royal_carriage', name: 'Royal Carriage',    icon: '👑', desc: 'Gold-trimmed. Built for a merchant lord.',        cost: 2000, capacity: 85 },
     ],
-    // Boots — travel speed, horse quality
+    // Boots - travel speed, horse quality
     boots: [
       { id: 'worn_boots',   name: 'Worn Boots',       icon: '👞', desc: 'Blistered feet. Gets the job done.',              cost: 0,    speed: 90  },
       { id: 'road_boots',   name: 'Road Boots',       icon: '👟', desc: 'Sturdy leather. Long-route ready.',              cost: 150,  speed: 115 },
@@ -2026,7 +2026,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       { id: 'war_horse',    name: 'War Horse',        icon: '🏇', desc: 'Trained charger. Blazes any road.',              cost: 1200, speed: 185 },
       { id: 'phantom_mare', name: 'Phantom Mare',     icon: '⚡', desc: 'A legend on four hooves. Pure speed.',           cost: 3000, speed: 240 },
     ],
-    // Tool — sell price bonus
+    // Tool - sell price bonus
     tool: [
       { id: 'bare_hands',       name: 'Bare Hands',       icon: '✋', desc: 'You bargain with a shrug.',                     cost: 0,    sellBonus: 0    },
       { id: 'merchant_ledger',  name: 'Merchant Ledger',  icon: '📒', desc: 'Track prices. Sell for more. +8%',             cost: 200,  sellBonus: 0.08 },
@@ -2052,8 +2052,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   const CITY_RULES = {
     valdenmere: {
-      taxRate: 0.12,          // was 0.18 — reduced so big-city trading is rewarding, not punishing
-      inspectionChance: 0.65,
+      taxRate: 0.08,          // reduced 12%→8% — 12% made too many Valdenmere routes net-negative
+      inspectionChance: 0.55,
       contraband: ['Demon Ink'],
       fineBase: 18,
       finePerItem: 6,
@@ -2063,7 +2063,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     },
     ashport: {
       taxRate: 0.05,
-      inspectionChance: 0.15,
+      inspectionChance: 0.25, // raised 15%→25% — Ashport was too easy for ink contraband runs
       contraband: ['Blessed Water'],
       fineBase: 8,
       finePerItem: 3,
@@ -2400,22 +2400,22 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const ITEMS = [
-    { id: 'grain',  name: 'Grain',         base: 10, weight: 2 },  // bulk staple — needs variance to carry weight cost
+    { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },  // bulk staple - weight 1 so it's a real starter option (was weight 2: too punishing)
     { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },  // light, early-game earner
-    { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },  // heavy — only good on specific routes
+    { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },  // heavy - only good on specific routes
     { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },  // mid-tier, good margins when specced
     { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },  // mid-game tier
-    { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy — late-game route
-    { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink' },  // contraband — slightly reduced dominance
+    { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy - late-game route
+    { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink' },  // contraband
   ];
 
   // --- Market model (minimal, deterministic)
   // Goals:
   // - Per-town price differences that persist for a run (seeded by city+item).
   // - Avoid degenerate buy->sell loops in the same town (spread).
-  // - Provide profit clarity via “reference/base” and “last seen” prices.
+  // - Provide profit clarity via "reference/base" and "last seen" prices.
   const MARKET = {
-    spread: 0.06,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2) — reduced from 0.10 so margins survive
+    spread: 0.06,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2) - reduced from 0.10 so margins survive
     lastSeen: {
       // cityId: { itemId: { buy:number, sell:number, t:number } }
     },
@@ -2457,7 +2457,7 @@ const NPC_INTERACT_RADIUS = 18;
         ECONOMY.pressure[row.city_id][row.item_id] = row.pressure || 0;
       }
     } catch (e) {
-      // Network fail — degrade gracefully, local drift still works
+      // Network fail - degrade gracefully, local drift still works
     }
   }
 
@@ -2631,7 +2631,7 @@ const NPC_INTERACT_RADIUS = 18;
       if (wsRows.length > 0) {
         const ws = wsRows[0];
         if (typeof ws.day === 'number' && ws.day > time.day) {
-          // Another player advanced time — silently catch up (cap at 10 days to avoid a runaway)
+          // Another player advanced time - silently catch up (cap at 10 days to avoid a runaway)
           const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 10);
           for (let i = 0; i < daysAhead; i++) {
             time.day++;
@@ -2641,7 +2641,7 @@ const NPC_INTERACT_RADIUS = 18;
           time.frac = ws.frac ?? time.frac;
           if (ws.seed) time.seed = ws.seed;
         } else if (typeof ws.day === 'number' && ws.day < 1) {
-          // DB never seeded — push our local time up
+          // DB never seeded - push our local time up
           pushWorldTimeToDb();
         }
       }
@@ -2683,10 +2683,10 @@ const NPC_INTERACT_RADIUS = 18;
           }
         }
       }
-    } catch (_) { /* non-fatal — runs on degraded local state */ }
+    } catch (_) { /* non-fatal - runs on degraded local state */ }
   }
 
-  // Initial sync on load (syncWorldState deferred — needs buildSlotOnMap defined first)
+  // Initial sync on load (syncWorldState deferred - needs buildSlotOnMap defined first)
   economySync();
   setInterval(syncWorldState, 10_000); // every 10s for tighter multiplayer sync
 
@@ -2706,39 +2706,57 @@ const NPC_INTERACT_RADIUS = 18;
     return ((n ^ (n >> 16)) >>> 0) / 4294967295;
   }
 
+  // ── PRICE SYSTEM: single source of truth ─────────────────────────────────
+  // Previously there were two competing systems: priceFor() (hardcoded mults) and
+  // quoteFor() (seeded RNG via townItemModifier). They disagreed significantly,
+  // causing the market display and actual trade prices to be inconsistent.
+  // Fix: quoteFor now derives its mid from priceFor's hardcoded mults table,
+  // so BUY/SELL quotes, AI trader decisions, and market display all agree.
+  // townItemModifier is kept for legacy compatibility but no longer used in core pricing.
+
   function townItemModifier(cityId, itemId) {
+    // DEPRECATED: previously used by quoteFor; quoteFor now uses priceFor mults directly.
+    // Kept to avoid breaking any external references.
     const cs = citySeed(cityId);
-    // ±35% per-item skew — wide enough that buy-low/sell-high is always viable
     const u = seeded01(cs, itemId.length, itemId.charCodeAt(0) || 0);
     const skew = (u * 2 - 1) * 0.35;
-
-    // City-wide tilt ±10% (makes each city feel distinct in supply/demand character)
     const v = seeded01(cs, 999, 42);
     const cityTilt = (v * 2 - 1) * 0.10;
     return 1 + skew + cityTilt;
   }
 
   function referencePrice(item) {
-    // The “fair” reference the UI can compare against.
     return Math.max(1, Math.round(item.base));
   }
 
   function dayWobble(cityId, item) {
-    // Deterministic wobble that changes once per in-game day, not every frame.
-    // Produces a ±3% variation so prices feel alive without flickering.
+    // ±3% daily wobble - makes prices feel alive without real-time flicker.
     const day = Math.max(1, Math.floor(time?.day || 1));
     const cs = citySeed(cityId);
     const u = seeded01(cs ^ (item.base * 7), day, item.id.charCodeAt(0) || 0);
-    return 0.97 + u * 0.06; // range [0.97, 1.03]
+    return 0.97 + u * 0.06; // [0.97, 1.03]
   }
 
+  // midPriceFor uses the hardcoded mults table (same as priceFor) + daily wobble.
+  // This is now the canonical mid-price for all market purposes.
   function midPriceFor(cityId, item) {
-    const mod = townItemModifier(cityId, item.id);
+    // Get the city multiplier from the hardcoded mults table in priceFor.
+    // We inline the mults here to keep them consistent.
+    const CITY_MULTS = {
+      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
+      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 0.85, potion: 1.00, relic: 1.00, ink: 1.00 },
+      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
+    };
+    const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
+    const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
     const wob = dayWobble(cityId, item);
-    return Math.max(1, Math.round(item.base * mod * wob));
+    const econ = economyModifier(cityId, item.id);
+    return Math.max(1, Math.round(item.base * mult * drift * wob * econ));
   }
 
   function quoteFor(cityId, item) {
+    // Unified buy/sell quotes derived from midPriceFor (same formula as priceFor).
     const mid = midPriceFor(cityId, item);
     const half = MARKET.spread / 2;
     const discount = cityBonus[cityId]?.marketDiscount || 0;
@@ -2768,14 +2786,23 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   function rewardForContract(want, qty) {
+    // Contract reward = cost to buy + 50-80% above best free-trade margin.
+    // Previous formula gave 20× the free-trade margin (too dominant).
+    // Now: item buy cost + delivery bonus (50-70% on top of best margin * qty).
     const it = ITEMS.find(x => x.id === want);
     const base = it ? it.base : 20;
-    // Flat delivery bonus on top of item value — makes contracts clearly better than free trading
-    const deliveryBonus = want === 'relic' ? 28 : (want === 'potion' ? 20 : (want === 'ink' ? 24 : 14));
-    // qty multiplier: each extra item adds ~80% of the marginal value (diminishing but fair)
-    const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.8 : 2.4;
-    const r = Math.round((14 + deliveryBonus + base * 1.1) * qtyMult);
-    return clamp(r, 25, 280);
+    // Best single-route margin per unit for this item (approximate — used as reference)
+    const bestMarginRef = {
+      grain: 3, food: 4, ore: 9, herbs: 4, potion: 8, relic: 14, ink: 13,
+    }[want] || 5;
+    // Contract pays: buy cost (at cheapest city ≈ base * 0.85) + best margin * 1.6 per unit
+    const buyCostRef = Math.round(base * 0.88);
+    const deliveryPremium = Math.round(bestMarginRef * 1.6); // 60% above best free margin
+    const perUnit = buyCostRef + deliveryPremium;
+    // qty multiplier: diminishing — each extra unit adds 75% of per-unit value
+    const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.75 : 2.35;
+    const r = Math.round(perUnit * qtyMult);
+    return clamp(r, 18, 280);
   }
 
   const CONTRACT_TIER_THRESHOLDS = [3, 7]; // Tier0 <3, Tier1 3-6, Tier2 7+
@@ -2870,7 +2897,7 @@ const NPC_INTERACT_RADIUS = 18;
     ironholt:   { pop: 2500, hunger: 0 },
   };
 
-  // City treasury — accumulates from player sell taxes, auto-invests every ~7 days
+  // City treasury - accumulates from player sell taxes, auto-invests every ~7 days
   const cityTreasury = {
     valdenmere: { gold: 60, investLog: [] }, // seed gold so first building can appear early
     ashport:    { gold: 40, investLog: [] },
@@ -2878,13 +2905,13 @@ const NPC_INTERACT_RADIUS = 18;
     ironholt:   { gold: 45, investLog: [] },
   };
 
-  // Bank state — player deposits and loans per city
+  // Bank state - player deposits and loans per city
   const playerBank = {
     deposits: {}, // cityId -> { amount, depositDay }
     loans: {},    // cityId -> { amount, dueDay, interest }
   };
 
-  // Bank vault — each city bank holds its own reserve
+  // Bank vault - each city bank holds its own reserve
   // Fed by: player deposits + periodic city treasury contribution
   // Goes bankrupt when vault < total owed to depositors
   const bankVault = {
@@ -2942,7 +2969,7 @@ const NPC_INTERACT_RADIUS = 18;
         const haircut = owed - payout;
         const msg = haircut > 0
           ? `🏦 Bank of ${cityObj?.name || cid} BANKRUPT! Recovered ${payout}g of ${owed}g owed. Lost ${haircut}g.`
-          : `🏦 Bank of ${cityObj?.name || cid} bankrupt — deposit fully recovered (${payout}g).`;
+          : `🏦 Bank of ${cityObj?.name || cid} bankrupt - deposit fully recovered (${payout}g).`;
         toast(msg, 6);
         player.rep[cid] = (player.rep[cid] || 0) - 1; // slight rep hit from the chaos
       } else {
@@ -2956,10 +2983,10 @@ const NPC_INTERACT_RADIUS = 18;
   // Guild membership state
   const playerGuild = { joined: false, tier: 0 }; // tier 0=none,1=apprentice,2=journeyman,3=master
 
-  // Warehouse stash — items stored per city
+  // Warehouse stash - items stored per city
   const warehouseStash = {}; // cityId -> { itemId: qty, ... }
 
-  // City upgrades — multiplicative bonuses unlocked by investment
+  // City upgrades - multiplicative bonuses unlocked by investment
   const cityBonus = {
     valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
     ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
@@ -3262,7 +3289,7 @@ function buildTraderPath(fromId, toId) {
 
   let result;
   if (!tilePath || tilePath.length === 0) {
-    // No path found — fallback straight line
+    // No path found - fallback straight line
     result = [
       { x: fromExit.tx * T + T/2, y: fromExit.ty * T + T/2 },
       { x: toExit.tx * T + T/2,   y: toExit.ty * T + T/2 },
@@ -3296,7 +3323,7 @@ function buildTraderPath(fromId, toId) {
 
 /**
  * Decide the best route for a trader based on personality + current prices.
- * Returns { fromId, toId, itemId } — the trip they'll do.
+ * Returns { fromId, toId, itemId } - the trip they'll do.
  */
 function traderDecideRoute(trader) {
   const fromId = trader.toId || trader.fromId || 'valdenmere';
@@ -3314,7 +3341,7 @@ function traderDecideRoute(trader) {
   }
 
   if (!candidates.length) {
-    // No profitable route — pick any other city
+    // No profitable route - pick any other city
     const others = world.cities.filter(c => c.id !== fromId);
     const fallbackTo = others[Math.floor(Math.random() * others.length)]?.id || 'ashport';
     return { fromId, toId: fallbackTo, itemId: 'ore' };
@@ -3420,12 +3447,12 @@ async function syncTradersFromServer() {
     }
     console.log(`[SYNC] Synced ${rows.length} traders from server`);
   } catch (e) {
-    // Non-fatal — game runs with local state
+    // Non-fatal - game runs with local state
     console.warn('[SYNC] Trader sync failed (non-fatal):', e.message);
   }
 }
 
-// Call after world is ready — deferred slightly so world init completes first
+// Call after world is ready - deferred slightly so world init completes first
 setTimeout(syncTradersFromServer, 1500);
 setInterval(syncTradersFromServer, 30_000); // refresh traders every 30s for multiplayer
 
@@ -3512,7 +3539,7 @@ function updateAiTraders(dt) {
     const dist = Math.hypot(dx, dy);
 
     if (dist < 12) {
-      // Reached waypoint — advance
+      // Reached waypoint - advance
       t.pathIdx++;
       if (t.pathIdx >= t.path.length) { traderArrive(t); }
       continue; // re-evaluate next frame
@@ -3522,7 +3549,7 @@ function updateAiTraders(dt) {
     t.x += (dx / dist) * t.speed * dt;
     t.y += (dy / dist) * t.speed * dt;
 
-    // Stuck detection — skip waypoint if blocked for 3s
+    // Stuck detection - skip waypoint if blocked for 3s
     if (stateTime - (t._stuckT || 0) > 3000) {
       const moved = Math.hypot(t.x - (t._lastX || t.x), t.y - (t._lastY || t.y));
       if (moved < 8) {
@@ -3541,7 +3568,7 @@ function updateAiTraders(dt) {
   }
 }
 
-const TRADER_INTERACT_RADIUS = 40; // pixels — close enough to trade
+const TRADER_INTERACT_RADIUS = 40; // pixels - close enough to trade
 
 function findNearestTrader(px, py) {
   let best = null, bestD = TRADER_INTERACT_RADIUS;
@@ -3553,7 +3580,7 @@ function findNearestTrader(px, py) {
 }
 
 function openTraderUI(trader) {
-  // Show a quick trade modal — buy what they're carrying at a slight discount
+  // Show a quick trade modal - buy what they're carrying at a slight discount
   const cargoEntries = Object.entries(trader.inv).filter(([,q]) => q > 0);
   let content = '';
   if (cargoEntries.length === 0) {
@@ -3641,7 +3668,7 @@ const TRADER_STATIC = {
   aggressive: [
     'Out of my way!',
     'Time is gold.',
-    'I\'ll cut you a deal — once.',
+    'I\'ll cut you a deal - once.',
     'Move it or lose it.',
     'Profits don\'t wait.',
     'Faster than the tax man!',
@@ -3649,14 +3676,14 @@ const TRADER_STATIC = {
   cautious: [
     'Steady trade, steady coin.',
     'Always check the road ahead.',
-    'No rush — no losses.',
+    'No rush - no losses.',
     'Is that bandit country?',
     'A safe route beats a fast one.',
     'Better safe than sorry.',
   ],
   opportunist: [
     'Where there\'s chaos, there\'s coin.',
-    'I smell a bargain…',
+    'I smell a bargain...',
     'The market never sleeps.',
     'Luck favours the prepared.',
     'Every trip\'s a gamble.',
@@ -3674,7 +3701,7 @@ function getTraderContextLine(t) {
 
   if (t.state === 'in_city') {
     const lines = [
-      `Restocking in ${fromName}…`,
+      `Restocking in ${fromName}...`,
       `${fromName} market is lively today.`,
       'Just arrived. Give me a moment.',
       `Looking for ${itemName} at a good price.`,
@@ -3682,11 +3709,11 @@ function getTraderContextLine(t) {
     return lines[Math.floor(Math.random() * lines.length)];
   }
   // Traveling
-  if (cargoCount === 0) return `Heading to ${destName} empty — not ideal.`;
+  if (cargoCount === 0) return `Heading to ${destName} empty - not ideal.`;
   const lines = [
     `Hauling ${cargoCount}× ${itemName} to ${destName}.`,
     `${destName} pays well for ${itemName}.`,
-    `${Math.round(Math.hypot(t.x - (getCityById(t.toId)?.x||0)*TILE, t.y - (getCityById(t.toId)?.y||0)*TILE))}px to go…`,
+    `${Math.round(Math.hypot(t.x - (getCityById(t.toId)?.x||0)*TILE, t.y - (getCityById(t.toId)?.y||0)*TILE))}px to go...`,
     `${itemName} → ${destName}. Let's go.`,
   ];
   return lines[Math.floor(Math.random() * lines.length)];
@@ -3718,7 +3745,7 @@ function maybeFireTraderBubble(t, dt) {
   const text = pickTraderLine(t);
   _traderBubbles.set(t.id, { text, untilMs: stateTime + 2800 });
 
-  // Next quip in 10–20s
+  // Next quip in 10-20s
   t._bubbleTimer = 10 + Math.random() * 10;
 }
 
@@ -3756,7 +3783,7 @@ function drawTraderBubbles() {
     const alpha = remaining < 400 ? remaining / 400 : 1;
     ctx.globalAlpha = alpha;
 
-    // Bubble background — tinted by trader color
+    // Bubble background - tinted by trader color
     ctx.fillStyle = 'rgba(12,10,6,0.88)';
     ctx.strokeStyle = t.color || 'rgba(200,160,60,0.6)';
     ctx.lineWidth = 1.2;
@@ -3947,7 +3974,7 @@ function npcSeed(id, salt = 0, salt2 = 0) {
 /**
  * Build purposeful waypoints for an NPC based on role + city layout.
  * Waypoints are in world pixels.
- * Each waypoint: { x, y, pauseMs }  — pauseMs: how long to idle at this point.
+ * Each waypoint: { x, y, pauseMs }  - pauseMs: how long to idle at this point.
  */
 function buildNpcWaypoints(role, city) {
   const T = TILE;
@@ -3976,7 +4003,7 @@ function buildNpcWaypoints(role, city) {
 
   switch (role) {
     case 'guard_post':
-      // Stand at gate — one waypoint with very long pause. Slight jitter from NPC id separates them.
+      // Stand at gate - one waypoint with very long pause. Slight jitter from NPC id separates them.
       return [ wp(gate, 30000) ];
 
     case 'guard':
@@ -4124,7 +4151,7 @@ function npcFindWalkable(tx, ty, radius, maxDist = TILE * 3) {
       if (!npcBlockedAt(tx + ox, ty + oy, radius)) return { x: tx + ox, y: ty + oy };
     }
   }
-  return null; // totally blocked — caller will skip
+  return null; // totally blocked - caller will skip
 }
 
 function npcPickTarget(e) {
@@ -4148,7 +4175,7 @@ function npcPickTarget(e) {
       e.target = walkable;
       e.pendingPauseMs = wp.pauseMs || 800;
     } else {
-      // Can't reach this waypoint — skip to next one next frame
+      // Can't reach this waypoint - skip to next one next frame
       e.target = { x: e.x, y: e.y };
       e.pendingPauseMs = 200;
     }
@@ -4199,7 +4226,7 @@ function spawnCityNPCs(cityId) {
   for (const tpl of templates) {
     let x, y;
     if (tpl.role === 'guard_post') {
-      // Place guards flanking the gate — left/right of center, 3 tiles apart, inside city
+      // Place guards flanking the gate - left/right of center, 3 tiles apart, inside city
       const side = guardPostCount === 0 ? -1 : 1;
       guardPostCount++;
       x = gateWorldX + side * TILE * 2.5;  // far enough left/right to not block the lane
@@ -4253,8 +4280,8 @@ function spawnCityNPCs(cityId) {
   }
 }
 
-const NPC_ARRIVAL_THRESHOLD = 10; // pixels — within this, NPC has "arrived" at waypoint
-const NPC_STUCK_THRESHOLD = 12;   // pixels — if NPC barely moved in 1.5s, it's stuck
+const NPC_ARRIVAL_THRESHOLD = 10; // pixels - within this, NPC has "arrived" at waypoint
+const NPC_STUCK_THRESHOLD = 12;   // pixels - if NPC barely moved in 1.5s, it's stuck
 
 function updateEntities(dt) {
   if (!entities.length) return;
@@ -4288,14 +4315,14 @@ function updateEntities(dt) {
     const dy = e.target.y - e.y;
     const dist = Math.hypot(dx, dy);
 
-    // Arrived at waypoint — start pause
+    // Arrived at waypoint - start pause
     if (dist < NPC_ARRIVAL_THRESHOLD) {
       if (e.pendingPauseMs > 0) {
         e.pauseUntil = stateTime + e.pendingPauseMs;
         e.pendingPauseMs = 0;
         e.nextWanderAt = e.pauseUntil;
       } else {
-        // No pause defined — go straight to next waypoint
+        // No pause defined - go straight to next waypoint
         npcPickTarget(e);
       }
       continue;
@@ -4306,7 +4333,7 @@ function updateEntities(dt) {
     if (stateTime - e._stuckCheckT > 1500) {
       const moved = Math.hypot(e.x - e._stuckCheckX, e.y - e._stuckCheckY);
       if (moved < NPC_STUCK_THRESHOLD) {
-        // Stuck — skip to next waypoint
+        // Stuck - skip to next waypoint
         npcPickTarget(e);
         e._stuckCheckT = stateTime;
         e._stuckCheckX = e.x;
@@ -4359,7 +4386,7 @@ function updateEntities(dt) {
     if (canX && canY) { e.x += stepX; e.y += stepY; }
     else if (canX)    { e.x += stepX; }           // slide along X
     else if (canY)    { e.y += stepY; }           // slide along Y
-    // else fully blocked this frame — stuck detection will handle it
+    // else fully blocked this frame - stuck detection will handle it
 
     e.x = clamp(e.x, e.bounds.x1, e.bounds.x2);
     e.y = clamp(e.y, e.bounds.y1, e.bounds.y2);
@@ -4597,7 +4624,7 @@ function buyIntel(npc, cityId) {
   const card = generateIntel(npc, cityId);
   player.intelLedger.push(card);
   saveGame();
-  toast(`Intel bought: "${card.itemName}" in ${card.cityName} — ${INTEL_BUY_COST}g paid.`, 3);
+  toast(`Intel bought: "${card.itemName}" in ${card.cityName} - ${INTEL_BUY_COST}g paid.`, 3);
   return card;
 }
 
@@ -4616,7 +4643,7 @@ function sellIntel(cardId, buyerCityId) {
   return true;
 }
 
-/** Check intel on day advance — reward bonus if correct */
+/** Check intel on day advance - reward bonus if correct */
 function verifyExpiredIntel() {
   const today = Math.floor(time.day);
   for (const card of player.intelLedger) {
@@ -4625,7 +4652,7 @@ function verifyExpiredIntel() {
       const actualPrice = priceFor(card.cityId, ITEMS.find(it => it.id === card.item) || ITEMS[0]);
       const diff = Math.abs(actualPrice - card.predictedPrice);
       const pct = diff / Math.max(1, card.truePrice);
-      if (pct < 0.12) { // within 12% — intel was good
+      if (pct < 0.12) { // within 12% - intel was good
         card.verified = true;
         player.gold += 4;
         toast(`Intel verified: ${card.itemName} was ~correct! +4g bonus.`, 3);
@@ -4694,7 +4721,7 @@ function renderIntelModal() {
           <div style="color:#b0a080;font-size:12px;margin-top:3px">
             In <b>${c.cityName}</b>: ~${c.predictedPrice}g (${dirLabel(c.direction)})
           </div>
-          ${canSell ? `<button data-sell="${c.id}" style="margin-top:5px;background:#2a3a1a;border:1px solid #4a6a2a;color:#a0d060;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">Sell for ${INTEL_SELL_PRICE}g</button>` : `<span style="font-size:10px;color:#555">Same city — can't sell here</span>`}
+          ${canSell ? `<button data-sell="${c.id}" style="margin-top:5px;background:#2a3a1a;border:1px solid #4a6a2a;color:#a0d060;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">Sell for ${INTEL_SELL_PRICE}g</button>` : `<span style="font-size:10px;color:#555">Same city - can't sell here</span>`}
         </div>
       `;
     }).join('');
@@ -4831,7 +4858,7 @@ function isNpcBlocking(px, py) {
   for (const e of entities) {
     if (e.kind !== 'npc') continue;
     if (ignore.has(e.id)) continue;
-    if (e.role === 'guard_post') continue; // guards are decorative — player passes through
+    if (e.role === 'guard_post') continue; // guards are decorative - player passes through
     const dx = px - e.x;
     const dy = py - e.y;
     const r = player.r + e.radius;
@@ -5008,7 +5035,7 @@ function drawNpcBubble() {
     }
 
     // ── 2. Migration: people flee hungry/taxed cities to comfortable ones ─
-    // Attractiveness = (1 - hunger) * (1 - taxRate) — higher = more attractive
+    // Attractiveness = (1 - hunger) * (1 - taxRate) - higher = more attractive
     const attract = {};
     for (const cid of cityIds) {
       const rule = CITY_RULES[cid];
@@ -5135,7 +5162,7 @@ function drawNpcBubble() {
         if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
       }
     }
-    // Write buildings + city_bonus to DB (multiplayer — other players see donation/build)
+    // Write buildings + city_bonus to DB (multiplayer - other players see donation/build)
     if (!__QA.enabled) {
       const buildingsPayload = {};
       for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
@@ -5153,11 +5180,11 @@ function drawNpcBubble() {
       }).catch((e) => {
         console.warn('[donateToSlot] DB write failed:', e);
         // Refund if donation was recorded locally but DB failed (conservative)
-        // Note: only refund playerFunded — don't reverse a build that already happened
+        // Note: only refund playerFunded - don't reverse a build that already happened
         if (slot.playerFunded > 0 && !slot.built) {
           player.gold += amount;
           slot.playerFunded = Math.max(0, slot.playerFunded - amount);
-          toast('Network error — donation refunded.', 3);
+          toast('Network error - donation refunded.', 3);
         }
       });
     }
@@ -5188,7 +5215,7 @@ function drawNpcBubble() {
     if (typeof drawMinimap === 'function') try { drawMinimap(); } catch(_) {}
   }
 
-  // Initial world sync — safe to call now that buildSlotOnMap is defined
+  // Initial world sync - safe to call now that buildSlotOnMap is defined
   syncWorldState();
 
   function cityInvestTick() {
@@ -5298,11 +5325,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.0',
+    version: 'v0.4.1',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
-      'World time syncs across clients — advancing days pushes to DB, others catch up silently.',
+      'World time syncs across clients - advancing days pushes to DB, others catch up silently.',
       'City population, hunger, treasury, buildings pushed to DB after each simulation tick.',
       'AI traders push state to DB on arrive/depart so all clients see the same trader world.',
       'Player saves no longer contain world-shared state (cityPop, cityBuildings, bankVault etc.).',
@@ -5366,7 +5393,7 @@ function drawNpcBubble() {
   if (devlogBody) {
     const v = ITERATION.version ? ` ${ITERATION.version}` : '';
     devlogBody.textContent =
-      `Version:${v}\n\nWhat’s new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat’s coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
+      `Version:${v}\n\nWhat's new:\n- ${ITERATION.whatsNew.join('\n- ')}\n\nWhat's coming:\n- ${ITERATION.whatsNext.join('\n- ')}`;
   }
 
   // --- HTML UI overlay (Market / Contracts / Event)
@@ -5427,7 +5454,9 @@ function drawNpcBubble() {
 
     const it = ITEMS[index];
     if (!it) return;
-    const p = priceFor(c.id, it);
+    // Use quoteFor for buy/sell prices so spread is correctly applied both directions.
+    const _q = quoteFor(c.id, it);
+    const p = ui.mode === 'buy' ? _q.buy : _q.sell; // buy at ask, sell at bid
 
     if (ui.mode === 'buy') {
       const w = invWeight();
@@ -5463,7 +5492,10 @@ function drawNpcBubble() {
     const toolBonus = currentGear('tool').sellBonus || 0;
     const guildBonusMap = [0, 0.05, 0.10, 0.18];
     const guildBonus = playerGuild.joined ? (guildBonusMap[playerGuild.tier] || 0) : 0;
-    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + toolBonus + guildBonus)));
+    // Cap combined tool+guild bonus at 40% to prevent exponential late-game income
+    const combinedBonus = Math.min(toolBonus + guildBonus, 0.40);
+    // p is already the spread-adjusted sell price from quoteFor; apply tax and bonus on top
+    const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + combinedBonus)));
     const gain = sellN * netEach;
 
     player.inv[it.id] = have - sellN;
@@ -5518,7 +5550,7 @@ function drawNpcBubble() {
     // QA hook: accepting a contract must not crash and should activate a job.
     if (__QA.enabled && !contracts.active) qaFail('accept: contracts.active not set');
 
-    // Close both UI systems (DOM overlay + canvas fallback) to avoid “stuck modal” / null-city crashes.
+    // Close both UI systems (DOM overlay + canvas fallback) to avoid "stuck modal" / null-city crashes.
     ui.contractsOpen = false;
     domCloseAll();
   }
@@ -5579,7 +5611,7 @@ function drawNpcBubble() {
         if (buyHasItems && !sellHasItems) ui.mode = 'buy';
         if (sellHasItems && !buyHasItems) ui.mode = 'sell';
       }
-      const showTabs = true; // always show — gear tab always visible
+      const showTabs = true; // always show - gear tab always visible
       const hasPermit = !!player.permits[c.id];
 
       const totalN = ITEMS.length + 1;
@@ -5588,7 +5620,9 @@ function drawNpcBubble() {
         const selected = i === ui.selection;
         const isPermitRow = i === ITEMS.length;
         const it = isPermitRow ? null : ITEMS[i];
-        const price = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
+        const _quote = isPermitRow ? null : quoteFor(c.id, it);
+        const price = isPermitRow ? PERMIT_PRICE : _quote.buy;  // display buy price = ask
+        const sellPrice = isPermitRow ? null : _quote.sell;      // display sell price = bid
         const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
 
@@ -5598,8 +5632,7 @@ function drawNpcBubble() {
         const badge = contra ? '<span class="cr-badge">CONTRABAND</span>' : '';
 
         // Enriched price info for regular items
-        const sellPrice = isPermitRow ? null : Math.max(1, Math.round(price * (1 - MARKET.spread)));
-        const deltaPct = isPermitRow ? 0 : Math.round(((price - it.base) / it.base) * 100);
+        const deltaPct = isPermitRow ? 0 : Math.round(((_quote.mid - it.base) / it.base) * 100);
         const deltaClass = deltaPct > 5 ? 'cr-delta-up' : deltaPct < -5 ? 'cr-delta-down' : 'cr-delta-flat';
         const deltaSign = deltaPct >= 0 ? `+${deltaPct}%` : `${deltaPct}%`;
         const deltaLabel = deltaPct > 5 ? `▲ ${deltaSign}` : deltaPct < -5 ? `▼ ${deltaSign}` : `~ ${deltaSign}`;
@@ -5806,7 +5839,7 @@ function drawNpcBubble() {
         player.gear[slot] = tier;
         applyGearStats();
         scheduleAutoSave();
-        showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped — ${g.desc}`);
+        showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped - ${g.desc}`);
         toast(`${g.icon} ${g.name} equipped!`, 2.5);
         dom.key = ''; // force re-render
       }));
@@ -5999,7 +6032,7 @@ function drawNpcBubble() {
         bodyHtml = `
           <div style="text-align:center;padding:16px 0;">
             <div style="font-size:28px;margin-bottom:8px;">🏚️</div>
-            <div style="color:#ef4444;font-weight:bold;font-size:15px">BANK CLOSED — BANKRUPT</div>
+            <div style="color:#ef4444;font-weight:bold;font-size:15px">BANK CLOSED - BANKRUPT</div>
             <div class="cr-sub" style="margin-top:6px">Reopens in <b>${bankruptDaysLeft}</b> day${bankruptDaysLeft !== 1 ? 's' : ''}.</div>
             <div class="cr-sub" style="margin-top:4px">The city treasury ran dry and the bank could not meet its obligations.</div>
           </div>`;
@@ -6007,7 +6040,7 @@ function drawNpcBubble() {
         const rateLabel = `${(BANK_INTEREST_RATE * 100).toFixed(1)}%/day`;
         bodyHtml = `
           <div class="cr-sub">Deposits earn <b>${rateLabel}</b> interest.</div>
-          <div class="cr-sub">Vault reserve: <b style="color:${vaultHealthColor}">${vault.reserve}g</b> — <span style="color:${vaultHealthColor}">${vaultHealthLabel}</span></div>
+          <div class="cr-sub">Vault reserve: <b style="color:${vaultHealthColor}">${vault.reserve}g</b> - <span style="color:${vaultHealthColor}">${vaultHealthLabel}</span></div>
           <div class="cr-sub" style="margin-top:2px">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
           <div style="display:flex;gap:8px;margin-top:10px;">
             <button class="cr-tab" data-action="dep10">+10g</button>
@@ -6031,8 +6064,8 @@ function drawNpcBubble() {
           ? `<div class="cr-sub">Borrowed: <b>${loanPrincipal}g</b> · Due day <b>${loan.dueDay}</b></div>
              <div class="cr-sub">Repay amount: <b>${loan.amount}g</b> (incl. 10% fee)</div>
              ${overdue > 0
-               ? `<div class="cr-sub" style="color:#ef4444;margin-top:4px">⚠️ OVERDUE ${overdue}d — +${overdueExtra}g penalty → total <b>${repayTotal}g</b></div>`
-               : `<div class="cr-sub" style="color:#4ade80;margin-top:4px">✓ On time — ${loan.dueDay - Math.floor(time.day)}d remaining</div>`}
+               ? `<div class="cr-sub" style="color:#ef4444;margin-top:4px">⚠️ OVERDUE ${overdue}d - +${overdueExtra}g penalty → total <b>${repayTotal}g</b></div>`
+               : `<div class="cr-sub" style="color:#4ade80;margin-top:4px">✓ On time - ${loan.dueDay - Math.floor(time.day)}d remaining</div>`}
              <div style="margin-top:10px;"><button class="cr-tab" data-action="repay">Repay (${repayTotal}g)</button></div>`
           : vault.reserve < 50
           ? `<div class="cr-sub" style="color:#fbbf24">⚠️ Vault reserves too low for loans (${vault.reserve}g). Sell goods here to help the city economy.</div>`
@@ -6094,7 +6127,7 @@ function drawNpcBubble() {
           const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
           const vault = bankVault[cid];
           if (vault && vault.reserve < total) {
-            toast(`⚠️ Vault only has ${vault.reserve}g — partial withdrawal only.`, 3);
+            toast(`⚠️ Vault only has ${vault.reserve}g - partial withdrawal only.`, 3);
             const partial = vault.reserve;
             player.gold += partial;
             vault.reserve = 0;
@@ -6180,7 +6213,7 @@ function drawNpcBubble() {
         player.gold -= 10;
         const card = generateIntel({ id: 'innkeeper_' + c.id }, c.id);
         player.intelLedger.push(card);
-        toast(`Rumors: "${card.itemName}" in ${card.cityName} — promising!`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+        toast(`Rumors: "${card.itemName}" in ${card.cityName} - promising!`, 3); scheduleAutoSave(); dom.key = ''; domRender();
       });
       uiRoot.querySelector('[data-action="fullnight"]')?.addEventListener('click', () => {
         if (player.gold < 15) { toast('Need 15g for full night.', 2); return; }
@@ -6211,7 +6244,7 @@ function drawNpcBubble() {
           ? `<div class="cr-card"><div><div class="cr-card-title">Advance to Master (300g)</div><div class="cr-sub">Rep ✓ · +18% sell bonus, exclusive contracts.</div></div><div class="cr-right"><button class="cr-tab" data-action="advance3">Advance</button></div></div>`
           : `<div class="cr-card"><div><div class="cr-card-title">Master (300g, need Rep 15+)</div><div class="cr-sub">Your rep here: ${rep}. Keep grinding!</div></div></div>`;
       } else if (playerGuild.tier === 3) {
-        actionHtml = `<div class="cr-sub" style="color:#a78bfa;font-weight:bold;">⭐ Master Rank — Maximum prestige achieved.</div>`;
+        actionHtml = `<div class="cr-sub" style="color:#a78bfa;font-weight:bold;">⭐ Master Rank - Maximum prestige achieved.</div>`;
       }
       uiRoot.innerHTML = `
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Guild Hall">
@@ -6264,7 +6297,7 @@ function drawNpcBubble() {
           <div class="cr-panel">
             ${bannerHtml}
             <div class="cr-head">
-              <div><div class="cr-title">📦 Warehouse — ${htmlEscape(c.name)}</div><div class="cr-sub">Free storage. Items stay in this city.</div></div>
+              <div><div class="cr-title">📦 Warehouse - ${htmlEscape(c.name)}</div><div class="cr-sub">Free storage. Items stay in this city.</div></div>
               <button class="cr-close" data-action="close">CLOSE</button>
             </div>
             <div class="cr-body">
@@ -6397,7 +6430,7 @@ function drawNpcBubble() {
       _loggedError: false,
     };
     img.onload = () => {
-      // Infer cell size from the actual image to avoid “grid of icons” cropping bugs.
+      // Infer cell size from the actual image to avoid "grid of icons" cropping bugs.
       // Expect 8 columns and 16 rows, but keep it resilient.
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
@@ -6478,7 +6511,7 @@ function drawNpcBubble() {
     // Movement-derived facing/anim
     facing: { x: 0, y: 1 },
 
-    gold: 220,  // raised from 160 — enough to buy a meaningful first load
+    gold: 220,  // raised from 160 - enough to buy a meaningful first load
     capacity: 18,
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
 
@@ -6587,7 +6620,7 @@ function drawNpcBubble() {
       },
       openedCaches: Array.from(openedCaches),
       // NOTE: cityPop, cityTreasury, cityBonus, cityBuildings, bankVault, aiTraders are
-      // world-shared state — they live in Supabase (city_treasury / world_traders tables).
+      // world-shared state - they live in Supabase (city_treasury / world_traders tables).
       // Do NOT persist them per-player; they are loaded via syncWorldState() on boot.
       playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
       playerGuild: { ...playerGuild },
@@ -6746,7 +6779,7 @@ function drawNpcBubble() {
       Object.assign(contracts.lastRegenDay, state.contracts.lastRegenDay);
     }
     // cityPop, cityTreasury, cityBonus, cityBuildings, bankVault, aiTraders are
-    // world-shared state — loaded from Supabase via syncWorldState(), not from player saves.
+    // world-shared state - loaded from Supabase via syncWorldState(), not from player saves.
     // Legacy saves may still contain these fields; they are silently ignored here.
 
     // Restore bank, guild, warehouse (player-personal)
@@ -6799,7 +6832,7 @@ function drawNpcBubble() {
 
     const dbData = await loadGameFromDb();
     if (dbData) {
-      // DB save found — compare day with local to pick newest
+      // DB save found - compare day with local to pick newest
       let localDay = 0;
       try {
         const localRaw = localStorage.getItem(SAVE_KEY);
@@ -6818,7 +6851,7 @@ function drawNpcBubble() {
         return loadGame();
       }
     }
-    // No DB save — fall back to local
+    // No DB save - fall back to local
     return loadGame();
   }
 
@@ -6835,7 +6868,7 @@ function drawNpcBubble() {
   let autoSaveTimer = null;
   function scheduleAutoSave() {
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(saveGame, 500); // reduced from 2000ms — saves faster after action
+    autoSaveTimer = setTimeout(saveGame, 500); // reduced from 2000ms - saves faster after action
   }
 
   // Flush any pending auto-save immediately when tab is hidden or closed.
@@ -6868,28 +6901,9 @@ function drawNpcBubble() {
   }
 
   function priceFor(cityId, item) {
-    // City-specific price multipliers
-    // Each city has a clear economic identity with 2–3 cheap items and 2–3 expensive ones.
-    // Routes designed so no single item dominates; relic nerfed, ink contraband buffed,
-    // grain given a niche, early herbs/food routes are starter-friendly.
-    const mults = {
-      // Valdenmere: trade capital — imports ore, exports relics, hates potions (local alchemy)
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
-      // Ashport: port city — imports food via sea (cheap), strong demand for ink+relics
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
-      // Crosshaven: farming village — cheapest grain+food+herbs, average everything else
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 0.85, potion: 1.00, relic: 1.00, ink: 1.00 },
-      // Ironholt: mining town — dirt cheap ore, expensive food+herbs (isolated supply)
-      // Ink is cheap too (mining camps stockpile it) — must travel far to profit on ink
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
-    };
-    const mult = (mults[cityId] && mults[cityId][item.id]) ? mults[cityId][item.id] : 1.0;
-    // Same day-based wobble as quoteFor — no real-time flicker, changes once per in-game day
-    const wob = dayWobble(cityId, item);
-    const drift = (marketDrift[cityId] && marketDrift[cityId][item.id]) ? marketDrift[cityId][item.id] : 1;
-    // Global economy: player collective pressure shifts prices
-    const econ = economyModifier(cityId, item.id);
-    return Math.max(1, Math.round(item.base * mult * wob * drift * econ));
+    // Unified with quoteFor: both now use midPriceFor as the single canonical price.
+    // priceFor = the mid price (before spread). Used by marketTryTrade for buy/sell.
+    return midPriceFor(cityId, item);
   }
 
   function isSolidAt(px, py) {
@@ -6957,7 +6971,7 @@ function drawNpcBubble() {
               const savedAction = clickMove._tapAction;
               const savedTarget = clickMove._tapTarget;
               planClickPath(destX, destY, savedAction, savedTarget);
-              // planClickPath overwrites _tapAction/_tapTarget — restore
+              // planClickPath overwrites _tapAction/_tapTarget - restore
               clickMove._tapAction = savedAction;
               clickMove._tapTarget = savedTarget;
               // Exit this frame's logic; new path will be followed next frame
@@ -6989,7 +7003,7 @@ function drawNpcBubble() {
       }
 
       if (arrivedAtFinal || (clickMove.path.length === 0 && dist < TILE * 0.9)) {
-        // Arrived at destination — trigger tap action if any
+        // Arrived at destination - trigger tap action if any
         clickMove.active = false;
         ax = 0; ay = 0;
         if (clickMove._tapAction) {
@@ -7070,7 +7084,7 @@ function drawNpcBubble() {
         !isNpcBlocking(nxPos, player.y)) {
       player.x = nxPos;
     }
-    // X blocked: do NOT cancel click-move — let Y-axis slide continue the path
+    // X blocked: do NOT cancel click-move - let Y-axis slide continue the path
 
     // Y axis collision
     let nyPos = player.y + stepY;
@@ -7152,7 +7166,7 @@ function drawNpcBubble() {
     return null;
   }
 
-  // Like currentCity() but also returns the nearest city within 3 tiles — useful
+  // Like currentCity() but also returns the nearest city within 3 tiles - useful
   // when the player is standing in a building at the city boundary.
   function currentOrNearestCity(radiusTiles = 3) {
     const c = currentCity();
@@ -7530,10 +7544,10 @@ function drawNpcBubble() {
       });
 
     } else if (kind === 'omen') {
-      // Omen is a lucky find — but 25% chance it's a lure and a pickpocket strikes
+      // Omen is a lucky find - but 25% chance it's a lure and a pickpocket strikes
       openEvent({
         title: 'Strange Omen',
-        text: 'A glint of gold on the roadside catches your eye. Could be luck — or a lure.',
+        text: 'A glint of gold on the roadside catches your eye. Could be luck - or a lure.',
         choices: [
           { label: 'Investigate', run: () => {
               if (rand01() < 0.25) {
@@ -7554,10 +7568,10 @@ function drawNpcBubble() {
       });
 
     } else if (kind === 'escort') {
-      // Escort now has risk — 20% chance of ambush, costing you both 10g
+      // Escort now has risk - 20% chance of ambush, costing you both 10g
       openEvent({
         title: 'Merchant Escort',
-        text: 'A nervous merchant asks for protection through a rough stretch. He will pay 12g — but the road ahead looks dangerous.',
+        text: 'A nervous merchant asks for protection through a rough stretch. He will pay 12g - but the road ahead looks dangerous.',
         choices: [
           { label: 'Escort (earn 12g, some risk)', run: () => {
               if (rand01() < 0.20) {
@@ -7582,7 +7596,7 @@ function drawNpcBubble() {
       const discountPrice = Math.max(1, Math.round(fullPrice * 0.80));
       openEvent({
         title: 'Wandering Merchant',
-        text: `A road merchant offers ${it.name} at a discount — ${discountPrice}g each (market is ~${fullPrice}g).`,
+        text: `A road merchant offers ${it.name} at a discount - ${discountPrice}g each (market is ~${fullPrice}g).`,
         choices: [
           { label: `Buy 1 for ${discountPrice}g`, run: () => {
               if (player.gold < discountPrice) { toast('Not enough gold.', 2); closeEvent(); return; }
@@ -7627,7 +7641,7 @@ function drawNpcBubble() {
     } else if (kind === 'plague_cart') {
       openEvent({
         title: 'Quarantine Barrier',
-        text: 'Guards in masks block the road — a plague cart passed through. Pay a 15g disinfection fee, or wait it out.',
+        text: 'Guards in masks block the road - a plague cart passed through. Pay a 15g disinfection fee, or wait it out.',
         choices: [
           { label: 'Pay 15g to pass', run: () => {
               const paid = Math.min(player.gold, 15);
@@ -7648,7 +7662,7 @@ function drawNpcBubble() {
     } else if (kind === 'lost_cargo') {
       openEvent({
         title: 'Abandoned Crate',
-        text: 'A sealed crate sits in the ditch, no markings. Might be valuable — or dangerous.',
+        text: 'A sealed crate sits in the ditch, no markings. Might be valuable - or dangerous.',
         choices: [
           { label: 'Open it', run: () => {
               const r = rand01();
@@ -7717,7 +7731,7 @@ function drawNpcBubble() {
     // Close nav picker on Escape
     if (e.code === 'Escape') { const np = document.getElementById('cr-nav-picker'); if (np) { np.remove(); return; } }
 
-    // [T] and [E] interaction keys removed — tap/click buildings directly to interact
+    // [T] and [E] interaction keys removed - tap/click buildings directly to interact
     if (e.code === 'Escape' && (ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen)) {
       domCloseAll(); return;
     }
@@ -7834,7 +7848,7 @@ function drawNpcBubble() {
     }
 
     if (id === 3) {
-      // Stone wall — with battlements on top, beveled blocks
+      // Stone wall - with battlements on top, beveled blocks
       const n = hash2(tx, ty);
       const wallBase = n < 0.5 ? '#484e5c' : '#404654';
       ctx.fillStyle = wallBase;
@@ -7856,7 +7870,7 @@ function drawNpcBubble() {
     }
 
     if (id === 4) {
-      // City floor — cobblestone with mortar lines
+      // City floor - cobblestone with mortar lines
       const n = hash2(tx, ty);
       const base = n < 0.33 ? '#6b5642' : (n < 0.66 ? '#5f4e3c' : '#645446');
       ctx.fillStyle = base;
@@ -7873,7 +7887,7 @@ function drawNpcBubble() {
     }
 
     if (id === 5) {
-      // Gate arch — stone archway with portcullis bars
+      // Gate arch - stone archway with portcullis bars
       ctx.fillStyle = '#4a3f2e';
       ctx.fillRect(x, y, TILE, TILE);
       // arch body
@@ -7894,7 +7908,7 @@ function drawNpcBubble() {
     }
 
     if (id === 6) {
-      // Market stall — wooden awning + hanging goods + counter
+      // Market stall - wooden awning + hanging goods + counter
       // Floor
       ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
@@ -7922,7 +7936,7 @@ function drawNpcBubble() {
     }
 
     if (id === 7) {
-      // Inn / Tavern — timbered building, warm window glow
+      // Inn / Tavern - timbered building, warm window glow
       // Stone foundation
       ctx.fillStyle = '#4a3f2e';
       ctx.fillRect(x, y, TILE, TILE);
@@ -7983,7 +7997,7 @@ function drawNpcBubble() {
         ctx.fillRect(x+TILE-4, y+TILE-5, 1, 2);
         return;
       }
-      // Warehouse / Storage — large stone building, big dark doors
+      // Warehouse / Storage - large stone building, big dark doors
       ctx.fillStyle = '#3a3028';
       ctx.fillRect(x, y, TILE, TILE);
       // Walls (rough stone)
@@ -8011,7 +8025,7 @@ function drawNpcBubble() {
     }
 
     if (id === 9) {
-      // Cobblestone plaza / courtyard — premium city floor
+      // Cobblestone plaza / courtyard - premium city floor
       const n = hash2(tx, ty);
       ctx.fillStyle = n < 0.4 ? '#5c4d3c' : '#503f2e';
       ctx.fillRect(x, y, TILE, TILE);
@@ -8075,7 +8089,7 @@ function drawNpcBubble() {
     }
 
     if (id === 12) {
-      // Contracts board — wooden post with parchment notices
+      // Contracts board - wooden post with parchment notices
       ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
       // Post / board backing (dark wood)
@@ -8105,7 +8119,7 @@ function drawNpcBubble() {
     }
 
     if (id === 13) {
-      // Bank (in city context) — stone building with coin symbol
+      // Bank (in city context) - stone building with coin symbol
       const isInCity = tileAt(tx-1,ty)===4 || tileAt(tx+1,ty)===4 || tileAt(tx,ty-1)===4 || tileAt(tx,ty+1)===4;
       if (isInCity) {
         // Stone bank building with gold coin
@@ -8149,7 +8163,7 @@ function drawNpcBubble() {
     }
 
     if (id === 14) {
-      // Inn — warm stone building with hanging lantern
+      // Inn - warm stone building with hanging lantern
       ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
       // Warm stone walls
@@ -8160,7 +8174,7 @@ function drawNpcBubble() {
       ctx.fillRect(x, y, TILE, 5);
       ctx.fillStyle = '#9a3412';
       ctx.fillRect(x+1, y+1, TILE-2, 2);
-      // Two windows (warm glow — beds inside)
+      // Two windows (warm glow - beds inside)
       const glow2 = 0.45 + 0.20 * Math.sin(stateTime * 0.0009 + tx * 1.3);
       ctx.fillStyle = `rgba(255,200,80,${glow2.toFixed(2)})`;
       ctx.fillRect(x+2, y+5, 4, 4);
@@ -8181,7 +8195,7 @@ function drawNpcBubble() {
     }
 
     if (id === 15) {
-      // Guild Hall — grand stone building with banner
+      // Guild Hall - grand stone building with banner
       ctx.fillStyle = '#2e2a20';
       ctx.fillRect(x, y, TILE, TILE);
       // Stone walls (lighter grey)
@@ -8198,7 +8212,7 @@ function drawNpcBubble() {
       ctx.fillRect(x+1, y+1, 3, 3);  // battlement
       ctx.fillRect(x+TILE-4, y+1, 3, 3);  // battlement
       ctx.fillRect(x+TILE/2-1, y+1, 3, 3);  // center battlement
-      // Banner (purple — guild color)
+      // Banner (purple - guild color)
       ctx.fillStyle = '#7c3aed';
       ctx.fillRect(x+TILE/2-1, y+3, 3, 5);
       ctx.fillStyle = '#a78bfa';
@@ -8213,7 +8227,7 @@ function drawNpcBubble() {
     }
 
     if (id === 16) {
-      // Vacant building lot — rubble / bare dirt
+      // Vacant building lot - rubble / bare dirt
       const n = hash2(tx, ty);
       ctx.fillStyle = '#4a3820';
       ctx.fillRect(x, y, TILE, TILE);
@@ -8501,7 +8515,7 @@ function drawEntities() {
     const moving = autoNav.active || clickMove.active ||
       Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
 
-    // Gear tiers (0–4)
+    // Gear tiers (0-4)
     const packTier  = player.gear?.pack  ?? 0;
     const bootsTier = player.gear?.boots ?? 0;
     const toolTier  = player.gear?.tool  ?? 0;
@@ -8517,7 +8531,7 @@ function drawEntities() {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // NO ctx.rotate — draw explicitly for each direction
+    // NO ctx.rotate - draw explicitly for each direction
 
     // Gear color palettes
     const HORSE_PAL = [
@@ -8552,7 +8566,7 @@ function drawEntities() {
 
     // Helper: draw horse body at (hx,hy) top-left, legs direction = legDir ('v'=vertical,'h'=horizontal)
     // frontLegs offset: +legSwing, backLegs: -legSwing
-    // headDir: 'up','down','left','right' — where the head sticks out
+    // headDir: 'up','down','left','right' - where the head sticks out
     const drawHorse = (hx, hy, headDir) => {
       // Body
       ctx.fillStyle = hc.body;
@@ -8568,14 +8582,14 @@ function drawEntities() {
       // Legs (4 legs)
       ctx.fillStyle = hc.dark;
       if (headDir === 'up' || headDir === 'down') {
-        // Vertical travel — legs hang left/right
+        // Vertical travel - legs hang left/right
         const ly = hy + hH - 2;
         ctx.fillRect(hx,        ly + legSwing,  2, 4);
         ctx.fillRect(hx + 2,    ly - legSwing,  2, 4);
         ctx.fillRect(hx + hW-4, ly - legSwing,  2, 4);
         ctx.fillRect(hx + hW-2, ly + legSwing,  2, 4);
       } else {
-        // Horizontal travel — legs dangle above/below
+        // Horizontal travel - legs dangle above/below
         const lx = hx + 1;
         ctx.fillRect(lx,        hy + hH,  2, 4 + legSwing);
         ctx.fillRect(lx + 2,    hy + hH,  2, 4 - legSwing);
@@ -8728,7 +8742,7 @@ function drawEntities() {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Sprite draw (disabled — sprite sheet is a palette catalog, not animation sheet)
+    // Sprite draw (disabled - sprite sheet is a palette catalog, not animation sheet)
     if (false && playerSprite && playerSprite.ready) {
       // Map facing vector -> 8-way direction index in the order:
       // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW
@@ -8933,12 +8947,12 @@ function drawEntities() {
   function drawMobileOverlay() {
     if (!IS_MOBILE) return;
     // Mobile minimap is now a DOM overlay (tap 🗺️ toggle).
-    // Nothing to draw on canvas here — keeps the gameplay viewport fully clear.
+    // Nothing to draw on canvas here - keeps the gameplay viewport fully clear.
   }
 
   // ── Mobile minimap DOM overlay ────────────────────────────────────────────
   // Separate canvas rendered each frame when open; tapping navigates to nearest city.
-  // ── Mobile minimap corner widget — always rendered each frame ───────────
+  // ── Mobile minimap corner widget - always rendered each frame ───────────
   const _mmCanvas   = document.getElementById('minimap-canvas');
   const _mmCtx      = _mmCanvas ? _mmCanvas.getContext('2d') : null;
 
@@ -9017,9 +9031,9 @@ function drawEntities() {
 
   // No-op: was used by toggle, kept so call sites don't crash
   function _mmClose() {}
-  // ── FAB / ACTION BAR — context-sensitive action buttons ──────────────
+  // ── FAB / ACTION BAR - context-sensitive action buttons ──────────────
   // Desktop: stacked round FABs (bottom-right of canvas).
-  // Mobile: slim horizontal pill bar at bottom of screen — max 3 actions, always labelled.
+  // Mobile: slim horizontal pill bar at bottom of screen - max 3 actions, always labelled.
   //         Hidden when no contextual actions available; slides in when relevant.
   let _fabLastKey = '';
   function updateFabBar() {
@@ -9074,7 +9088,7 @@ function drawEntities() {
         const lbl = document.createElement('span');
         lbl.className = 'fab-label';
         // Truncate label to keep pills compact
-        lbl.textContent = label.length > 14 ? label.slice(0, 13) + '…' : label;
+        lbl.textContent = label.length > 14 ? label.slice(0, 13) + '...' : label;
         btn.appendChild(iconSpan);
         btn.appendChild(lbl);
       } else {
@@ -9144,7 +9158,7 @@ function drawEntities() {
     const pad = Math.round(14 * UI_SCALE);
 
 
-// MOBILE HUD — single slim bar, no expand needed (map is in separate toggle)
+// MOBILE HUD - single slim bar, no expand needed (map is in separate toggle)
 if (IS_MOBILE) {
   const topH = Math.round(36 * UI_SCALE);
   ui._hudTopH = topH;
@@ -9162,7 +9176,7 @@ if (IS_MOBILE) {
   ctx.stroke();
 
   // Left: location name
-  const title = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '…'}` : 'Road');
+  const title = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '...'}` : 'Road');
   ctx.fillStyle = c ? '#e8edf2' : '#94a3b8';
   ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
   const maxTitleW = Math.round(VIEW_W * 0.45);
@@ -9309,14 +9323,14 @@ if (IS_MOBILE) {
     // stats (right side)
     const rightX = VIEW_W - pad;
     ctx.textAlign = 'right';
-    
+
     // Save/Load buttons (desktop only, small icons in HUD)
     if (!IS_MOBILE) {
       const btnSaveX = rightX - Math.round(260 * UI_SCALE);
       const btnSaveY = Math.round(14 * UI_SCALE);
       const btnW = Math.round(48 * UI_SCALE);
       const btnH = Math.round(20 * UI_SCALE);
-      
+
       // Save button
       ctx.fillStyle = 'rgba(34,197,94,0.85)';
       if (ctx.roundRect) ctx.roundRect(btnSaveX, btnSaveY - btnH, btnW, btnH, 4);
@@ -9326,7 +9340,7 @@ if (IS_MOBILE) {
       ctx.textAlign = 'center';
       ctx.fillText('💾', btnSaveX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnSave = { x: btnSaveX, y: btnSaveY - btnH, w: btnW, h: btnH };
-      
+
       // Load button
       const btnLoadX = btnSaveX + btnW + Math.round(8 * UI_SCALE);
       ctx.fillStyle = 'rgba(59,130,246,0.85)';
@@ -9335,7 +9349,7 @@ if (IS_MOBILE) {
       ctx.fillStyle = '#fff';
       ctx.fillText('📂', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnLoad = { x: btnLoadX, y: btnSaveY - btnH, w: btnW, h: btnH };
-      
+
       // Player ID badge (desktop HUD, top-right corner)
       if (_playerId) {
         ctx.fillStyle = 'rgba(251,191,36,0.50)';
@@ -9360,7 +9374,7 @@ if (IS_MOBILE) {
         ctx.fillText(`Day ${ui._lastSavedDay}`, btnLoadX + btnW + Math.round(10 * UI_SCALE), btnSaveY - Math.round(6 * UI_SCALE));
       }
     }
-    
+
     if (IS_MOBILE) {
       // align stats with minimap block (vertical stack)
       const statsY1 = mmY + Math.round(22 * UI_SCALE);
@@ -9439,16 +9453,16 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
   const _cpop     = cityPop[c.id];
   const _treasury = cityTreasury[c.id];
   const _rep      = player.rep?.[c.id] || 0;
-  const popVal    = _cpop ? (_cpop.pop >= 1000 ? (_cpop.pop / 1000).toFixed(1) + 'k' : Math.round(_cpop.pop).toString()) : '–';
+  const popVal    = _cpop ? (_cpop.pop >= 1000 ? (_cpop.pop / 1000).toFixed(1) + 'k' : Math.round(_cpop.pop).toString()) : '-';
   const hungerPct = _cpop ? Math.round(_cpop.hunger * 100) : 0;
   const hungerCol = hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
-  const treVal    = (_treasury && _treasury.gold > 0) ? `${_treasury.gold}g` : '–';
+  const treVal    = (_treasury && _treasury.gold > 0) ? `${_treasury.gold}g` : '-';
   const taxVal    = `${Math.round(rules.taxRate * 100)}%`;
   const inspVal   = `${Math.round(rules.inspectionChance * 100)}%`;
   const repStr    = _rep >= 10 ? 'Trusted' : _rep >= 5 ? 'Known' : _rep >= 0 ? 'Neutral' : 'Suspect';
   const repCol    = _rep >= 10 ? '#86efac' : _rep >= 5 ? '#fbbf24' : _rep >= 0 ? '#94a3b8' : '#f87171';
   const contraTxt = rules.contraband.join(', ') || 'none';
-  const hint      = nearMarketTile() ? '⚡ Market nearby — tap to trade' : '★ Find market (gold tile)';
+  const hint      = nearMarketTile() ? '⚡ Market nearby - tap to trade' : '★ Find market (gold tile)';
 
   const x        = titleX;
   const padX     = Math.round(10 * UI_SCALE);
@@ -9644,7 +9658,7 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.fill();
       ctx.stroke();
 
-      
+
       // header
       const showTabs = buyHasItems && sellHasItems;
       if (buyHasItems && !sellHasItems) ui.mode = 'buy';
@@ -9760,7 +9774,8 @@ if (showTabs) {
         ctx.fill();
         ctx.stroke();
 
-        const price = isPermitRow ? PERMIT_PRICE : priceFor(c.id, it);
+        const _mq = isPermitRow ? null : quoteFor(c.id, it);
+        const price = isPermitRow ? PERMIT_PRICE : (ui.mode === 'buy' ? _mq.buy : _mq.sell);
         const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
         const hasPermit = !!player.permits[c.id];
@@ -9924,7 +9939,8 @@ ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE
         ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(Math.min(28 * UI_SCALE, rowH)));
       }
 
-      const p = priceFor(c.id, it);
+      const _pq = quoteFor(c.id, it);
+      const p = ui.mode === 'buy' ? _pq.buy : _pq.sell;
       const have = player.inv[it.id] || 0;
       const contra = it.contrabandName && rules.contraband.includes(it.contrabandName);
 
@@ -9964,7 +9980,7 @@ ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE
   }
 
 
-  
+
 
   function drawContracts() {
     if (USE_DOM_MODALS) return;
@@ -10232,7 +10248,7 @@ function drawEvent() {
         }
       }
       player.lastCityId = nowId;
-      // Check overdue loans at any bank city (rep warning only — gold penalty handled at repay time)
+      // Check overdue loans at any bank city (rep warning only - gold penalty handled at repay time)
       if (nowId) {
         for (const [loanCid, loan] of Object.entries(playerBank.loans)) {
           const overdue = Math.max(0, Math.floor(time.day) - loan.dueDay);
@@ -10252,7 +10268,7 @@ function drawEvent() {
     pushPlayerPresence();
     syncOtherPlayers();
 
-    // Virtual KeyE button removed — interaction is tap-only
+    // Virtual KeyE button removed - interaction is tap-only
 
     if (ui.marketOpen) {
       const totalN = ITEMS.length + 1;
@@ -10300,7 +10316,7 @@ function drawEvent() {
               player.inv['food'] -= 1;
               toast('Consumed 1 rations.', 1.4);
             } else {
-              // No food: penalty — 5g (balanced vs rations buy cost ~12g, trip economy)
+              // No food: penalty - 5g (balanced vs rations buy cost ~12g, trip economy)
               const penalty = 5;
               player.gold = Math.max(0, player.gold - penalty);
               toast(`No rations! Paid ${penalty}g for road supplies.`, 1.8);
@@ -10808,7 +10824,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(pos.y > info.y * TILE && pos.y < (info.y + info.h) * TILE, 'player y should be within city y bounds');
       }
 
-      // --- Test 2: Click-to-move — player moves toward a tap target within city
+      // --- Test 2: Click-to-move - player moves toward a tap target within city
       {
         __QA.api.closeUI();
         __QA.api.teleportToCity('valdenmere');
@@ -10860,7 +10876,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         const pos = __QA.api.getPlayerPos();
         const distToTarget = Math.hypot(pos.x - info.centerX, pos.y - info.centerY);
         // Either arrived (clickMove inactive) or close to target
-        assert(!cm.active || distToTarget < TILE * 2, 
+        assert(!cm.active || distToTarget < TILE * 2,
           `player should arrive at target or stop nearby (dist: ${distToTarget.toFixed(1)}px, active: ${cm.active})`);
       }
 
@@ -10905,7 +10921,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         }
       }
 
-      // --- Test 8: Auto-nav from one city to another — player moves along path
+      // --- Test 8: Auto-nav from one city to another - player moves along path
       {
         // Close any open modals from previous tests
         __QA.api.closeUI();
@@ -10913,14 +10929,14 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         __QA.api.teleportToCity('ironholt');
         for (let i = 0; i < 3; i++) __QA.api.step(1/60);
         const before = __QA.api.getPlayerPos();
-        // Navigate to crosshaven (different city — won't trigger "already there")
+        // Navigate to crosshaven (different city - won't trigger "already there")
         const started = __QA.api.startAutoNav('crosshaven');
         assert(started === true, 'startAutoNav to crosshaven should succeed');
         const nav = __QA.api.getAutoNav();
         assert(nav.active === true, 'autoNav should be active after start');
         assert(nav.destCityId === 'crosshaven', 'autoNav destCityId should be crosshaven');
         assert(nav.pathLen > 0, 'autoNav path should have waypoints');
-        // Run 120 frames (~2s) — player should have moved
+        // Run 120 frames (~2s) - player should have moved
         __QA.api.walkSteps(120);
         const after = __QA.api.getPlayerPos();
         const moved = Math.hypot(after.x - before.x, after.y - before.y);
@@ -10958,7 +10974,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // NAVIGATION UNIT TESTS (auto-nav between cities)
       // ══════════════════════════════════════════════════════════════════
 
-      // --- Nav Test 1: Auto-nav Valdenmere → Ashport — player leaves city
+      // --- Nav Test 1: Auto-nav Valdenmere → Ashport - player leaves city
       {
         __QA.api.closeUI();
         autoNav.active = false;
@@ -11012,13 +11028,13 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         __QA.api.startAutoNav('crosshaven');
         const nav0 = __QA.api.getAutoNav();
         const idx0 = nav0.pathIdx;
-        // Walk a lot — should advance at least one waypoint
+        // Walk a lot - should advance at least one waypoint
         __QA.api.walkSteps(1200);
         const nav1 = __QA.api.getAutoNav();
         assert(nav1.pathIdx > idx0 || !nav1.active, `nav3: pathIdx should advance or nav should complete (was ${idx0}, now ${nav1.pathIdx}, active=${nav1.active})`);
       }
 
-      // --- Nav Test 4: "Already there" — starting nav to current city returns false
+      // --- Nav Test 4: "Already there" - starting nav to current city returns false
       {
         __QA.api.closeUI();
         autoNav.active = false;
@@ -11038,14 +11054,14 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         for (let i = 0; i < 3; i++) __QA.api.step(1/60);
         __QA.api.startAutoNav('ironholt');
         assert(autoNav.active === true, 'nav5: autoNav should be active');
-        // Simulate arrow key press — should cancel
+        // Simulate arrow key press - should cancel
         vkeys.add('ArrowRight');
         __QA.api.step(1/60);
         vkeys.delete('ArrowRight');
         assert(autoNav.active === false, 'nav5: arrow key should cancel autoNav');
       }
 
-      // --- Nav Test 6: Full journey — nav makes significant progress along path
+      // --- Nav Test 6: Full journey - nav makes significant progress along path
       {
         __QA.api.closeUI();
         autoNav.active = false;
@@ -11124,7 +11140,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   // Auto-load save on startup: real players try DB first, guests use localStorage
   loadGameAsync().then(loaded => {
     if (loaded) console.log('[BOOT] Save loaded');
-    else console.log('[BOOT] No save — fresh start');
+    else console.log('[BOOT] No save - fresh start');
   });
 
   tick();
