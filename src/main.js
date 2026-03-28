@@ -389,7 +389,7 @@ ${line4}`;
         advanceDays(n, 'travel');
         for (let i = 0; i < n; i++) {
           if ((player.inv['food'] || 0) > 0) player.inv['food'] -= 1;
-          else player.gold = Math.max(0, player.gold - 8); // matches live penalty (was 3g)
+          else player.gold = Math.max(0, player.gold - 5); // no-food penalty
         }
         scheduleAutoSave();
         return { ok: true };
@@ -2400,13 +2400,13 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const ITEMS = [
-    { id: 'grain',  name: 'Grain',         base: 8,  weight: 2 },  // up from 6 — now viable as bulk route
-    { id: 'food',   name: 'Dried Rations', base: 14, weight: 1 },  // up from 12 — better early-game earner
-    { id: 'ore',    name: 'Iron Ore',      base: 20, weight: 2 },  // up from 18 — small bump
-    { id: 'herbs',  name: 'Moon Herbs',    base: 18, weight: 1 },  // up from 16 — stronger starter route
-    { id: 'potion', name: 'Minor Potion',  base: 36, weight: 1 },  // up from 34 — mid-game tier
-    { id: 'relic',  name: 'Old Relic',     base: 50, weight: 2 },  // down from 55 — reduced dominance
-    { id: 'ink',    name: 'Demon Ink',     base: 80, weight: 1, contrabandName: 'Demon Ink' },  // up from 70 — contraband pays off
+    { id: 'grain',  name: 'Grain',         base: 10, weight: 2 },  // bulk staple — needs variance to carry weight cost
+    { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },  // light, early-game earner
+    { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },  // heavy — only good on specific routes
+    { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },  // mid-tier, good margins when specced
+    { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },  // mid-game tier
+    { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy — late-game route
+    { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink' },  // contraband — slightly reduced dominance
   ];
 
   // --- Market model (minimal, deterministic)
@@ -2415,7 +2415,7 @@ const NPC_INTERACT_RADIUS = 18;
   // - Avoid degenerate buy->sell loops in the same town (spread).
   // - Provide profit clarity via “reference/base” and “last seen” prices.
   const MARKET = {
-    spread: 0.10,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2)
+    spread: 0.06,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2) — reduced from 0.10 so margins survive
     lastSeen: {
       // cityId: { itemId: { buy:number, sell:number, t:number } }
     },
@@ -2520,13 +2520,13 @@ const NPC_INTERACT_RADIUS = 18;
 
   function townItemModifier(cityId, itemId) {
     const cs = citySeed(cityId);
-    // ~ +/-18% persistent skew per item per city
+    // ±35% per-item skew — wide enough that buy-low/sell-high is always viable
     const u = seeded01(cs, itemId.length, itemId.charCodeAt(0) || 0);
-    const skew = (u * 2 - 1) * 0.18;
+    const skew = (u * 2 - 1) * 0.35;
 
-    // A tiny city-wide tilt as well (keeps towns feeling distinct even if per-item skews coincide)
+    // City-wide tilt ±10% (makes each city feel distinct in supply/demand character)
     const v = seeded01(cs, 999, 42);
-    const cityTilt = (v * 2 - 1) * 0.06;
+    const cityTilt = (v * 2 - 1) * 0.10;
     return 1 + skew + cityTilt;
   }
 
@@ -2582,14 +2582,12 @@ const NPC_INTERACT_RADIUS = 18;
   function rewardForContract(want, qty) {
     const it = ITEMS.find(x => x.id === want);
     const base = it ? it.base : 20;
-    // Premium per item type — ensures at least a small net positive vs buy cost
-    const premium = want === 'relic' ? 18 : (want === 'potion' ? 12 : 8);
-    // Diminishing multiplier on qty to prevent high-qty contracts going net-negative
-    // (old formula scaled linearly and hit the 160g cap before covering costs)
-    const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.7 : 2.2;
-    const r = Math.round((10 + premium + base * 0.9) * qtyMult);
-    // Raised cap from 160 to 200 so high-value multi-item contracts are always worth taking
-    return clamp(r, 20, 200);
+    // Flat delivery bonus on top of item value — makes contracts clearly better than free trading
+    const deliveryBonus = want === 'relic' ? 28 : (want === 'potion' ? 20 : (want === 'ink' ? 24 : 14));
+    // qty multiplier: each extra item adds ~80% of the marginal value (diminishing but fair)
+    const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.8 : 2.4;
+    const r = Math.round((14 + deliveryBonus + base * 1.1) * qtyMult);
+    return clamp(r, 25, 280);
   }
 
   const CONTRACT_TIER_THRESHOLDS = [3, 7]; // Tier0 <3, Tier1 3-6, Tier2 7+
@@ -2686,10 +2684,10 @@ const NPC_INTERACT_RADIUS = 18;
 
   // City treasury — accumulates from player sell taxes, auto-invests every ~7 days
   const cityTreasury = {
-    valdenmere: { gold: 0, investLog: [] }, // investLog: [{day, project, effect}]
-    ashport:    { gold: 0, investLog: [] },
-    crosshaven: { gold: 0, investLog: [] },
-    ironholt:   { gold: 0, investLog: [] },
+    valdenmere: { gold: 60, investLog: [] }, // seed gold so first building can appear early
+    ashport:    { gold: 40, investLog: [] },
+    crosshaven: { gold: 30, investLog: [] },
+    ironholt:   { gold: 45, investLog: [] },
   };
 
   // Bank state — player deposits and loans per city
@@ -6252,7 +6250,7 @@ function drawNpcBubble() {
     // Movement-derived facing/anim
     facing: { x: 0, y: 1 },
 
-    gold: 160,
+    gold: 220,  // raised from 160 — enough to buy a meaningful first load
     capacity: 18,
     inv: Object.fromEntries(ITEMS.map(it => [it.id, 0])),
 
@@ -10084,9 +10082,8 @@ function drawEvent() {
               player.inv['food'] -= 1;
               toast('Consumed 1 rations.', 1.4);
             } else {
-              // No food: meaningful penalty — roughly the cost of buying rations + inconvenience
-              // Old value was 3g (too cheap to care), now 8g so carrying food actually matters
-              const penalty = 8;
+              // No food: penalty — 5g (balanced vs rations buy cost ~12g, trip economy)
+              const penalty = 5;
               player.gold = Math.max(0, player.gold - penalty);
               toast(`No rations! Paid ${penalty}g for road supplies.`, 1.8);
             }

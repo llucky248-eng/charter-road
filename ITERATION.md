@@ -1,5 +1,14 @@
 # Iteration Log — The Charter Road
 
+## v0.2.3 — 2026-03-27 (Balance Pass)
+- **Price variance fix**: `townItemModifier` skew increased from ±18% to ±35% + city tilt ±10% — every route now has viable margins
+- **Market spread**: reduced from 10% to 6% — spread no longer eats all profit on low-price items
+- **Item base prices rebalanced**: grain 10, food 16, ore 22, herbs 24, potion 40, relic 60, ink 75
+- **Starting gold**: 220g (was 160g) — enough to buy a real first load
+- **City treasury seed gold**: 60/40/30/45g per city — first building appears within a few days
+- **Contract rewards**: delivery bonus raised (14–28g per item type) + higher qty multipliers → contracts clearly beat free trading
+- **No-food penalty**: 5g/day (was 8g) — better balanced vs ration cost
+
 ## v0.2.2 — 2026-03-27
 - **City Building Slots**: each city now has named investable building slots (market, barracks, granary, guild, warehouse, inn — per-city availability).
 - **Vacant lots (tile 16)**: unbuilt slots appear on the map as rubble patches with a red stake marker. Walkable and tappable.
