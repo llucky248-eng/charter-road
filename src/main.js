@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.3.43'; // single version — updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.0'; // single version — updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2500,10 +2500,153 @@ const NPC_INTERACT_RADIUS = 18;
   }
 
   // ── World state sync from DB ─────────────────────────────────────────────
-  // Reads city_treasury → cityTreasury, cityPop, cityBonus, cityBuildings
+  // Reads world_state (time), city_treasury (pop/hunger/treasury/buildings/bonus)
+  // All shared world state is authoritative from DB; client only observes + writes events.
+
+  // Push world time to DB after advancing days (fire-and-forget)
+  function pushWorldTimeToDb() {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    fetch(`${ECONOMY.url}/rest/v1/world_state`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', day: time.day, frac: time.frac, seed: time.seed, updated_at: new Date().toISOString() }),
+    }).catch(() => {});
+  }
+
+  // Push city pop/hunger to DB after populationTick (fire-and-forget)
+  function pushCityPopToDb(cid) {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    const pop = cityPop[cid];
+    if (!pop) return;
+    fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ city_id: cid, population: Math.round(pop.pop), hunger: pop.hunger, updated_at: new Date().toISOString() }),
+    }).catch(() => {});
+  }
+
+  // Push full city treasury (gold, invest_log, city_bonus, buildings) after invest tick
+  function pushCityTreasuryToDb(cid) {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    const t = cityTreasury[cid]; if (!t) return;
+    fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        city_id: cid,
+        gold: t.gold,
+        invest_log: t.investLog,
+        city_bonus: { ...(cityBonus[cid] || {}) },
+        buildings: Object.fromEntries(
+          Object.entries(cityBuildings[cid] || {}).map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }])
+        ),
+        updated_at: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }
+
+  // Push AI trader state to DB after arrive/depart (fire-and-forget)
+  function pushTraderToDb(t) {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    fetch(`${ECONOMY.url}/rest/v1/world_traders`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        id: t.id, name: t.name, personality: t.personality, color: t.color,
+        state: t.state, from_id: t.fromId, to_id: t.toId, item_id: t.itemId,
+        inv: t.inv, gold: t.gold,
+        start_gold: t.startGold || 80,
+        total_profit: t.totalProfit || 0,
+        trips_completed: t.tripsCompleted || 0,
+        progress: (t.path?.length && t.pathIdx != null) ? (t.pathIdx / t.path.length) : 0,
+        city_timer: t.cityTimer || 0,
+        updated_at: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }
+
+  // ── Player presence: show other players on the map ────────────────────────
+  // otherPlayers: uid → { uid, name, x, y, city_id, facing_x, facing_y, gear_pack, gear_boots, color }
+  const otherPlayers = {};
+  let _lastPresencePush = 0;
+  let _lastPresenceFetch = 0;
+
+  function pushPlayerPresence() {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    const now = Date.now();
+    if (now - _lastPresencePush < 2000) return;
+    _lastPresencePush = now;
+    const city = typeof currentCity === 'function' ? currentCity() : null;
+    fetch(`${ECONOMY.url}/rest/v1/player_presence`, {
+      method: 'POST',
+      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        uid: _playerId,
+        name: _playerId === '0' ? 'Guest' : `Trader ${_playerId}`,
+        city_id: city ? city.id : null,
+        x: player.x,
+        y: player.y,
+        gold: player.gold,
+        facing_x: player.facing?.x ?? 0,
+        facing_y: player.facing?.y ?? 1,
+        gear_pack: player.gear?.pack ?? 0,
+        gear_boots: player.gear?.boots ?? 0,
+        color: '#a78bfa',
+        updated_at: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }
+
+  async function syncOtherPlayers() {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    const now = Date.now();
+    if (now - _lastPresenceFetch < 5000) return;
+    _lastPresenceFetch = now;
+    try {
+      const cutoff = new Date(now - 30000).toISOString();
+      const res = await fetch(
+        `${ECONOMY.url}/rest/v1/player_presence?updated_at=gte.${encodeURIComponent(cutoff)}&select=uid,name,x,y,city_id,facing_x,facing_y,gear_pack,gear_boots,color`,
+        { headers: economyHeaders() }
+      );
+      if (!res.ok) return;
+      const rows = await res.json();
+      for (const uid of Object.keys(otherPlayers)) {
+        if (!rows.find(r => r.uid === uid)) delete otherPlayers[uid];
+      }
+      for (const row of rows) {
+        if (row.uid === _playerId) continue;
+        otherPlayers[row.uid] = row;
+      }
+    } catch {}
+  }
+
   async function syncWorldState() {
     if (__QA.enabled) return;
     try {
+      // ── 1. World time from world_state ──
+      const wsRows = await fetch(
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed`,
+        { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
+      ).then(r => r.ok ? r.json() : []).catch(() => []);
+      if (wsRows.length > 0) {
+        const ws = wsRows[0];
+        if (typeof ws.day === 'number' && ws.day > time.day) {
+          // Another player advanced time — silently catch up (cap at 10 days to avoid a runaway)
+          const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 10);
+          for (let i = 0; i < daysAhead; i++) {
+            time.day++;
+            populationTick();
+            if (time.day % 7 === 0) cityInvestTick();
+          }
+          time.frac = ws.frac ?? time.frac;
+          if (ws.seed) time.seed = ws.seed;
+        } else if (typeof ws.day === 'number' && ws.day < 1) {
+          // DB never seeded — push our local time up
+          pushWorldTimeToDb();
+        }
+      }
+
+      // ── 2. City state from city_treasury ──
       const rows = await fetch(
         `${ECONOMY.url}/rest/v1/city_treasury?select=*`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
@@ -2511,20 +2654,21 @@ const NPC_INTERACT_RADIUS = 18;
 
       for (const row of rows) {
         const cid = row.city_id;
-        // Treasury gold: only take DB value if higher (avoids overwriting local tax accrual mid-tick)
+        // Treasury gold: take DB value if higher
         if (cityTreasury[cid]) {
           if (row.gold != null) cityTreasury[cid].gold = Math.max(cityTreasury[cid].gold, row.gold);
           if (row.invest_log) cityTreasury[cid].investLog = row.invest_log;
         }
-        // Population
-        if (cityPop[cid] && row.population) {
-          cityPop[cid].pop = row.population;
+        // Population + hunger
+        if (cityPop[cid]) {
+          if (row.population) cityPop[cid].pop = row.population;
+          if (row.hunger != null) cityPop[cid].hunger = row.hunger;
         }
-        // City bonuses (marketDiscount, roadSpeed etc.)
+        // City bonuses
         if (row.city_bonus && typeof row.city_bonus === 'object' && cityBonus[cid]) {
           Object.assign(cityBonus[cid], row.city_bonus);
         }
-        // Buildings (level, built, playerFunded) — rebuild map tiles for anything newly built
+        // Buildings
         if (row.buildings && typeof row.buildings === 'object' && cityBuildings[cid]) {
           for (const [key, saved] of Object.entries(row.buildings)) {
             const slot = cityBuildings[cid][key];
@@ -2532,7 +2676,6 @@ const NPC_INTERACT_RADIUS = 18;
             const wasBuilt = slot.built;
             slot.level  = saved.level  ?? slot.level;
             slot.built  = saved.built  ?? slot.built;
-            // Don't overwrite playerFunded from DB if player has a local donation in-flight
             if (!slot.playerFunded || slot.playerFunded === 0) {
               slot.playerFunded = saved.playerFunded ?? 0;
             }
@@ -2545,7 +2688,7 @@ const NPC_INTERACT_RADIUS = 18;
 
   // Initial sync on load (syncWorldState deferred — needs buildSlotOnMap defined first)
   economySync();
-  setInterval(syncWorldState, 30_000);
+  setInterval(syncWorldState, 10_000); // every 10s for tighter multiplayer sync
 
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
@@ -3309,6 +3452,7 @@ function traderArrive(t) {
   t.pathIdx = 0;
   t.state = 'in_city';
   t.cityTimer = 5 + Math.random() * 8;
+  pushTraderToDb(t); // sync trader arrival to DB for other clients
 }
 
 function traderDepart(t) {
@@ -3340,6 +3484,7 @@ function traderDepart(t) {
   t._stuckT = stateTime;
   t._lastX = t.x;
   t._lastY = t.y;
+  pushTraderToDb(t); // sync trader departure to DB for other clients
 }
 
 function updateAiTraders(dt) {
@@ -4915,6 +5060,8 @@ function drawNpcBubble() {
         }
       }
     }
+    // Push updated pop/hunger for all cities to DB so other players see the world simulation
+    for (const cid of cityIds) pushCityPopToDb(cid);
   }
 
   // ── Find building slot by map tile position ──────────────────────────────
@@ -5105,6 +5252,9 @@ function drawNpcBubble() {
 
       // ── Check bank solvency after funding changes ──
       checkBankSolvency(cid);
+
+      // ── Push full treasury + buildings to DB so other players see the world ──
+      pushCityTreasuryToDb(cid);
     }
   }
 
@@ -5142,22 +5292,25 @@ function drawNpcBubble() {
     if (advanced > 0) {
       toast(reason ? `Day +${advanced} (${reason}).` : `Day +${advanced}.`, 1.8);
       verifyExpiredIntel();
+      pushWorldTimeToDb(); // push shared world time to DB so other clients catch up
     }
   }
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.1.6',
+    version: 'v0.4.0',
     whatsNew: [
-      'Building labels: one label per building cluster (no more stacked overlapping bubbles).',
-      'Labels use flood-fill centroid — single dot + pill for each Market/Inn/Bank/etc.',
-      'Minimap: always-visible small corner widget (bottom-left), live player dot + nav route.',
-      'Tap minimap to navigate directly to any city.',
+      'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
+      'Other players visible on map as color-coded dots with name labels (same city/area only).',
+      'World time syncs across clients — advancing days pushes to DB, others catch up silently.',
+      'City population, hunger, treasury, buildings pushed to DB after each simulation tick.',
+      'AI traders push state to DB on arrive/depart so all clients see the same trader world.',
+      'Player saves no longer contain world-shared state (cityPop, cityBuildings, bankVault etc.).',
     ],
     whatsNext: [
-      'Mobile: optional bottom action bar for market/contract.',
-      'NPCs: add a nearby "Press E" hint (optional).',
-      'Dialogue: richer lines + rare city-specific quips.',
+      'Supabase Realtime channel for instant presence updates (currently 5s poll).',
+      'World news feed: log notable world events (building built, city grew, famine).',
+      'Player-to-player trade: offer/accept item trades with nearby players.',
     ],
   };
 
@@ -6433,24 +6586,12 @@ function drawNpcBubble() {
         lastRegenDay: { ...contracts.lastRegenDay },
       },
       openedCaches: Array.from(openedCaches),
-      cityPop: Object.fromEntries(Object.entries(cityPop).map(([k,v]) => [k, {...v}])),
-      cityTreasury: Object.fromEntries(Object.entries(cityTreasury).map(([k,v]) => [k, { gold: v.gold, investLog: [...v.investLog] }])),
-      cityBonus: Object.fromEntries(Object.entries(cityBonus).map(([k,v]) => [k, {...v}])),
-      cityBuildings: Object.fromEntries(Object.entries(cityBuildings).map(([cid, slots]) => [
-        cid, Object.fromEntries(Object.entries(slots).map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }]))
-      ])),
+      // NOTE: cityPop, cityTreasury, cityBonus, cityBuildings, bankVault, aiTraders are
+      // world-shared state — they live in Supabase (city_treasury / world_traders tables).
+      // Do NOT persist them per-player; they are loaded via syncWorldState() on boot.
       playerBank: { deposits: { ...playerBank.deposits }, loans: { ...playerBank.loans } },
-      bankVault: Object.fromEntries(Object.entries(bankVault).map(([k,v]) => [k, {...v}])),
       playerGuild: { ...playerGuild },
       warehouseStash: Object.fromEntries(Object.entries(warehouseStash).map(([k,v]) => [k, {...v}])),
-      aiTraders: AI_TRADERS.map(t => ({
-        id: t.id, name: t.name, personality: t.personality, color: t.color,
-        state: t.state, fromId: t.fromId, toId: t.toId, itemId: t.itemId,
-        inv: { ...t.inv }, gold: t.gold,
-        startGold: t.startGold || 80,
-        totalProfit: t.totalProfit || 0,
-        tripsCompleted: t.tripsCompleted || 0,
-      })),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
@@ -6604,48 +6745,14 @@ function drawNpcBubble() {
     if (state.contracts?.lastRegenDay) {
       Object.assign(contracts.lastRegenDay, state.contracts.lastRegenDay);
     }
-    // Restore cityPop
-    if (state.cityPop) {
-      for (const cid of Object.keys(cityPop)) {
-        if (state.cityPop[cid]) Object.assign(cityPop[cid], state.cityPop[cid]);
-      }
-    }
-    // Restore city treasury + bonuses
-    if (state.cityTreasury) {
-      for (const cid of Object.keys(cityTreasury)) {
-        if (state.cityTreasury[cid]) Object.assign(cityTreasury[cid], state.cityTreasury[cid]);
-      }
-    }
-    if (state.cityBonus) {
-      for (const cid of Object.keys(cityBonus)) {
-        if (state.cityBonus[cid]) Object.assign(cityBonus[cid], state.cityBonus[cid]);
-      }
-    }
-    // Restore city buildings (and rebuild map tiles for built slots)
-    if (state.cityBuildings) {
-      for (const [cid, slots] of Object.entries(state.cityBuildings)) {
-        if (!cityBuildings[cid]) continue;
-        for (const [key, saved] of Object.entries(slots)) {
-          const slot = cityBuildings[cid][key];
-          if (!slot) continue;
-          slot.level = saved.level ?? 0;
-          slot.built = saved.built ?? false;
-          slot.playerFunded = saved.playerFunded ?? 0;
-          if (slot.built) {
-            buildSlotOnMap(cid, key, slot);
-          }
-        }
-      }
-    }
-    // Restore bank, guild, warehouse
+    // cityPop, cityTreasury, cityBonus, cityBuildings, bankVault, aiTraders are
+    // world-shared state — loaded from Supabase via syncWorldState(), not from player saves.
+    // Legacy saves may still contain these fields; they are silently ignored here.
+
+    // Restore bank, guild, warehouse (player-personal)
     if (state.playerBank) {
       playerBank.deposits = state.playerBank.deposits || {};
       playerBank.loans = state.playerBank.loans || {};
-    }
-    if (state.bankVault) {
-      for (const cid of Object.keys(bankVault)) {
-        if (state.bankVault[cid]) Object.assign(bankVault[cid], state.bankVault[cid]);
-      }
     }
     if (state.playerGuild) Object.assign(playerGuild, state.playerGuild);
     if (state.warehouseStash) {
@@ -8570,6 +8677,39 @@ function drawEntities() {
     ctx.restore();
   }
 
+  // Draw other players currently in the same area (fetched from player_presence table every 5s)
+  function drawOtherPlayers() {
+    for (const [uid, op] of Object.entries(otherPlayers)) {
+      // Only show if in the same area (same city, or both on road)
+      const opCity = op.city_id || null;
+      const myCity = currentCity()?.id || null;
+      if (opCity !== myCity) continue;
+      const sx = Math.round(op.x - camera.x);
+      const sy = Math.round(op.y - camera.y);
+      if (sx < -32 || sx > VIEW_W + 32 || sy < -32 || sy > VIEW_H + 32) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      const col = op.color || '#a78bfa';
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(sx, sy + 10, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
+      // Body circle (color-coded per player)
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Name label
+      const label = op.name || `Trader ${uid}`;
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 3;
+      ctx.strokeText(label, sx, sy - 12);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, sx, sy - 12);
+      ctx.restore();
+    }
+  }
+
   function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
@@ -10108,6 +10248,9 @@ function drawEvent() {
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
+    // Push own presence + fetch other players every frame (rate-limited internally)
+    pushPlayerPresence();
+    syncOtherPlayers();
 
     // Virtual KeyE button removed — interaction is tap-only
 
@@ -10252,6 +10395,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawNavPath();
     drawClickMarker();
     drawPlayer();
+    drawOtherPlayers();
     drawNpcBubble();
     drawMobileOverlay();
     drawHUD();
