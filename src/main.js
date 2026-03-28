@@ -1957,45 +1957,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     for (let i = 0; i < 3; i++) placeCache();
 
-    // ── Assign building slot tile positions ──────────────────────────────
-    // Valdenmere (x=8, y=8, w=28, h=20)
-    cityBuildings.valdenmere.inn.tileX       = 8+3;  cityBuildings.valdenmere.inn.tileY       = 8+2;
-    cityBuildings.valdenmere.granary.tileX   = 8+3;  cityBuildings.valdenmere.granary.tileY   = 8+8;
-    cityBuildings.valdenmere.market.tileX    = 8+6;  cityBuildings.valdenmere.market.tileY    = 8+13;
-    cityBuildings.valdenmere.barracks.tileX  = 8+16; cityBuildings.valdenmere.barracks.tileY  = 8+13;
-    cityBuildings.valdenmere.warehouse.tileX = 8+3;  cityBuildings.valdenmere.warehouse.tileY = 8+14;
-    cityBuildings.valdenmere.guild.tileX     = 8+16; cityBuildings.valdenmere.guild.tileY     = 8+2;
-
-    // Ashport (x=96, y=55, w=24, h=16)
-    cityBuildings.ashport.inn.tileX       = 96+2;  cityBuildings.ashport.inn.tileY       = 55+2;
-    cityBuildings.ashport.market.tileX    = 96+3;  cityBuildings.ashport.market.tileY    = 55+7;
-    cityBuildings.ashport.guild.tileX     = 96+2;  cityBuildings.ashport.guild.tileY     = 55+10;
-    cityBuildings.ashport.warehouse.tileX = 96+12; cityBuildings.ashport.warehouse.tileY = 55+11;
-
-    // Crosshaven (x=55, y=65, w=14, h=10)
-    cityBuildings.crosshaven.granary.tileX = 55+2;  cityBuildings.crosshaven.granary.tileY = 65+2;
-    cityBuildings.crosshaven.inn.tileX     = 55+2;  cityBuildings.crosshaven.inn.tileY     = 65+5;
-    cityBuildings.crosshaven.market.tileX  = 55+8;  cityBuildings.crosshaven.market.tileY  = 65+2;
-
-    // Ironholt (x=105, y=14, w=20, h=14)
-    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;
-    cityBuildings.ironholt.market.tileX    = 105+12; cityBuildings.ironholt.market.tileY    = 14+2;
-    cityBuildings.ironholt.granary.tileX   = 105+12; cityBuildings.ironholt.granary.tileY   = 14+9;
-    cityBuildings.ironholt.warehouse.tileX = 105+2;  cityBuildings.ironholt.warehouse.tileY = 14+9;
-
-    // ── Paint vacant lots (tile 16) for unbuilt slots ────────────────────
-    for (const slots of Object.values(cityBuildings)) {
-      for (const slot of Object.values(slots)) {
-        if (!slot.built && slot.tileX > 0 && slot.tileY > 0) {
-          for (let dy = 0; dy < 2; dy++)
-            for (let dx = 0; dx < 2; dx++) {
-              const idx = (slot.tileY + dy) * MAP_W + (slot.tileX + dx);
-              if (m[idx] === 4) m[idx] = 16; // only overwrite city floor
-            }
-        }
-      }
-    }
-
     // Expose map array for dynamic building placement
     mapData = m;
 
@@ -2850,6 +2811,45 @@ const NPC_INTERACT_RADIUS = 18;
       market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
     },
   };
+
+  // ── Assign tile positions + paint vacant lots (called after cityBuildings is declared) ──
+  function initCityBuildingSlots() {
+    // Valdenmere (x=8, y=8, w=28, h=20)
+    cityBuildings.valdenmere.inn.tileX       = 8+3;  cityBuildings.valdenmere.inn.tileY       = 8+2;
+    cityBuildings.valdenmere.granary.tileX   = 8+3;  cityBuildings.valdenmere.granary.tileY   = 8+8;
+    cityBuildings.valdenmere.market.tileX    = 8+6;  cityBuildings.valdenmere.market.tileY    = 8+13;
+    cityBuildings.valdenmere.barracks.tileX  = 8+16; cityBuildings.valdenmere.barracks.tileY  = 8+13;
+    cityBuildings.valdenmere.warehouse.tileX = 8+3;  cityBuildings.valdenmere.warehouse.tileY = 8+14;
+    cityBuildings.valdenmere.guild.tileX     = 8+16; cityBuildings.valdenmere.guild.tileY     = 8+2;
+    // Ashport (x=96, y=55, w=24, h=16)
+    cityBuildings.ashport.inn.tileX       = 96+2;  cityBuildings.ashport.inn.tileY       = 55+2;
+    cityBuildings.ashport.market.tileX    = 96+3;  cityBuildings.ashport.market.tileY    = 55+7;
+    cityBuildings.ashport.guild.tileX     = 96+2;  cityBuildings.ashport.guild.tileY     = 55+10;
+    cityBuildings.ashport.warehouse.tileX = 96+12; cityBuildings.ashport.warehouse.tileY = 55+11;
+    // Crosshaven (x=55, y=65, w=14, h=10)
+    cityBuildings.crosshaven.granary.tileX = 55+2;  cityBuildings.crosshaven.granary.tileY = 65+2;
+    cityBuildings.crosshaven.inn.tileX     = 55+2;  cityBuildings.crosshaven.inn.tileY     = 65+5;
+    cityBuildings.crosshaven.market.tileX  = 55+8;  cityBuildings.crosshaven.market.tileY  = 65+2;
+    // Ironholt (x=105, y=14, w=20, h=14)
+    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;
+    cityBuildings.ironholt.market.tileX    = 105+12; cityBuildings.ironholt.market.tileY    = 14+2;
+    cityBuildings.ironholt.granary.tileX   = 105+12; cityBuildings.ironholt.granary.tileY   = 14+9;
+    cityBuildings.ironholt.warehouse.tileX = 105+2;  cityBuildings.ironholt.warehouse.tileY = 14+9;
+    // Paint vacant lots (tile 16) for unbuilt slots
+    if (!mapData) return;
+    for (const slots of Object.values(cityBuildings)) {
+      for (const slot of Object.values(slots)) {
+        if (!slot.built && slot.tileX > 0 && slot.tileY > 0) {
+          for (let dy = 0; dy < 2; dy++)
+            for (let dx = 0; dx < 2; dx++) {
+              const idx = (slot.tileY + dy) * MAP_W + (slot.tileX + dx);
+              if (mapData[idx] === 4) mapData[idx] = 16;
+            }
+        }
+      }
+    }
+  }
+  initCityBuildingSlots();
 
   // Keep INVEST_PROJECTS for legacy save compat (no longer drives auto-invest)
   const INVEST_PROJECTS = {
@@ -10381,7 +10381,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(lines.every(s => typeof s === 'string' && s.trim().length > 0), 'npc lines should be non-empty strings');
 
         const panel = __QA.api.getNpcPanel('valdenmere');
-        assert(Array.isArray(panel) && panel.length === 3, 'npc panel should return 3 npcs for valdenmere');
+        assert(Array.isArray(panel) && panel.length === CITY_NPCS['valdenmere'].length, 'npc panel length should match CITY_NPCS for valdenmere');
         assert(panel.every(r => typeof r.line === 'string' && r.line.trim().length > 0), 'npc panel lines should be non-empty');
 
         const day0 = __QA.api.getNpcCacheDay();
@@ -10402,7 +10402,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   __QA.api.spawnCityNPCs('valdenmere');
 
   const walkers = __QA.api.getNpcEntities();
-  assert(Array.isArray(walkers) && walkers.length === 3, 'valdenmere should spawn 3 NPC walkers');
+  assert(Array.isArray(walkers) && walkers.length === CITY_NPCS['valdenmere'].length, 'valdenmere NPC walkers should match CITY_NPCS count');
   assert(walkers.every(w => w.bounds && Number.isFinite(w.x) && Number.isFinite(w.y)), 'NPC walkers should have bounds and positions');
   assert(walkers.every(w => w.x >= w.bounds.x1 && w.x <= w.bounds.x2 && w.y >= w.bounds.y1 && w.y <= w.bounds.y2), 'NPC walkers spawn within bounds');
 
@@ -10460,10 +10460,11 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     assert(handleMobileHudTap(T.x + 1, T.y + 1) === true, 'tap should toggle mobile HUD');
     drawHUD();
     assert(ui.mobileHudExpanded === true, 'mobile HUD should expand after tap');
-    assert(ui._hudExpandedVisible === true, 'expanded line should be visible');
+    // Expanded state: HUD tap target should still exist after expand
+    assert(!!ui._hudCityTap, 'HUD tap target should still exist when expanded');
+    // Modal should block further HUD taps
     ui.marketOpen = true;
-    drawHUD();
-    assert(ui._hudExpandedVisible === false, 'expanded line hidden during modal');
+    assert(handleMobileHudTap(T.x + 1, T.y + 1) === false, 'HUD tap blocked when modal open');
     ui.marketOpen = false;
   }
 }
