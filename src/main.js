@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.8'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.9'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -550,6 +550,7 @@ ${line4}`;
         player.gold -= cost;
         player.gear[slot] = tier;
         applyGearStats();
+        scheduleAutoSave(); // mirrors real gear-buy handler
         return { ok: true };
       },
 
@@ -5336,7 +5337,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.8',
+    version: 'v0.4.9',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -11197,7 +11198,52 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(Number.isFinite(afterLoad.player.x), 'player-save: position restored after load');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save');
+      // GEAR BUY + SAVE TEST (covers uid=0 / guest scenario)
+      // ══════════════════════════════════════════════════════════════════
+      {
+        const api = __QA.api;
+
+        // Start fresh — simulates uid=0 guest player opening the game
+        api.clearSave();
+        api.setPlayer({ gold: 500, gear: { pack: 0, boots: 0, tool: 0 } });
+
+        // Buy pack tier 1 (costs 120g) via QA API
+        const gearResult = api.buyGear('pack', 1, 120);
+        assert(gearResult.ok === true, 'gear-save: buyGear should succeed with enough gold');
+
+        // Autosave should have been scheduled
+        assert(api.flushAutosave() === true, 'gear-save: autosave should be pending after gear buy');
+
+        // Verify gear is persisted in localStorage
+        const saved = api.readSave();
+        assert(!!saved, 'gear-save: save should exist after gear buy');
+        assert(saved.player.gear?.pack === 1, 'gear-save: gear.pack should be 1 in save');
+        assert(saved.player.gold === 500 - 120, 'gear-save: gold deducted correctly in save');
+
+        // Reload and confirm gear survives round-trip
+        assert(loadGame() === true, 'gear-save: loadGame should succeed after gear buy');
+        const reload = api.snapshot();
+        assert(reload.player.gear?.pack === 1, 'gear-save: gear.pack should be restored after reload');
+        assert(reload.player.gold === 380, 'gear-save: gold should be restored after reload');
+
+        // Boot tier 2 purchase (requires tier 1 first — already have pack=1; buy boots)
+        api.setPlayer({ gold: 200, gear: { pack: 1, boots: 0, tool: 0 } });
+        const bootsResult = api.buyGear('boots', 1, 150);
+        assert(bootsResult.ok === true, 'gear-save: boots tier 1 buy should succeed');
+        assert(api.flushAutosave() === true, 'gear-save: autosave scheduled after boots buy');
+        const savedBoots = api.readSave();
+        assert(savedBoots?.player?.gear?.boots === 1, 'gear-save: gear.boots persisted in save');
+
+        // Confirm insufficient gold is correctly rejected and NOT saved
+        api.clearSave();
+        api.setPlayer({ gold: 10, gear: { pack: 1, boots: 1, tool: 0 } });
+        const poorResult = api.buyGear('tool', 1, 200); // costs 200g, only have 10
+        assert(poorResult.ok === false, 'gear-save: buyGear should fail with insufficient gold');
+        assert(api.flushAutosave() === false, 'gear-save: no autosave after failed gear buy');
+        assert(api.readSaveRaw() === null, 'gear-save: no save written after failed gear buy');
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
