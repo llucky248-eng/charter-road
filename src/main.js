@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.3'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.4'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5336,7 +5336,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.3',
+    version: 'v0.4.4',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6579,7 +6579,8 @@ function drawNpcBubble() {
   const _isGuest = false; // always write to DB so world.html can see every player
 
   async function saveGameToDb(state) {
-    if (!ECONOMY.enabled && !__QA.enabled) return; // skip only if economy is fully disabled AND not QA
+    if (__QA.enabled) return; // never write to DB in QA mode (causes 401 noise in test logs)
+    if (!ECONOMY.enabled) return;
     try {
       await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
         method: 'POST',
@@ -6610,10 +6611,10 @@ function drawNpcBubble() {
     }
   }
 
-  function saveGame() {
+  function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.1.6',
+      buildVersion: 'v0.4.3',
       player: {
         x: player.x,
         y: player.y,
@@ -6648,7 +6649,7 @@ function drawNpcBubble() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(state));
       ui._lastSavedDay = time.day;
-      notifySaved(`Saved (Day ${time.day})`);
+      if (!silent) notifySaved(`Saved (Day ${time.day})`);
       console.log('[SAVE] Game saved (local)');
     } catch (e) {
       console.warn('[SAVE] Failed to save locally:', e);
@@ -6903,8 +6904,8 @@ function drawNpcBubble() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutoSaveNow();
   });
-  // Periodic safety save every 60s regardless of activity
-  setInterval(saveGame, 60_000);
+  // Periodic silent save every 5s — keeps progress in sync without notification noise
+  setInterval(() => saveGame(true), 5_000);
 
   const camera = { x: player.x - VIEW_W/2, y: player.y - VIEW_H/2 };
 
