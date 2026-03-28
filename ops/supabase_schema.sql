@@ -100,3 +100,16 @@ INSERT INTO market_economy (city_id, item_id, pressure) VALUES
   ('ironholt',   'grain', 0), ('ironholt',   'cloth', 0), ('ironholt',   'fish', 0),
   ('ironholt',   'iron',  0), ('ironholt',   'herbs', 0), ('ironholt',   'food', 0)
 ON CONFLICT (city_id, item_id) DO NOTHING;
+
+-- 7. Player saves (per-player game state, keyed by uid)
+CREATE TABLE IF NOT EXISTS player_saves (
+  uid         TEXT PRIMARY KEY,
+  save_data   JSONB NOT NULL DEFAULT '{}',
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE player_saves ENABLE ROW LEVEL SECURITY;
+-- ⚠️ Both policies are REQUIRED — missing them causes 401 for all writes (incl. uid='0' guest)
+CREATE POLICY "public read player_saves"
+  ON player_saves FOR SELECT USING (true);
+CREATE POLICY "public upsert player_saves"
+  ON player_saves FOR ALL USING (true) WITH CHECK (true);
