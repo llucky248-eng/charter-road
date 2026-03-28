@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.6'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.7'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5336,7 +5336,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.6',
+    version: 'v0.4.7',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6579,10 +6579,10 @@ function drawNpcBubble() {
   const _isGuest = false; // always write to DB so world.html can see every player
 
   async function saveGameToDb(state) {
-    if (__QA.enabled) return; // never write to DB in QA mode (causes 401 noise in test logs)
+    if (__QA.enabled) return; // never write to DB in QA mode
     if (!ECONOMY.enabled) return;
     try {
-      await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
+      const res = await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
         method: 'POST',
         headers: {
           ...economyHeaders(),
@@ -6590,6 +6590,12 @@ function drawNpcBubble() {
         },
         body: JSON.stringify({ uid: _playerId, save_data: state, updated_at: new Date().toISOString() }),
       });
+      if (res.ok) {
+        console.log(`[SAVE] DB save OK (uid=${_playerId})`);
+      } else {
+        const body = await res.text().catch(() => '');
+        console.warn(`[SAVE] DB save HTTP ${res.status} (uid=${_playerId}):`, body);
+      }
     } catch (e) {
       console.warn('[SAVE] DB save failed (non-fatal, local save still written):', e.message);
     }
