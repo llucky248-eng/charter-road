@@ -476,14 +476,6 @@ async function sbFetch(path, opts = {}) {
 // In-memory treasury accumulates within a tick, flushed at end
 // Blank bonus/buildings — merged from DB on load
 function blankBonus() { return { marketDiscount:0, roadSpeed:0, foodSubsidy:0, popIncentive:0, guardDiscount:0 }; }
-function blankBuildings() { return {
-  market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, playerFunded:0 },
-  barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, playerFunded:0 },
-  granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, playerFunded:0 },
-  guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, playerFunded:0 },
-  warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
-  inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
-}; }
 // Per-city building slot availability
 const CITY_BUILDING_SLOTS = {
   valdenmere: ['market','barracks','granary','guild','warehouse','inn'],
@@ -492,21 +484,28 @@ const CITY_BUILDING_SLOTS = {
   ironholt:   ['barracks','warehouse','granary','market'],
 };
 
-const CITY_TREASURY = {
-  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, city_bonus:blankBonus(), buildings:blankBuildings() },
-  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, city_bonus:blankBonus(), buildings:blankBuildings() },
-  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, city_bonus:blankBonus(), buildings:blankBuildings() },
-  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, city_bonus:blankBonus(), buildings:blankBuildings() },
+// All building definitions (used to construct per-city sets)
+const ALL_BUILDING_DEFS = {
+  market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, playerFunded:0 },
+  barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, playerFunded:0 },
+  granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, playerFunded:0 },
+  guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, playerFunded:0 },
+  warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
+  inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
 };
 
-// City investment projects — what a city can spend its treasury on
-const CITY_INVESTMENTS = [
-  { id: 'road_repair',    name: 'Road Repair',       cost: 300,  effect: 'Reduces travel time to/from this city by 10%',   type: 'route_speed'  },
-  { id: 'market_subsidy', name: 'Market Subsidy',    cost: 500,  effect: 'Lowers buy prices in this city by 8% for 20 trips', type: 'price_discount' },
-  { id: 'guard_patrol',   name: 'Guard Patrol',      cost: 200,  effect: 'Protects traders from bandit events near this city', type: 'safety'       },
-  { id: 'trade_fair',     name: 'Trade Fair',        cost: 800,  effect: 'Raises sell prices in this city by 12% for 15 trips', type: 'price_boost' },
-  { id: 'warehouse',      name: 'Public Warehouse',  cost: 400,  effect: 'Traders can store goods here (coming soon)',      type: 'storage'      },
-];
+// Build blank buildings object containing ONLY the allowed slots for a city (fix: was all 6 for every city)
+function blankBuildings(cityId) {
+  const allowed = CITY_BUILDING_SLOTS[cityId] || [];
+  return Object.fromEntries(allowed.map(k => [k, { ...ALL_BUILDING_DEFS[k] }]));
+}
+
+const CITY_TREASURY = {
+  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
+  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
+  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
+  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
+};
 
 function addTaxRevenue(cityId, amount, type = 'tax') {
   const t = CITY_TREASURY[cityId];

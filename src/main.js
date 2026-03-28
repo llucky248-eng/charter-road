@@ -2511,10 +2511,10 @@ const NPC_INTERACT_RADIUS = 18;
 
       for (const row of rows) {
         const cid = row.city_id;
-        // Treasury gold + log
+        // Treasury gold: only take DB value if higher (avoids overwriting local tax accrual mid-tick)
         if (cityTreasury[cid]) {
-          cityTreasury[cid].gold     = row.gold     ?? cityTreasury[cid].gold;
-          cityTreasury[cid].investLog = row.invest_log ?? cityTreasury[cid].investLog;
+          if (row.gold != null) cityTreasury[cid].gold = Math.max(cityTreasury[cid].gold, row.gold);
+          if (row.invest_log) cityTreasury[cid].investLog = row.invest_log;
         }
         // Population
         if (cityPop[cid] && row.population) {
@@ -2540,9 +2540,8 @@ const NPC_INTERACT_RADIUS = 18;
     } catch (_) { /* non-fatal — runs on degraded local state */ }
   }
 
-  // Initial sync on load
+  // Initial sync on load (syncWorldState deferred — needs buildSlotOnMap defined first)
   economySync();
-  syncWorldState();
   setInterval(syncWorldState, 30_000);
 
   function citySeed(cityId) {
@@ -4992,10 +4991,11 @@ function drawNpcBubble() {
       for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
         buildingsPayload[k] = { level: s.level, built: s.built, playerFunded: s.playerFunded };
       }
-      fetch(`${ECONOMY.url}/rest/v1/city_treasury?city_id=eq.${cityId}`, {
-        method: 'PATCH',
-        headers: { ...economyHeaders(), 'Prefer': 'return=minimal' },
-        body: JSON.stringify({ buildings: buildingsPayload }),
+      // Upsert so it works even if the city_treasury row doesn't exist yet
+      fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+        method: 'POST',
+        headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ city_id: cityId, buildings: buildingsPayload }),
       }).catch(() => {});
     }
     ui.buildingDonateOpen = false;
@@ -5024,6 +5024,9 @@ function drawNpcBubble() {
     // Redraw minimap after map change
     if (typeof drawMinimap === 'function') try { drawMinimap(); } catch(_) {}
   }
+
+  // Initial world sync — safe to call now that buildSlotOnMap is defined
+  syncWorldState();
 
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
