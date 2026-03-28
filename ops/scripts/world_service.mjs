@@ -20,13 +20,13 @@ const TRADER_DEFS = [
 ];
 
 const ITEMS = [
-  { id: 'grain',  name: 'Grain',         base: 6,  weight: 1 },
-  { id: 'food',   name: 'Dried Rations', base: 12, weight: 1 },
-  { id: 'ore',    name: 'Iron Ore',      base: 18, weight: 2 },
-  { id: 'herbs',  name: 'Moon Herbs',    base: 16, weight: 1 },
-  { id: 'potion', name: 'Minor Potion',  base: 34, weight: 1 },
-  { id: 'relic',  name: 'Old Relic',     base: 55, weight: 2 },
-  { id: 'ink',    name: 'Demon Ink',     base: 70, weight: 1 },
+  { id: 'grain',  name: 'Grain',         base: 10, weight: 2 },
+  { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },
+  { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },
+  { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },
+  { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },
+  { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },
+  { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1 },
 ];
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
@@ -42,7 +42,7 @@ const ROUTE_DURATION = {
 };
 
 const BASE_CAPACITY = 12;
-const SPREAD        = 0.10;
+const SPREAD        = 0.06; // matches main.js balance pass
 
 // ── Gear upgrade tiers ────────────────────────────────────────────────────
 // FIX: lower tier 1 cost so traders can upgrade after ~10 profitable trips
@@ -131,17 +131,30 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
   }
 }
 
-// ── Price model (mirrors main.js seeded hash) ──────────────────────────────
+// ── Price model (mirrors main.js v0.2.3 balance pass) ──────────────────────
 
-function hashStr(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
-  return h;
+// Same seeded functions as main.js
+function seeded01(a, b, c = 0) {
+  let n = (a * 374761393 + b * 668265263 + c * 362437) >>> 0;
+  n = (n ^ (n >> 13)) >>> 0;
+  n = (n * 1274126177) >>> 0;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967295;
 }
-function seededRand(seed) {
-  let s = seed;
-  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
+function citySeed(cityId) {
+  return ({ valdenmere: 1337, ashport: 7331, crosshaven: 4219, ironholt: 9901 })[cityId] || 5555;
 }
+function townItemModifier(cityId, itemId) {
+  const cs = citySeed(cityId);
+  const u = seeded01(cs, itemId.length, itemId.charCodeAt(0) || 0);
+  const skew = (u * 2 - 1) * 0.35;      // ±35% per-item skew
+  const v = seeded01(cs, 999, 42);
+  const cityTilt = (v * 2 - 1) * 0.10;  // ±10% city-wide tilt
+  return 1 + skew + cityTilt;
+}
+function midPriceFor(cityId, item) {
+  return Math.max(1, Math.round(item.base * townItemModifier(cityId, item.id)));
+}
+
 // Live market pressure snapshot loaded at tick start — keyed as "cityId:itemId"
 const PRESSURE_MAP = {};
 
@@ -155,26 +168,17 @@ async function loadPressureMap() {
   }
 }
 
-// FIX: pressure now modifies prices — high sell pressure (oversupply) lowers sell price,
-// high buy pressure (undersupply) raises buy price. Max ±20% swing.
 const PRESSURE_EFFECT = 0.20;
 
-function basePrice(cityId, itemId, itemBase) {
-  const seed = hashStr(cityId + ':' + itemId);
-  const rng = seededRand(seed);
-  return Math.round(itemBase * (0.80 + rng() * 0.40));
-}
-function buyPrice(cityId, item)  {
-  const mid = basePrice(cityId, item.id, item.base);
+function buyPrice(cityId, item) {
+  const mid = midPriceFor(cityId, item);
   const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
-  // Buy pressure > 0 means item is being bought heavily → supply shrinks → prices rise
   const factor = 1 + (SPREAD / 2) + (pressure * PRESSURE_EFFECT);
   return Math.max(1, Math.round(mid * factor));
 }
 function sellPrice(cityId, item) {
-  const mid = basePrice(cityId, item.id, item.base);
+  const mid = midPriceFor(cityId, item);
   const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
-  // Sell pressure > 0 means item is being sold heavily → supply grows → sell price drops
   const factor = Math.max(0.5, 1 - (SPREAD / 2) - (pressure * PRESSURE_EFFECT));
   return Math.max(1, Math.round(mid * factor));
 }
