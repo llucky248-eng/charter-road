@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.9'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.10'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -284,6 +284,12 @@ ${line4}`;
         if (p.inv && typeof p.inv === 'object') {
           for (const k of Object.keys(p.inv)) player.inv[k] = p.inv[k];
         }
+        // If gear is set directly, apply stat changes so capacity/speed stay correct
+        if (p.gear && typeof p.gear === 'object') {
+          if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+          Object.assign(player.gear, p.gear);
+          applyGearStats();
+        }
       },
 
       teleportToCity: (cityId) => {
@@ -352,6 +358,8 @@ ${line4}`;
         }
 
         player.lastCityId = nowId;
+        // Mirror real tick: always save on city arrival (not just on contract delivery)
+        scheduleAutoSave();
         return true;
       },
 
@@ -5337,7 +5345,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.9',
+    version: 'v0.4.10',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -10871,9 +10879,12 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert((player.inv[want] || 0) === (before.player.inv[want] || 0), 'inventory should not change when insufficient goods');
         assert(player.gold === before.player.gold, 'gold should not change when insufficient goods');
 
-        // No autosave should be scheduled purely from failing delivery.
-        assert(__QA.api.flushAutosave() === false, 'no autosave should be scheduled after insufficient-goods delivery');
-        assert(__QA.api.readSaveRaw() === null, 'no save should be written after insufficient-goods delivery');
+        // City arrival always saves (position/state persisted even when delivery fails).
+        // Contract remains active and gold/inv unchanged, but city arrival itself saves.
+        assert(__QA.api.flushAutosave() === true, 'city arrival should schedule autosave even when delivery fails');
+        const failSave = __QA.api.readSave();
+        assert(!!failSave, 'save should be written on city arrival');
+        assert(!!failSave.contracts?.active, 'active contract should be persisted in save after failed delivery');
       }
 
       // ══════════════════════════════════════════════════════════════════
@@ -11243,7 +11254,47 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(api.readSaveRaw() === null, 'gear-save: no save written after failed gear buy');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save');
+      // SETPLAYER GEAR STATS TEST
+      // ══════════════════════════════════════════════════════════════════
+      {
+        const api = __QA.api;
+        const defaultCapacity = 18; // T0 pack capacity
+
+        // setPlayer with gear should immediately update capacity/speed via applyGearStats
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0 } });
+        assert(api.snapshot().player.capacity === defaultCapacity,
+          'setPlayer-gear: pack=0 should give default capacity 18');
+
+        api.setPlayer({ gear: { pack: 1, boots: 0, tool: 0 } });
+        assert(api.snapshot().player.capacity > defaultCapacity,
+          'setPlayer-gear: pack=1 should increase capacity above default');
+
+        // Reset to defaults
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0 } });
+        assert(api.snapshot().player.capacity === defaultCapacity,
+          'setPlayer-gear: resetting pack=0 should restore default capacity');
+      }
+
+      // CITY ARRIVAL SAVE TEST
+      // ══════════════════════════════════════════════════════════════════
+      {
+        const api = __QA.api;
+        api.clearSave();
+        api.setPlayer({ gold: 400 });
+        const snapGold = api.snapshot().player.gold; // actual gold after any prior state
+
+        // forceCityEntry should always schedule autosave (mirrors real tick city-entry save)
+        api.forceCityEntry('crosshaven');
+        assert(api.flushAutosave() === true,
+          'city-arrival-save: forceCityEntry should always schedule autosave');
+
+        const saved = api.readSave();
+        assert(!!saved, 'city-arrival-save: save should exist after city entry');
+        assert(saved.player.gold === snapGold,
+          'city-arrival-save: gold in save should match gold at time of arrival');
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
