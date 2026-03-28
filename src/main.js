@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.2'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.3'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5336,7 +5336,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.2',
+    version: 'v0.4.3',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -5576,8 +5576,10 @@ function drawNpcBubble() {
     // NOTE: keep render keys small but sufficient; rebuild modal when state changes.
     let key = kind;
     if (banner.q.length) {
-      key += `|b${banner.q.length}`;
-      for (const it of banner.q) key += `|${it.id}:${it.state}`;
+      // Only rebuild DOM when banner count changes or a new banner is added/removed.
+      // Do NOT include banner.state in the key — let CSS animation handle in/out transitions
+      // without destroying and recreating the DOM element (which would break the animation).
+      key += `|b${banner.q.length}:${banner.q.map(it => it.id).join(',')}`;
     }
     if (kind === 'market') {
       const c = currentCity();
@@ -5603,7 +5605,7 @@ function drawNpcBubble() {
     const bannerHtml = banner.q.length ? `
       <div class="cr-banner-stack" aria-label="Notifications">
         ${banner.q.map(it => `
-          <div class="cr-banner ${it.state === 'out' ? 'out' : ''}" role="status" aria-live="polite">
+          <div class="cr-banner${it.state === 'out' ? ' out' : ''}" data-bid="${it.id}" role="status" aria-live="polite">
             <div class="cr-banner-title">${htmlEscape(it.title)}</div>
             <div class="cr-banner-text">${htmlEscape(it.text)}</div>
           </div>
@@ -6495,13 +6497,19 @@ function drawNpcBubble() {
       if (it.state === 'in' && it.t <= 0) {
         it.state = 'out';
         it.t = BANNER_EXIT;
+        // Apply .out class directly on the existing DOM element — no full re-render needed.
+        // This lets the crBannerOut CSS animation run without the element being destroyed.
+        try {
+          const el = document.querySelector(`.cr-banner[data-bid="${it.id}"]`);
+          if (el) el.classList.add('out');
+        } catch {}
       } else if (it.state === 'out' && it.t <= 0) {
         it._remove = true;
       }
     }
     const before = banner.q.length;
     banner.q = banner.q.filter(it => !it._remove);
-    if (banner.q.length !== before) dom.key = '';
+    if (banner.q.length !== before) dom.key = ''; // force re-render to remove dismissed banners
   }
 
   function contractRewardLabel(reward, repGain) {
@@ -10174,6 +10182,7 @@ function drawEvent() {
     last = now;
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
+    tickBanners(dt); // advance banner TTL every frame so they actually auto-dismiss
 
     // Player animation timer (kept independent of render)
     {
