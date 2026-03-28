@@ -2530,9 +2530,12 @@ const NPC_INTERACT_RADIUS = 18;
             const slot = cityBuildings[cid][key];
             if (!slot) continue;
             const wasBuilt = slot.built;
-            slot.level        = saved.level        ?? slot.level;
-            slot.built        = saved.built        ?? slot.built;
-            slot.playerFunded = saved.playerFunded ?? slot.playerFunded;
+            slot.level  = saved.level  ?? slot.level;
+            slot.built  = saved.built  ?? slot.built;
+            // Don't overwrite playerFunded from DB if player has a local donation in-flight
+            if (!slot.playerFunded || slot.playerFunded === 0) {
+              slot.playerFunded = saved.playerFunded ?? 0;
+            }
             if (slot.built && !wasBuilt) buildSlotOnMap(cid, key, slot);
           }
         }
@@ -4985,7 +4988,7 @@ function drawNpcBubble() {
         if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
       }
     }
-    // Write buildings state to DB (multiplayer — other players see donation/build)
+    // Write buildings + city_bonus to DB (multiplayer — other players see donation/build)
     if (!__QA.enabled) {
       const buildingsPayload = {};
       for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
@@ -4995,8 +4998,21 @@ function drawNpcBubble() {
       fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
         method: 'POST',
         headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({ city_id: cityId, buildings: buildingsPayload }),
-      }).catch(() => {});
+        body: JSON.stringify({
+          city_id: cityId,
+          buildings: buildingsPayload,
+          city_bonus: { ...(cityBonus[cityId] || {}) }, // write bonus so other players see it immediately
+        }),
+      }).catch((e) => {
+        console.warn('[donateToSlot] DB write failed:', e);
+        // Refund if donation was recorded locally but DB failed (conservative)
+        // Note: only refund playerFunded — don't reverse a build that already happened
+        if (slot.playerFunded > 0 && !slot.built) {
+          player.gold += amount;
+          slot.playerFunded = Math.max(0, slot.playerFunded - amount);
+          toast('Network error — donation refunded.', 3);
+        }
+      });
     }
     ui.buildingDonateOpen = false;
     dom.key = '';

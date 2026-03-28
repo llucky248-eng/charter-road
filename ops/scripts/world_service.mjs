@@ -766,17 +766,8 @@ async function main() {
   await loadPressureMap();
 
   let traders = await fetchTraders();
+  // fetchTreasuries() already merges DB state into CITY_TREASURY in-memory — no second loop needed
   const treasuryRows = await fetchTreasuries();
-  // Pre-load DB treasury balances into in-memory state
-  for (const row of treasuryRows) {
-    if (CITY_TREASURY[row.city_id]) {
-      CITY_TREASURY[row.city_id].gold             = row.gold || 0;
-      CITY_TREASURY[row.city_id].tax_collected    = row.tax_collected || 0;
-      CITY_TREASURY[row.city_id].permit_collected = row.permit_collected || 0;
-      CITY_TREASURY[row.city_id].spent            = row.spent || 0;
-      CITY_TREASURY[row.city_id].invest_log       = row.invest_log || [];
-    }
-  }
 
   if (!traders || traders.length === 0) {
     // Seed initial state
