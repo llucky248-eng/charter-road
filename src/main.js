@@ -2499,8 +2499,51 @@ const NPC_INTERACT_RADIUS = 18;
     }).catch(() => {});
   }
 
+  // ── World state sync from DB ─────────────────────────────────────────────
+  // Reads city_treasury → cityTreasury, cityPop, cityBonus, cityBuildings
+  async function syncWorldState() {
+    if (__QA.enabled) return;
+    try {
+      const rows = await fetch(
+        `${ECONOMY.url}/rest/v1/city_treasury?select=*`,
+        { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
+      ).then(r => r.ok ? r.json() : []);
+
+      for (const row of rows) {
+        const cid = row.city_id;
+        // Treasury gold + log
+        if (cityTreasury[cid]) {
+          cityTreasury[cid].gold     = row.gold     ?? cityTreasury[cid].gold;
+          cityTreasury[cid].investLog = row.invest_log ?? cityTreasury[cid].investLog;
+        }
+        // Population
+        if (cityPop[cid] && row.population) {
+          cityPop[cid].pop = row.population;
+        }
+        // City bonuses (marketDiscount, roadSpeed etc.)
+        if (row.city_bonus && typeof row.city_bonus === 'object' && cityBonus[cid]) {
+          Object.assign(cityBonus[cid], row.city_bonus);
+        }
+        // Buildings (level, built, playerFunded) — rebuild map tiles for anything newly built
+        if (row.buildings && typeof row.buildings === 'object' && cityBuildings[cid]) {
+          for (const [key, saved] of Object.entries(row.buildings)) {
+            const slot = cityBuildings[cid][key];
+            if (!slot) continue;
+            const wasBuilt = slot.built;
+            slot.level        = saved.level        ?? slot.level;
+            slot.built        = saved.built        ?? slot.built;
+            slot.playerFunded = saved.playerFunded ?? slot.playerFunded;
+            if (slot.built && !wasBuilt) buildSlotOnMap(cid, key, slot);
+          }
+        }
+      }
+    } catch (_) { /* non-fatal — runs on degraded local state */ }
+  }
+
   // Initial sync on load
   economySync();
+  syncWorldState();
+  setInterval(syncWorldState, 30_000);
 
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
@@ -3239,6 +3282,7 @@ async function syncTradersFromServer() {
 
 // Call after world is ready — deferred slightly so world init completes first
 setTimeout(syncTradersFromServer, 1500);
+setInterval(syncTradersFromServer, 30_000); // refresh traders every 30s for multiplayer
 
 function traderArrive(t) {
   // Snap to city center
@@ -4941,6 +4985,18 @@ function drawNpcBubble() {
         cityTreasury[cityId].investLog.push({ day: Math.floor(time.day), project: `${slotLabel} Lv${slot.level} (player-funded)`, effect: slot.effect });
         if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
       }
+    }
+    // Write buildings state to DB (multiplayer — other players see donation/build)
+    if (!__QA.enabled) {
+      const buildingsPayload = {};
+      for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
+        buildingsPayload[k] = { level: s.level, built: s.built, playerFunded: s.playerFunded };
+      }
+      fetch(`${ECONOMY.url}/rest/v1/city_treasury?city_id=eq.${cityId}`, {
+        method: 'PATCH',
+        headers: { ...economyHeaders(), 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ buildings: buildingsPayload }),
+      }).catch(() => {});
     }
     ui.buildingDonateOpen = false;
     dom.key = '';
@@ -10029,7 +10085,7 @@ function drawEvent() {
         }
       }
       // Sync global economy on city entry
-      if (nowId) { ECONOMY.lastSync = 0; economySync(); }
+      if (nowId) { ECONOMY.lastSync = 0; economySync(); syncWorldState(); }
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }

@@ -474,11 +474,29 @@ async function sbFetch(path, opts = {}) {
 // ── City Treasury ─────────────────────────────────────────────────────────
 
 // In-memory treasury accumulates within a tick, flushed at end
+// Blank bonus/buildings — merged from DB on load
+function blankBonus() { return { marketDiscount:0, roadSpeed:0, foodSubsidy:0, popIncentive:0, guardDiscount:0 }; }
+function blankBuildings() { return {
+  market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, playerFunded:0 },
+  barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, playerFunded:0 },
+  granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, playerFunded:0 },
+  guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, playerFunded:0 },
+  warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
+  inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, playerFunded:0 },
+}; }
+// Per-city building slot availability
+const CITY_BUILDING_SLOTS = {
+  valdenmere: ['market','barracks','granary','guild','warehouse','inn'],
+  ashport:    ['market','warehouse','inn','guild'],
+  crosshaven: ['granary','inn','market'],
+  ironholt:   ['barracks','warehouse','granary','market'],
+};
+
 const CITY_TREASURY = {
-  valdenmere: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 8000 },
-  ashport:    { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 4000 },
-  crosshaven: { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 1500 },
-  ironholt:   { gold: 0, tax_collected: 0, permit_collected: 0, spent: 0, invest_log: [], population: 2500 },
+  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, city_bonus:blankBonus(), buildings:blankBuildings() },
+  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, city_bonus:blankBonus(), buildings:blankBuildings() },
+  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, city_bonus:blankBonus(), buildings:blankBuildings() },
+  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, city_bonus:blankBonus(), buildings:blankBuildings() },
 };
 
 // City investment projects — what a city can spend its treasury on
@@ -501,24 +519,73 @@ function addTaxRevenue(cityId, amount, type = 'tax') {
 function tickCityTreasury(cityId) {
   const t = CITY_TREASURY[cityId];
   if (!t) return;
-  // Spend: pick an affordable investment if treasury has enough
-  if (t.gold >= 200) {
-    const affordable = CITY_INVESTMENTS.filter(inv => inv.cost <= t.gold);
-    if (affordable.length > 0) {
-      const pick = affordable[Math.floor(Math.random() * affordable.length)];
-      t.gold  -= pick.cost;
-      t.spent += pick.cost;
-      const entry = { day: new Date().toISOString(), project: pick.name, effect: pick.effect, cost: pick.cost };
-      t.invest_log.push(entry);
-      if (t.invest_log.length > 10) t.invest_log.shift();
-      console.log(`[TREASURY][${cityId}] Invested ${pick.cost}g in ${pick.name}: ${pick.effect}`);
+
+  // Invest in building slots (mirrors main.js cityInvestTick)
+  const allowedSlots = CITY_BUILDING_SLOTS[cityId] || [];
+  const candidates = allowedSlots
+    .map(key => ({ key, slot: t.buildings[key] }))
+    .filter(({ slot }) => {
+      if (!slot) return false;
+      const nextCost = slot.costPerLevel[slot.level];
+      return nextCost !== undefined && slot.level < slot.maxLevel &&
+             t.gold >= (nextCost - (slot.playerFunded || 0));
+    })
+    .sort((a, b) => (a.slot.costPerLevel[a.slot.level]||999) - (b.slot.costPerLevel[b.slot.level]||999));
+
+  if (candidates.length > 0) {
+    const { key, slot } = candidates[0];
+    const nextCost = slot.costPerLevel[slot.level];
+    const cityPay  = Math.max(0, nextCost - (slot.playerFunded || 0));
+    t.gold  -= cityPay;
+    t.spent += cityPay;
+    slot.playerFunded = 0;
+    slot.level += 1;
+    slot.built  = true;
+
+    // Apply bonus
+    if (slot.effect && t.city_bonus[slot.effect] !== undefined) {
+      t.city_bonus[slot.effect] = Math.min(
+        (t.city_bonus[slot.effect] || 0) + slot.gain,
+        slot.gain * slot.maxLevel
+      );
     }
+
+    const label = key.charAt(0).toUpperCase() + key.slice(1);
+    const entry = { day: new Date().toISOString(), project: `${label} Lv${slot.level}`, effect: slot.effect, cost: cityPay };
+    t.invest_log.push(entry);
+    if (t.invest_log.length > 10) t.invest_log.shift();
+    console.log(`[TREASURY][${cityId}] Built ${label} Lv${slot.level} for ${cityPay}g → ${slot.effect} now ${t.city_bonus[slot.effect]}`);
   }
 }
 
 async function fetchTreasuries() {
   try {
-    return await sbFetch('/rest/v1/city_treasury?select=*') || [];
+    const rows = await sbFetch('/rest/v1/city_treasury?select=*') || [];
+    // Merge DB state into in-memory CITY_TREASURY
+    for (const row of rows) {
+      const t = CITY_TREASURY[row.city_id];
+      if (!t) continue;
+      t.gold             = row.gold || 0;
+      t.tax_collected    = row.tax_collected || 0;
+      t.permit_collected = row.permit_collected || 0;
+      t.spent            = row.spent || 0;
+      t.invest_log       = row.invest_log || [];
+      if (row.population) t.population = row.population;
+      // Restore city_bonus from DB
+      if (row.city_bonus && typeof row.city_bonus === 'object') {
+        Object.assign(t.city_bonus, row.city_bonus);
+      }
+      // Restore buildings from DB
+      if (row.buildings && typeof row.buildings === 'object') {
+        for (const [key, saved] of Object.entries(row.buildings)) {
+          if (!t.buildings[key]) continue;
+          t.buildings[key].level       = saved.level       ?? t.buildings[key].level;
+          t.buildings[key].built       = saved.built       ?? t.buildings[key].built;
+          t.buildings[key].playerFunded = saved.playerFunded ?? t.buildings[key].playerFunded;
+        }
+      }
+    }
+    return rows;
   } catch { return []; }
 }
 
@@ -531,6 +598,12 @@ async function upsertTreasuries() {
     spent:            t.spent,
     invest_log:       t.invest_log,
     population:       t.population,
+    city_bonus:       t.city_bonus || {},
+    buildings:        Object.fromEntries(
+      Object.entries(t.buildings || {}).map(([k, s]) => [k, {
+        level: s.level, built: s.built, playerFunded: s.playerFunded
+      }])
+    ),
     updated_at:       new Date().toISOString(),
   }));
   try {
