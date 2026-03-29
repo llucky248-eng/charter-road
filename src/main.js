@@ -6634,6 +6634,7 @@ function drawNpcBubble() {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
       buildVersion: 'v0.4.3',
+      savedAt: Date.now(),
       player: {
         x: player.x,
         y: player.y,
@@ -6913,22 +6914,32 @@ function drawNpcBubble() {
 
     const dbData = await loadGameFromDb();
     if (dbData) {
-      // DB save found - compare day with local to pick newest
-      let localDay = 0;
+      // Compare by savedAt timestamp first (ms precision), fall back to day
+      let localDay = 0, localTs = 0;
       try {
         const localRaw = localStorage.getItem(SAVE_KEY);
         if (localRaw) {
           const localParsed = JSON.parse(localRaw);
           localDay = localParsed?.time?.day || 0;
+          localTs  = localParsed?.savedAt || 0;
         }
       } catch {}
       const dbDay = dbData?.time?.day || 0;
+      const dbTs  = dbData?.savedAt || 0;
 
-      if (dbDay >= localDay) {
-        console.log(`[LOAD] Using DB save (day ${dbDay}) over local (day ${localDay})`);
+      // Use timestamp when available and days are equal; otherwise fall back to day comparison
+      let useDb;
+      if (dbTs > 0 && localTs > 0) {
+        useDb = dbTs >= localTs;
+      } else {
+        useDb = dbDay >= localDay;
+      }
+
+      if (useDb) {
+        console.log(`[LOAD] Using DB save (day ${dbDay}, ts ${dbTs}) over local (day ${localDay}, ts ${localTs})`);
         return _parseAndApply(dbData, 'database');
       } else {
-        console.log(`[LOAD] Local save (day ${localDay}) newer than DB (day ${dbDay}), using local`);
+        console.log(`[LOAD] Local save (day ${localDay}, ts ${localTs}) newer than DB (day ${dbDay}, ts ${dbTs}), using local`);
         return loadGame();
       }
     }
