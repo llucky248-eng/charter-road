@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.15'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.16'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5352,7 +5352,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.15',
+    version: 'v0.4.16',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6636,7 +6636,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.15',
+      buildVersion: 'v0.4.16',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8390,6 +8390,152 @@ function drawNpcBubble() {
 
   }
 
+  // Draw each city building as one unified sprite over its full tile footprint.
+  // Called after the tile pass so it renders on top of floor/wall tiles.
+  function drawBuildingSprites(camX, camY) {
+    if (!currentCity()) return;
+    const city = currentCity();
+    const slots = cityBuildings[city.id];
+    if (!slots) return;
+
+    for (const [key, slot] of Object.entries(slots)) {
+      if (!slot || slot.tileX <= 0) continue;
+
+      const bx = slot.tileX * TILE - camX;
+      const by = slot.tileY * TILE - camY;
+      const bw = slot.tileW * TILE;
+      const bh = slot.tileH * TILE;
+      const type = slot.tileType; // 6=market, 7=inn, 8=warehouse, 15=guild, etc.
+
+      // Skip if completely off-screen
+      if (bx + bw < 0 || bx > VIEW_W || by + bh < -BUILDING_RISE * 2 || by > VIEW_H) continue;
+
+      ctx.save();
+
+      // ── 3D raised top face (above the building footprint) ──────────────────
+      const rise = Math.round(slot.tileH * TILE * 0.55); // rise = 55% of building height
+      let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
+
+      switch (type) {
+        case 7: case 14: // Inn / Tavern
+          roofTop   = '#6b1f0f'; roofFace  = '#8b2a12';
+          wallMain  = '#c9a97a'; wallDark  = '#a07850'; wallLight = '#e0c898';
+          doorColor = '#3d1f0a'; windowColor = 'rgba(251,191,36,0.85)';
+          break;
+        case 6: // Market
+          roofTop   = '#92400e'; roofFace  = '#b45309';
+          wallMain  = '#d97706'; wallDark  = '#a05706'; wallLight = '#fbbf24';
+          doorColor = '#1c1409'; windowColor = 'rgba(255,220,100,0.7)';
+          break;
+        case 8: // Warehouse / Granary
+          roofTop   = '#2a2420'; roofFace  = '#3a3028';
+          wallMain  = '#5a4e3e'; wallDark  = '#3a3028'; wallLight = '#7a6a56';
+          doorColor = '#1a1208'; windowColor = 'rgba(180,140,80,0.5)';
+          break;
+        case 15: // Guild
+          roofTop   = '#3b1f00'; roofFace  = '#5a2f00';
+          wallMain  = '#8b5a2a'; wallDark  = '#5a3518'; wallLight = '#b07840';
+          doorColor = '#1e0e00'; windowColor = 'rgba(255,160,60,0.75)';
+          break;
+        case 12: // Contracts
+          roofTop   = '#1a2a3a'; roofFace  = '#2a3f5a';
+          wallMain  = '#4a6a8a'; wallDark  = '#2a4a6a'; wallLight = '#6a8aaa';
+          doorColor = '#0e1820'; windowColor = 'rgba(100,180,255,0.65)';
+          break;
+        default:
+          roofTop   = '#2a2a2a'; roofFace  = '#3a3a3a';
+          wallMain  = '#6a6060'; wallDark  = '#4a4040'; wallLight = '#8a8080';
+          doorColor = '#1a1818'; windowColor = 'rgba(200,180,140,0.5)';
+      }
+
+      // ── Top face (isometric-ish roof on top of rise) ──
+      ctx.fillStyle = roofTop;
+      ctx.fillRect(bx, by - rise, bw, rise);
+      // Roof highlight top edge
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(bx, by - rise, bw, 3);
+      // Roof shadow left edge
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillRect(bx, by - rise, 3, rise);
+      // Roof face / fascia
+      ctx.fillStyle = roofFace;
+      ctx.fillRect(bx, by - 5, bw, 5);
+
+      // ── Front wall (full footprint) ──
+      ctx.fillStyle = wallMain;
+      ctx.fillRect(bx, by, bw, bh);
+
+      // Wall texture: horizontal mortar lines every ~(TILE*0.6)px
+      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      const lineStep = Math.round(TILE * 0.6);
+      for (let ly = lineStep; ly < bh - 2; ly += lineStep) {
+        ctx.fillRect(bx + 2, by + ly, bw - 4, 1);
+      }
+
+      // Wall shading: dark left, light right
+      ctx.fillStyle = wallDark;
+      ctx.fillRect(bx, by, 4, bh);
+      ctx.fillStyle = wallLight;
+      ctx.fillRect(bx + bw - 3, by, 3, bh);
+      // Bottom shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(bx, by + bh - 3, bw, 3);
+
+      // ── Windows: evenly spaced across width, top ~35% of height ──
+      const winW = Math.round(TILE * 0.5);
+      const winH = Math.round(TILE * 0.6);
+      const winY  = by + Math.round(bh * 0.18);
+      const numWins = Math.max(1, Math.floor(bw / (TILE * 1.4)));
+      const winSpacing = bw / (numWins + 1);
+      for (let wi = 1; wi <= numWins; wi++) {
+        const wx = bx + Math.round(wi * winSpacing - winW / 2);
+        // Window frame
+        ctx.fillStyle = wallDark;
+        ctx.fillRect(wx - 2, winY - 2, winW + 4, winH + 4);
+        // Window glow
+        const flicker = type === 7 || type === 14
+          ? 0.65 + 0.20 * Math.sin(stateTime * 0.0013 + wi * 1.7 + slot.tileX)
+          : 0.55;
+        ctx.fillStyle = windowColor.replace(/[\d.]+\)$/, `${flicker.toFixed(2)})`);
+        ctx.fillRect(wx, winY, winW, winH);
+        // Window cross
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(wx, winY + Math.floor(winH / 2), winW, 1);
+        ctx.fillRect(wx + Math.floor(winW / 2), winY, 1, winH);
+      }
+
+      // ── Door: centered bottom, sized to building ──
+      const doorW = Math.round(TILE * 0.75);
+      const doorH = Math.round(TILE * 1.0);
+      const door  = slot.doorSide || 'south';
+      if (door === 'south') {
+        const dx = bx + Math.round(bw / 2 - doorW / 2);
+        const dy = by + bh - doorH;
+        ctx.fillStyle = doorColor;
+        ctx.fillRect(dx, dy, doorW, doorH);
+        // Door arch highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(dx + 2, dy + 2, doorW - 4, 3);
+        // Door knob
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(dx + doorW - 5, dy + Math.round(doorH * 0.55), 3, 3);
+      }
+
+      // ── Building type badge (awning / sign strip at top of wall) ──
+      ctx.fillStyle = roofFace;
+      ctx.fillRect(bx + 3, by + 3, bw - 6, Math.round(TILE * 0.45));
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(bx + 4, by + 4, bw - 8, 2);
+
+      // ── Outer wall border ──
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+
+      ctx.restore();
+    }
+  }
+
   function drawWorld() {
     const camX = Math.floor(camera.x);
     const camY = Math.floor(camera.y);
@@ -8408,18 +8554,9 @@ function drawNpcBubble() {
       }
     }
 
-    // Second pass: draw building rises on top of the already-rendered tile row above.
-    // Must happen after the full tile pass so rises aren't overdrawn by tiles above them.
-    for (let ty = startY; ty <= endY; ty++) {
-      for (let tx = startX; tx <= endX; tx++) {
-        const id = tileAt(tx, ty);
-        if (BUILDING_TILE_IDS.has(id) && tileAt(tx, ty - 1) !== id) {
-          const x = tx * TILE - camX;
-          const y = ty * TILE - camY;
-          drawBuildingRise(id, x, y);
-        }
-      }
-    }
+    // Second pass: draw unified building sprites over the tile grid.
+    // Each building is drawn once as a cohesive structure using slot metadata.
+    drawBuildingSprites(camX, camY);
 
     // highlight city zones lightly
     const c = currentCity();
