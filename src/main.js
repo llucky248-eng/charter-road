@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.11'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.12'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5349,7 +5349,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.11',
+    version: 'v0.4.12',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -11298,7 +11298,89 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           'city-arrival-save: gold in save should match gold at time of arrival');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save');
+      // FULL SAVE COMPLETENESS TEST
+      // Verifies every important player field survives save → load round-trip.
+      // This is the "does the DB save actually capture everything" test.
+      // ══════════════════════════════════════════════════════════════════
+      {
+        const api = __QA.api;
+
+        // 1. Set up a rich, distinctive state
+        api.clearSave();
+        api.setPlayer({
+          gold: 847,
+          x: 1200,
+          y: 960,
+          inv: { grain: 5, food: 3, ore: 2, herbs: 1, potion: 0, relic: 0, ink: 0 },
+          gear: { pack: 2, boots: 1, tool: 1 },
+        });
+        api.setRep('valdenmere', 7);
+        api.setRep('ashport', 3);
+        api.setRep('ironholt', 12);
+        api.setRep('crosshaven', 0);
+        api.setPermit('ashport', true);
+        api.setPermit('valdenmere', true);
+        api.setTime({ day: 14, frac: 0.35 });
+
+        // 2. Force a save via city arrival (triggers scheduleAutoSave)
+        api.forceCityEntry('ironholt');
+        assert(api.flushAutosave() === true, 'full-save: autosave pending after city entry');
+
+        // 3. Read raw save and verify every field
+        const saved = api.readSave();
+        assert(!!saved, 'full-save: save object exists');
+
+        // Player fields
+        const p = saved.player;
+        assert(!!p, 'full-save: player section present');
+        assert(p.gold === 847, `full-save: gold correct (got ${p.gold})`);
+        assert(Number.isFinite(p.x) && p.x > 0, `full-save: x is finite positive (got ${p.x})`);
+        assert(Number.isFinite(p.y) && p.y > 0, `full-save: y is finite positive (got ${p.y})`);
+
+        // Inventory
+        assert(p.inv?.grain === 5, `full-save: inv.grain=5 (got ${p.inv?.grain})`);
+        assert(p.inv?.food === 3, `full-save: inv.food=3 (got ${p.inv?.food})`);
+        assert(p.inv?.ore === 2, `full-save: inv.ore=2 (got ${p.inv?.ore})`);
+        assert(p.inv?.herbs === 1, `full-save: inv.herbs=1 (got ${p.inv?.herbs})`);
+
+        // Gear
+        assert(p.gear?.pack === 2, `full-save: gear.pack=2 (got ${p.gear?.pack})`);
+        assert(p.gear?.boots === 1, `full-save: gear.boots=1 (got ${p.gear?.boots})`);
+        assert(p.gear?.tool === 1, `full-save: gear.tool=1 (got ${p.gear?.tool})`);
+
+        // Rep
+        assert(p.rep?.valdenmere === 7, `full-save: rep.valdenmere=7 (got ${p.rep?.valdenmere})`);
+        assert(p.rep?.ashport === 3, `full-save: rep.ashport=3 (got ${p.rep?.ashport})`);
+        assert(p.rep?.ironholt === 12, `full-save: rep.ironholt=12 (got ${p.rep?.ironholt})`);
+
+        // Permits
+        assert(p.permits?.ashport === true, `full-save: permits.ashport=true (got ${p.permits?.ashport})`);
+        assert(p.permits?.valdenmere === true, `full-save: permits.valdenmere=true (got ${p.permits?.valdenmere})`);
+
+        // Time
+        assert(saved.time?.day === 14, `full-save: day=14 (got ${saved.time?.day})`);
+
+        // Top-level structure
+        assert(typeof saved.marketDrift === 'object', 'full-save: marketDrift present');
+        assert(typeof saved.contracts === 'object', 'full-save: contracts present');
+        assert(Array.isArray(saved.openedCaches), 'full-save: openedCaches is array');
+
+        // 4. Load back and verify round-trip fidelity
+        assert(loadGame() === true, 'full-save: loadGame succeeds');
+        const after = api.snapshot();
+
+        assert(after.player.gold === 847, `full-save: gold survived reload (got ${after.player.gold})`);
+        assert(after.player.inv?.grain === 5, `full-save: inv.grain survived reload`);
+        assert(after.player.gear?.pack === 2, `full-save: gear.pack survived reload (got ${after.player.gear?.pack})`);
+        assert(after.player.gear?.boots === 1, `full-save: gear.boots survived reload`);
+        assert(after.player.rep?.ironholt === 12, `full-save: rep.ironholt survived reload (got ${after.player.rep?.ironholt})`);
+        assert(after.player.permits?.ashport === true, `full-save: permits.ashport survived reload`);
+        assert(after.time?.day === 14, `full-save: day survived reload (got ${after.time?.day})`);
+        // Gear stats applied: pack=2 should give capacity > 28
+        assert(after.player.capacity > 28, `full-save: capacity reflects gear.pack=2 (got ${after.player.capacity})`);
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
