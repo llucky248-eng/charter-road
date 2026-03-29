@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.13'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.14'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5349,7 +5349,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.13',
+    version: 'v0.4.14',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6633,7 +6633,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.13',
+      buildVersion: 'v0.4.14',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -6910,32 +6910,37 @@ function drawNpcBubble() {
   }
 
   // Async load for real players: try DB first, fall back to localStorage
+  // Pure helper: given two save snapshots, return 'db' or 'local' (whichever is newer).
+  // Uses savedAt ms timestamp when both saves have it; falls back to day number.
+  // Exported on __QA.api so unit tests can call it directly without touching fetch/localStorage.
+  function _pickNewerSave(dbData, localData) {
+    const dbTs    = dbData?.savedAt   || 0;
+    const localTs = localData?.savedAt || 0;
+    const dbDay   = dbData?.time?.day   || 0;
+    const localDay = localData?.time?.day || 0;
+    if (dbTs > 0 && localTs > 0) {
+      return dbTs >= localTs ? 'db' : 'local';
+    }
+    return dbDay >= localDay ? 'db' : 'local';
+  }
+  // Export pure helper to QA API for unit testing
+  if (__QA.enabled && __QA.api) __QA.api.pickNewerSave = _pickNewerSave;
+
   async function loadGameAsync() {
 
     const dbData = await loadGameFromDb();
     if (dbData) {
-      // Compare by savedAt timestamp first (ms precision), fall back to day
-      let localDay = 0, localTs = 0;
+      let localData = null;
       try {
         const localRaw = localStorage.getItem(SAVE_KEY);
-        if (localRaw) {
-          const localParsed = JSON.parse(localRaw);
-          localDay = localParsed?.time?.day || 0;
-          localTs  = localParsed?.savedAt || 0;
-        }
+        if (localRaw) localData = JSON.parse(localRaw);
       } catch {}
-      const dbDay = dbData?.time?.day || 0;
-      const dbTs  = dbData?.savedAt || 0;
 
-      // Use timestamp when available and days are equal; otherwise fall back to day comparison
-      let useDb;
-      if (dbTs > 0 && localTs > 0) {
-        useDb = dbTs >= localTs;
-      } else {
-        useDb = dbDay >= localDay;
-      }
+      const pick = _pickNewerSave(dbData, localData);
+      const dbDay = dbData?.time?.day || 0, dbTs = dbData?.savedAt || 0;
+      const localDay = localData?.time?.day || 0, localTs = localData?.savedAt || 0;
 
-      if (useDb) {
+      if (pick === 'db') {
         console.log(`[LOAD] Using DB save (day ${dbDay}, ts ${dbTs}) over local (day ${localDay}, ts ${localTs})`);
         return _parseAndApply(dbData, 'database');
       } else {

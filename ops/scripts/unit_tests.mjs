@@ -496,3 +496,68 @@ test('L-shaped path keeps corner', () => {
 console.log(`\n${'─'.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+
+// ─── _pickNewerSave ───────────────────────────────────────────────────────────
+// Pure function extracted from loadGameAsync() — determines whether DB or
+// localStorage wins when both saves exist.
+// Mirrors the logic in src/main.js _pickNewerSave().
+function pickNewerSave(dbData, localData) {
+  const dbTs    = dbData?.savedAt   || 0;
+  const localTs = localData?.savedAt || 0;
+  const dbDay   = dbData?.time?.day   || 0;
+  const localDay = localData?.time?.day || 0;
+  if (dbTs > 0 && localTs > 0) {
+    return dbTs >= localTs ? 'db' : 'local';
+  }
+  return dbDay >= localDay ? 'db' : 'local';
+}
+
+console.log('\n=== pickNewerSave ===');
+
+test('db newer timestamp → db wins', () => {
+  const db    = { savedAt: 2000, time: { day: 1 } };
+  const local = { savedAt: 1000, time: { day: 1 } };
+  assert(pickNewerSave(db, local) === 'db');
+});
+
+test('local newer timestamp → local wins (the gear-buy bug)', () => {
+  // Exact scenario: player buys gear on day 1, DB still has pre-purchase save
+  const db    = { savedAt: 1000, time: { day: 1 }, player: { gold: 220 } };
+  const local = { savedAt: 2000, time: { day: 1 }, player: { gold: 110 } };
+  assert(pickNewerSave(db, local) === 'local');
+});
+
+test('equal timestamps → db wins (tie goes to db)', () => {
+  const db    = { savedAt: 1000, time: { day: 1 } };
+  const local = { savedAt: 1000, time: { day: 1 } };
+  assert(pickNewerSave(db, local) === 'db');
+});
+
+test('no timestamps, db higher day → db wins', () => {
+  const db    = { time: { day: 5 } };
+  const local = { time: { day: 3 } };
+  assert(pickNewerSave(db, local) === 'db');
+});
+
+test('no timestamps, local higher day → local wins', () => {
+  const db    = { time: { day: 3 } };
+  const local = { time: { day: 5 } };
+  assert(pickNewerSave(db, local) === 'local');
+});
+
+test('no timestamps, same day → db wins (legacy tie-break)', () => {
+  const db    = { time: { day: 1 } };
+  const local = { time: { day: 1 } };
+  assert(pickNewerSave(db, local) === 'db');
+});
+
+test('only db has timestamp → fall back to day comparison', () => {
+  const db    = { savedAt: 9999, time: { day: 1 } };
+  const local = { time: { day: 1 } }; // no savedAt
+  // localTs === 0 so timestamp branch skipped, day comparison: 1 >= 1 → db
+  assert(pickNewerSave(db, local) === 'db');
+});
+
+test('null db → local wins (dbDay=0 < localDay=1)', () => {
+  assert(pickNewerSave(null, { savedAt: 1000, time: { day: 1 } }) === 'local');
+});
