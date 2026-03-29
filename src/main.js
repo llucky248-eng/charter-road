@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.10'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.11'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2587,6 +2587,7 @@ const NPC_INTERACT_RADIUS = 18;
   const otherPlayers = {};
   let _lastPresencePush = 0;
   let _lastPresenceFetch = 0;
+  let _lastWorldStateSync = 0; // rate-limit syncWorldState() calls
 
   function pushPlayerPresence() {
     if (__QA.enabled || !ECONOMY.enabled) return;
@@ -2639,6 +2640,9 @@ const NPC_INTERACT_RADIUS = 18;
 
   async function syncWorldState() {
     if (__QA.enabled) return;
+    const _wsNow = Date.now();
+    if (_wsNow - _lastWorldStateSync < 10_000) return; // max once every 10s
+    _lastWorldStateSync = _wsNow;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
@@ -5345,7 +5349,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.10',
+    version: 'v0.4.11',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -10338,7 +10342,7 @@ function drawEvent() {
         }
       }
       // Sync global economy on city entry
-      if (nowId) { ECONOMY.lastSync = 0; economySync(); syncWorldState(); }
+      if (nowId) { economySync(); syncWorldState(); } // rate-limited internally
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
