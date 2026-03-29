@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.14'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.15'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -619,6 +619,9 @@ ${line4}`;
   }
 
   const TILE = IS_MOBILE ? 12 : 16;
+  // How many pixels building tiles extend upward as a raised 3D top face.
+  // Makes buildings visually taller/bigger relative to the player (who is ~1 tile tall).
+  const BUILDING_RISE = IS_MOBILE ? 10 : 14;
   const UI_SCALE = IS_MOBILE ? 1.9 : 1.0;
   const HUD_H = Math.round((IS_MOBILE ? 48 : 56) * UI_SCALE);
   const MAP_W = 140;
@@ -5349,7 +5352,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.14',
+    version: 'v0.4.15',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6633,7 +6636,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.14',
+      buildVersion: 'v0.4.15',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7871,6 +7874,40 @@ function drawNpcBubble() {
 
   // --- Render
 
+  // Building tile IDs that get a 3D raised top face drawn above their grid row.
+  const BUILDING_TILE_IDS = new Set([6, 7, 8, 12, 14, 15, 16]);
+
+  // Draw the raised "wall face" above a building tile so buildings look taller
+  // than the player. Only called for the top row of a building block (no tile
+  // of the same id directly above), to avoid stacking rise on every floor.
+  function drawBuildingRise(id, x, y) {
+    const rise = BUILDING_RISE;
+    // Each building type gets a wall-face color that matches its facade
+    let wallColor, roofColor;
+    switch (id) {
+      case 6:  wallColor = '#8b6914'; roofColor = '#b8860b'; break; // market: golden
+      case 7:  wallColor = '#c4a882'; roofColor = '#a0836a'; break; // inn: warm plaster
+      case 8:  wallColor = '#5a4a3a'; roofColor = '#4a3a2a'; break; // warehouse: stone
+      case 12: wallColor = '#6b5a3a'; roofColor = '#5a4a2a'; break; // contracts: parchment
+      case 14: wallColor = '#c4a882'; roofColor = '#a0836a'; break; // inn alt
+      case 15: wallColor = '#7a5a3a'; roofColor = '#5a3a1a'; break; // guild: oak
+      case 16: wallColor = '#5a5a5a'; roofColor = '#4a4a4a'; break; // vacant: grey stone
+      default: wallColor = '#7a6a4a'; roofColor = '#5a5a3a';
+    }
+    // Top face (roof/top of wall) — slightly lighter
+    ctx.fillStyle = roofColor;
+    ctx.fillRect(x, y - rise, TILE, rise);
+    // Left-edge shadow for depth
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, y - rise, 2, rise);
+    // Top highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(x, y - rise, TILE, 2);
+    // Bottom edge of rise blends into tile top
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(x, y - 2, TILE, 2);
+  }
+
   function drawTile(id, x, y, tx, ty) {
     // storybook fantasy palette + subtle variation
     if (id === 0) {
@@ -8368,6 +8405,19 @@ function drawNpcBubble() {
         const x = tx * TILE - camX;
         const y = ty * TILE - camY;
         drawTile(id, x, y, tx, ty);
+      }
+    }
+
+    // Second pass: draw building rises on top of the already-rendered tile row above.
+    // Must happen after the full tile pass so rises aren't overdrawn by tiles above them.
+    for (let ty = startY; ty <= endY; ty++) {
+      for (let tx = startX; tx <= endX; tx++) {
+        const id = tileAt(tx, ty);
+        if (BUILDING_TILE_IDS.has(id) && tileAt(tx, ty - 1) !== id) {
+          const x = tx * TILE - camX;
+          const y = ty * TILE - camY;
+          drawBuildingRise(id, x, y);
+        }
       }
     }
 
