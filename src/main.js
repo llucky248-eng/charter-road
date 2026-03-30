@@ -3408,6 +3408,7 @@ function traderDecideRoute(trader) {
   for (const to of world.cities) {
     if (to.id === fromId) continue; // never stay in same city
     for (const it of ITEMS) {
+      if (it.sourceCities && !it.sourceCities.includes(fromId)) continue; // respect item source restrictions
       const buy  = quoteFor(fromId, it).buy;
       const sell = quoteFor(to.id, it).sell;
       const profit = sell - buy;
@@ -3426,14 +3427,26 @@ function traderDecideRoute(trader) {
 
   candidates.sort((a, b) => b.profit - a.profit);
 
+  // Diversity enforcement: avoid piling onto an item already being traded by 2+ other traders.
+  // This prevents all traders from converging on a single over-pressured item.
+  const itemCounts = {};
+  for (const t of AI_TRADERS) {
+    if (t.id !== trader.id && t.itemId) {
+      itemCounts[t.itemId] = (itemCounts[t.itemId] || 0) + 1;
+    }
+  }
+  // Filter out items where 2+ other traders are already active, unless no alternative exists
+  const diverseCandidates = candidates.filter(c => (itemCounts[c.itemId] || 0) < 2);
+  const pool = diverseCandidates.length > 0 ? diverseCandidates : candidates;
+
   let pick;
   if (trader.personality === 'aggressive') {
-    pick = candidates[0];
+    pick = pool[0];
   } else if (trader.personality === 'cautious') {
-    pick = candidates[Math.floor(candidates.length * 0.4)] || candidates[0];
+    pick = pool[Math.floor(pool.length * 0.4)] || pool[0];
   } else {
     // Opportunist: random from top 5
-    pick = candidates[Math.floor(Math.random() * Math.min(5, candidates.length))];
+    pick = pool[Math.floor(Math.random() * Math.min(5, pool.length))];
   }
   return { fromId, toId: pick.to, itemId: pick.itemId };
 }
