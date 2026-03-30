@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.20'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.21'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3849,118 +3849,200 @@ function drawTraderBubbles() {
 function drawAiTrader(t) {
   const sx = t.x - camera.x;
   const sy = t.y - camera.y;
-  if (sx < -20 || sx > VIEW_W+20 || sy < -20 || sy > VIEW_H+20) return;
+  if (sx < -40 || sx > VIEW_W+40 || sy < -40 || sy > VIEW_H+40) return;
+
+  const moving  = t.state === 'traveling';
+  const inCity  = t.state === 'in_city';
+  const facing  = t.facing || { x: 1, y: 0 };
+
+  // Classify direction
+  let dir;
+  const ax = Math.abs(facing.x), ay = Math.abs(facing.y);
+  if (ay >= ax) dir = facing.y >= 0 ? 'DOWN' : 'UP';
+  else          dir = facing.x >= 0 ? 'RIGHT' : 'LEFT';
 
   ctx.save();
   ctx.translate(sx, sy);
   ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
-  const r = t.radius;
 
-  // AI traders always appear as carriages (parked or traveling)
-  const moving = t.state === 'traveling';
-  const inCity = t.state === 'in_city';
-  const facing = t.facing || { x: 1, y: 0 };
-  const angle = Math.atan2(facing.y, facing.x);
-
-  // Rotate toward movement direction
-  ctx.rotate(angle - Math.PI / 2);
-
-  const W = r * 1.4;
-  const H = W * 1.5;
-
-  // Shadow
-  ctx.globalAlpha = 0.22;
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.ellipse(0, H * 0.6, W * 1.2, 5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // ── Horse (only when traveling, not parked in city) ────────────────
-  if (!inCity) {
-    const horseY = -(H * 0.45 + W * 0.7);
-    ctx.fillStyle = '#7a5c3a';
-    ctx.fillRect(-W * 0.3, horseY - W * 0.35, W * 0.6, W * 0.75);
-    ctx.fillStyle = '#6b4e2e';
-    ctx.fillRect(-W * 0.12, horseY - W * 0.8, W * 0.24, W * 0.45);
-    ctx.fillStyle = '#4a3020';
-    ctx.fillRect(-W * 0.04, horseY - W * 0.85, W * 0.12, W * 0.3);
-    const legSwing = moving ? Math.sin(stateTime * 0.015 + hashStr(t.id) * 0.5) * 2 : 0;
-    ctx.fillStyle = '#5a4025';
-    ctx.fillRect(-W * 0.22, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
-    ctx.fillRect(-W * 0.06, horseY + W * 0.3 - legSwing, W * 0.1, W * 0.4);
-    ctx.fillRect(W * 0.06, horseY + W * 0.3 + legSwing, W * 0.1, W * 0.4);
-    // Harness
-    ctx.strokeStyle = '#3a2510'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-W * 0.2, horseY + W * 0.15);
-    ctx.lineTo(-W * 0.35, -H * 0.3);
-    ctx.moveTo(W * 0.2, horseY + W * 0.15);
-    ctx.lineTo(W * 0.35, -H * 0.3);
-    ctx.stroke();
-  }
-
-  // ── Carriage body ──────────────────────────────────────────────────
+  const phase     = stateTime * 0.013 + hashStr(t.id) * 1.3;
+  const bounce    = moving ? Math.sin(phase * 2) * 1.1 : 0;
+  const wheelSpin = moving ? stateTime * 0.020 + hashStr(t.id) : 0;
   const bodyColor = t.color || '#8b5e2a';
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(-W * 0.75, -H * 0.45, W * 1.5, H * 0.72);
-  // Roof
-  ctx.fillStyle = 'rgba(30,20,10,0.6)';
-  ctx.fillRect(-W * 0.7, -H * 0.45, W * 1.4, H * 0.18);
-  // Canvas cover (personality-colored)
-  ctx.fillStyle = `${t.color || '#d97706'}44`;
-  ctx.fillRect(-W * 0.62, -H * 0.45, W * 1.24, H * 0.2);
-  // Trim
-  ctx.strokeStyle = 'rgba(255,200,80,0.5)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(-W * 0.75, -H * 0.45, W * 1.5, H * 0.72);
-  // Cargo bump (if carrying goods)
-  const hasGoods = Object.values(t.inv || {}).some(q => q > 0);
-  if (hasGoods) {
-    ctx.fillStyle = 'rgba(180,140,60,0.6)';
-    ctx.fillRect(-W * 0.5, -H * 0.5, W, H * 0.08);
-  }
+  const roofColor = t.color ? t.color + '99' : '#d9770688';
 
-  // Parked in city: draw a small merchant figure beside carriage
-  if (inCity) {
-    // Wheel chock (wooden block under wheel)
-    ctx.fillStyle = '#5a3a15';
-    ctx.fillRect(-W * 0.85, H * 0.28, W * 0.22, W * 0.2);
-    ctx.fillRect(W * 0.62, H * 0.28, W * 0.22, W * 0.2);
-    // Merchant standing beside
-    ctx.fillStyle = t.color || '#d97706';
-    ctx.fillRect(W * 0.85, -H * 0.2, W * 0.35, H * 0.5); // body
-    ctx.fillStyle = '#c8a87a';
-    ctx.beginPath(); ctx.arc(W * 1.02, -H * 0.28, W * 0.22, 0, Math.PI * 2); ctx.fill(); // head
-  }
+  const W  = 11;  // wagon half-width ref
+  const H  = 8;   // wagon half-height ref
+  const wW = W * 2, wH = H * 2;
+  const wheelR = 4;
+  const spokes  = 6;
+  const hW = 7, hH = 8;
+  const legLen = 5;
 
-  // ── Wheels ─────────────────────────────────────────────────────────
-  const wheelAngle = moving ? (stateTime * 0.01) : 0;
-  const drawWheel = (wx, wy, wr) => {
-    ctx.fillStyle = '#2a1808';
-    ctx.beginPath(); ctx.arc(wx, wy, wr, 0, Math.PI*2); ctx.fill();
+  const drawWheel = (wx, wy) => {
+    ctx.strokeStyle = '#2a1808'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.stroke();
     ctx.fillStyle = '#5a3a15';
-    ctx.beginPath(); ctx.arc(wx, wy, wr * 0.6, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = '#3a2008'; ctx.lineWidth = 1.5;
-    for (let s = 0; s < 4; s++) {
-      const sa = wheelAngle + s * Math.PI / 2;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.3, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#5a3a15'; ctx.lineWidth = 1;
+    for (let s = 0; s < spokes; s++) {
+      const a = wheelSpin + s / spokes * Math.PI * 2;
       ctx.beginPath();
-      ctx.moveTo(wx + Math.cos(sa) * wr * 0.55, wy + Math.sin(sa) * wr * 0.55);
-      ctx.lineTo(wx - Math.cos(sa) * wr * 0.55, wy - Math.sin(sa) * wr * 0.55);
+      ctx.moveTo(wx + Math.cos(a)*wheelR*0.28, wy + Math.sin(a)*wheelR*0.28);
+      ctx.lineTo(wx + Math.cos(a)*wheelR*0.88, wy + Math.sin(a)*wheelR*0.88);
       ctx.stroke();
     }
-    ctx.fillStyle = t.color || '#d97706';
-    ctx.beginPath(); ctx.arc(wx, wy, wr * 0.16, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(wx-1, wy-1, wheelR*0.88, Math.PI*1.1, Math.PI*1.8); ctx.stroke();
   };
-  drawWheel(-W * 0.65, H * 0.24, W * 0.42);
-  drawWheel(W * 0.65, H * 0.24, W * 0.42);
 
-  // ── Name label ─────────────────────────────────────────────────────
-  // Undo rotation+scale for text so it's always readable and sized correctly
+  const drawBody = (wx, wy) => {
+    const by = wy + bounce;
+    // Body
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(wx, by, wW, wH);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(wx, by, 3, wH);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(wx+wW-3, by, 3, wH);
+    // Plank lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 0.5;
+    for (let pl = 3; pl < wH; pl += 3) {
+      ctx.beginPath(); ctx.moveTo(wx+1,by+pl); ctx.lineTo(wx+wW-1,by+pl); ctx.stroke();
+    }
+    // Arched canopy
+    ctx.beginPath();
+    ctx.moveTo(wx-1, by);
+    ctx.bezierCurveTo(wx-1, by-H*1.5, wx+wW+1, by-H*1.5, wx+wW+1, by);
+    ctx.fillStyle = roofColor; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,200,80,0.45)'; ctx.lineWidth = 1; ctx.stroke();
+    // Cargo goods bump
+    const hasGoods = Object.values(t.inv||{}).some(q=>q>0);
+    if (hasGoods) {
+      ctx.fillStyle = 'rgba(180,140,60,0.5)';
+      ctx.fillRect(wx+2, by-H*1.5-3, wW-4, 3);
+    }
+    // Parked wheel chocks
+    if (inCity) {
+      ctx.fillStyle = '#5a3a15';
+      ctx.fillRect(wx-3, by+wH-4, 4, 4);
+      ctx.fillRect(wx+wW-1, by+wH-4, 4, 4);
+    }
+    // Trim
+    ctx.strokeStyle = 'rgba(255,200,80,0.5)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(wx, by, wW, wH);
+  };
+
+  const drawHorse = (hcx, hcy, dir) => {
+    if (inCity) return; // horse off to side when parked
+    const lp1 = moving ? Math.sin(phase*2)*legLen*0.5 : 0;
+    const lp2 = moving ? Math.sin(phase*2+Math.PI)*legLen*0.5 : 0;
+    const horiz = dir === 'RIGHT' || dir === 'LEFT';
+
+    ctx.save();
+    ctx.translate(hcx, hcy);
+    if (dir === 'LEFT') ctx.scale(-1,1);
+
+    if (horiz) {
+      ctx.fillStyle = '#b09060';
+      ctx.beginPath(); ctx.ellipse(0,0,hW*0.9,hH*0.45,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#a08050';
+      ctx.beginPath(); ctx.ellipse(-1,-1,hW*0.78,hH*0.38,-0.15,0,Math.PI*2); ctx.fill();
+      // Neck+head
+      ctx.fillStyle = '#a08050';
+      ctx.beginPath();
+      ctx.moveTo(hW*0.6,-hH*0.3);
+      ctx.bezierCurveTo(hW*0.9,-hH*0.7,hW*1.3,-hH*0.8,hW*1.5,-hH*0.5);
+      ctx.bezierCurveTo(hW*1.4,-hH*0.2,hW*0.9,-hH*0.1,hW*0.6,-hH*0.1);
+      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(hW*1.55,-hH*0.55,hW*0.3,hH*0.2,-0.3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#c8a878';
+      ctx.beginPath(); ctx.ellipse(hW*1.73,-hH*0.47,hW*0.13,hH*0.11,0.2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#100800';
+      ctx.beginPath(); ctx.arc(hW*1.44,-hH*0.64,1.2,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#5a3810'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(hW*0.55,-hH*0.32); ctx.bezierCurveTo(hW*0.65,-hH*0.9,hW*1.1,-hH*0.95,hW*1.3,-hH*0.7); ctx.stroke();
+      ctx.strokeStyle = '#5a3810'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-hW*0.82,-hH*0.1); ctx.bezierCurveTo(-hW*1.2,hH*0.2,-hW*1.1,hH*0.5,-hW*0.9,hH*0.55); ctx.stroke();
+      ctx.strokeStyle = '#7a5828'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      const legs = [[-hW*0.4,lp1],[-hW*0.12,lp2],[hW*0.22,lp2],[hW*0.48,lp1]];
+      for (const [lx,lp] of legs) {
+        ctx.beginPath(); ctx.moveTo(lx,hH*0.38); ctx.lineTo(lx+lp*0.5,hH*0.38+legLen*0.5); ctx.lineTo(lx+lp*0.7,hH*0.38+legLen); ctx.stroke();
+      }
+      ctx.lineCap='butt';
+    } else {
+      const ys = dir==='DOWN'?1:-1;
+      ctx.scale(1,ys);
+      ctx.fillStyle='#b09060'; ctx.beginPath(); ctx.ellipse(0,0,hW*0.42,hH*0.48,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#a08050'; ctx.beginPath(); ctx.ellipse(0,-hH*0.06,hW*0.35,hH*0.42,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#a08050'; ctx.beginPath(); ctx.ellipse(0,hH*0.48,hW*0.24,hH*0.17,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#c8a878'; ctx.beginPath(); ctx.ellipse(0,hH*0.63,hW*0.14,hH*0.09,0,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#5a3810'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(0,-hH*0.4); ctx.lineTo(0,hH*0.2); ctx.stroke();
+      ctx.strokeStyle='#7a5828'; ctx.lineWidth=2; ctx.lineCap='round';
+      const pts=[[-hW*0.35,hH*0.18+lp1],[hW*0.35,hH*0.18+lp2],[-hW*0.35,-hH*0.32+lp2],[hW*0.35,-hH*0.32+lp1]];
+      for(const[lx,ly]of pts){ctx.beginPath();ctx.moveTo(lx*0.6,ly-2);ctx.lineTo(lx,ly+legLen);ctx.stroke();}
+      ctx.lineCap='butt';
+    }
+    ctx.restore();
+  };
+
+  // Dust
+  if (moving) {
+    for (let d = 0; d < 3; d++) {
+      const dp = ((stateTime * 0.003 + d * 0.33) % 1);
+      ctx.save(); ctx.globalAlpha = (1-dp)*0.3;
+      let dox=0,doy=0;
+      if(dir==='RIGHT') dox=-wW*0.6-dp*8; else if(dir==='LEFT') dox=wW*0.6+dp*8;
+      else if(dir==='DOWN') doy=-wH*0.5-dp*8; else doy=wH*0.5+dp*8;
+      ctx.fillStyle='#c8b090';
+      ctx.beginPath(); ctx.arc(dox+Math.sin(d*2.3)*3, doy+Math.cos(d*1.7)*2, dp*5, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Ground shadow
+  ctx.globalAlpha=0.18; ctx.fillStyle='#000';
+  ctx.beginPath(); ctx.ellipse(0,8,13,4,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=1;
+
+  // Layout
+  const gap=3;
+  if (dir==='RIGHT'||dir==='LEFT') {
+    const flip = dir==='LEFT'?-1:1;
+    const hcx = flip*(wW/2+gap+hW*0.9);
+    drawWheel(-wW/2+wheelR*0.6, wH/2+wheelR*0.3);
+    drawWheel( wW/2-wheelR*0.6, wH/2+wheelR*0.3);
+    drawBody(-wW/2,-wH/2);
+    // Harness
+    ctx.strokeStyle='#5a3820'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(flip*wW/2, bounce); ctx.lineTo(flip*(wW/2+gap), bounce); ctx.stroke();
+    drawHorse(hcx, bounce, dir);
+    // Merchant figure parked
+    if (inCity) {
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(flip*(wW/2+2), -H*0.4, 5, 9);
+      ctx.fillStyle='#c8a87a'; ctx.beginPath(); ctx.arc(flip*(wW/2+4.5),-H*0.7,3,0,Math.PI*2); ctx.fill();
+    }
+  } else {
+    const horse_y = dir==='DOWN' ? -(hH*0.5+gap+wH/2) : (hH*0.5+gap+wH/2);
+    drawWheel(-wW/2+wheelR*0.5, 0);
+    drawWheel( wW/2-wheelR*0.5, 0);
+    drawBody(-wW/2,-wH/2);
+    ctx.strokeStyle='#5a3820'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,dir==='DOWN'?-wH/2+bounce:wH/2+bounce); ctx.lineTo(0,horse_y+(dir==='DOWN'?hH*0.4:-hH*0.4)); ctx.stroke();
+    drawHorse(0, horse_y, dir);
+    if (inCity) {
+      ctx.fillStyle = bodyColor; ctx.fillRect(-2, wH/2+2, 5, 9);
+      ctx.fillStyle='#c8a87a'; ctx.beginPath(); ctx.arc(0,wH/2-2,3,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  ctx.shadowBlur=0;
   ctx.restore();
+
+  // Name label (unscaled)
   ctx.save();
   ctx.translate(sx, sy);
-  const labelY = -(r * 2.2 * CARRIAGE_SCALE) - 10;
+  const labelY = -(t.radius * 2.2 * CARRIAGE_SCALE) - 10;
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(-22, labelY, 44, 12);
   ctx.fillStyle = t.color || '#f0d080';
@@ -3968,8 +4050,6 @@ function drawAiTrader(t) {
   ctx.textAlign = 'center';
   ctx.fillText(t.name.split(' ')[0], 0, labelY + 9);
   ctx.textAlign = 'left';
-
-  // Interact hint
   const dist = Math.hypot(t.x - player.x, t.y - player.y);
   if (dist < TRADER_INTERACT_RADIUS) {
     ctx.fillStyle = 'rgba(251,191,36,0.9)';
@@ -3978,10 +4058,8 @@ function drawAiTrader(t) {
     ctx.fillText('[T] Trade', 0, labelY - 4);
     ctx.textAlign = 'left';
   }
-
   ctx.restore();
 }
-
 function npcCityBounds(city) {
   // Keep NPCs 1.5 tiles inside the perimeter walls (avoid wall edge)
   const pad = Math.round(TILE * 1.5);
@@ -5357,7 +5435,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.20',
+    version: 'v0.4.21',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6641,7 +6719,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.20',
+      buildVersion: 'v0.4.21',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8859,187 +8937,326 @@ function drawEntities() {
     const facing = player.facing || { x: 0, y: 1 };
     const vx = facing.x || 0;
     const vy = facing.y || 0;
-    // Classify into 4 cardinal directions
     let dir;
-    if (Math.abs(vy) >= Math.abs(vx)) {
-      dir = vy >= 0 ? 'DOWN' : 'UP';
-    } else {
-      dir = vx >= 0 ? 'RIGHT' : 'LEFT';
-    }
+    if (Math.abs(vy) >= Math.abs(vx)) dir = vy >= 0 ? 'DOWN' : 'UP';
+    else dir = vx >= 0 ? 'RIGHT' : 'LEFT';
+
     const moving = autoNav.active || clickMove.active ||
       Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
 
-    // Gear tiers (0-4)
     const packTier  = player.gear?.pack  ?? 0;
     const bootsTier = player.gear?.boots ?? 0;
-    const toolTier  = player.gear?.tool  ?? 0;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
 
-    // Shadow
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(0, 4, 12 + packTier * 2, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    const t = stateTime;
+    const phase = t * 0.014;
 
-    // NO ctx.rotate - draw explicitly for each direction
+    // ── Suspension bounce (wagon bobs vertically when moving) ──────────
+    const bounce    = moving ? Math.sin(phase * 2) * 1.2 : 0;
+    const tilt      = moving ? Math.sin(phase) * 0.6 : 0; // slight rock
 
-    // Gear color palettes
+    // ── Wheel spin angle ────────────────────────────────────────────────
+    const wheelSpin = moving ? t * 0.022 : 0;
+
+    // ── Color palettes ──────────────────────────────────────────────────
     const HORSE_PAL = [
-      { body:'#a08860', dark:'#7a5a30', mane:'#5a3a18', glow:false  }, // T0 pale donkey
-      { body:'#6b4c2a', dark:'#4a3018', mane:'#2a1808', glow:false  }, // T1 dark bay
-      { body:'#b05010', dark:'#803010', mane:'#200800', glow:false  }, // T2 bright chestnut
-      { body:'#111122', dark:'#080812', mane:'#e8c820', glow:false  }, // T3 jet black warhorse
-      { body:'#c8e8ff', dark:'#80b8e8', mane:'#ffffff', glow:true   }, // T4 phantom (glowing white-blue)
+      { body:'#c8aa7a', belly:'#b09060', dark:'#7a5a30', mane:'#4a2e10', nose:'#c87a60', glow:false },
+      { body:'#7a5230', belly:'#5a3a1c', dark:'#3a2010', mane:'#1a0c04', nose:'#9a6a40', glow:false },
+      { body:'#c04818', belly:'#903410', dark:'#601800', mane:'#200800', nose:'#e06030', glow:false },
+      { body:'#181828', belly:'#101018', dark:'#080810', mane:'#d4a800', nose:'#303040', glow:false },
+      { body:'#d0eeff', belly:'#b0d8f8', dark:'#80b0e0', mane:'#ffffff', nose:'#e8f8ff', glow:true  },
     ];
     const WAGON_PAL = [
-      { body:'#5a3c18', trim:'#8a6040' }, // T0 rough planks
-      { body:'#6a4828', trim:'#c09050' }, // T1 reinforced cart
-      { body:'#7a3010', trim:'#e07820' }, // T2 painted orange
-      { body:'#4a3010', trim:'#d4af37' }, // T3 dark noble (gold trim)
-      { body:'#3a2408', trim:'#ffd700' }, // T4 royal black-gold
+      { body:'#5a3c18', roof:'#6a4820', trim:'#8a6040', wheel:'#3a2408', spoke:'#6a4820' },
+      { body:'#6a4828', roof:'#d4c08a', trim:'#c09050', wheel:'#2a1808', spoke:'#7a5830' },
+      { body:'#7a3010', roof:'#e07820', trim:'#f09030', wheel:'#3a1808', spoke:'#904020' },
+      { body:'#2a1c08', roof:'#c8a020', trim:'#d4af37', wheel:'#1a1008', spoke:'#806010' },
+      { body:'#1a1008', roof:'#ffd700', trim:'#ffd700', wheel:'#0a0804', spoke:'#b08800' },
     ];
     const hc = HORSE_PAL[Math.min(bootsTier, 4)];
     const bc = WAGON_PAL[Math.min(packTier, 4)];
 
-    // Leg animation
-    const legSwing = moving ? Math.sin(stateTime * 0.012) * 2 : 0;
-
     // Phantom glow
-    if (hc.glow) { ctx.shadowColor = '#80c8ff'; ctx.shadowBlur = 6; }
+    if (hc.glow) { ctx.shadowColor = '#a0d8ff'; ctx.shadowBlur = 8; }
 
-    // Wagon size: T0 small, grows with tier
-    const wW = 10 + packTier * 3;   // wagon width  10→22px
-    const wH = 8  + packTier * 2;   // wagon height 8→16px
-    // Horse body size grows with boots tier
-    const hW = 6 + Math.floor(bootsTier * 0.5);
-    const hH = 9 + bootsTier;
+    // Sizes (base at TILE=16, already scaled by CARRIAGE_SCALE externally)
+    const wW = 12 + packTier * 2;  // wagon width
+    const wH = 9  + packTier * 2;  // wagon body height
+    const wRoofH = 4 + packTier;   // roof height
+    const hW = 7 + bootsTier;      // horse body width
+    const hH = 8 + bootsTier;      // horse body height
+    const legLen = 5 + Math.floor(bootsTier * 0.5);
+    const wheelR = 4 + Math.floor(packTier * 0.8);
+    const spokes  = 6;
 
-    // Helper: draw horse body at (hx,hy) top-left, legs direction = legDir ('v'=vertical,'h'=horizontal)
-    // frontLegs offset: +legSwing, backLegs: -legSwing
-    // headDir: 'up','down','left','right' - where the head sticks out
-    const drawHorse = (hx, hy, headDir) => {
-      // Body
-      ctx.fillStyle = hc.body;
-      ctx.fillRect(hx, hy, hW, hH);
-      // Head
-      ctx.fillStyle = hc.dark;
-      let hcx, hcy;
-      if (headDir === 'up')    { hcx = hx + hW/2; hcy = hy - 3; }
-      else if (headDir === 'down') { hcx = hx + hW/2; hcy = hy + hH + 3; }
-      else if (headDir === 'left') { hcx = hx - 3;    hcy = hy + hH/2; }
-      else                         { hcx = hx + hW + 3; hcy = hy + hH/2; }
-      ctx.beginPath(); ctx.arc(hcx, hcy, 3, 0, Math.PI * 2); ctx.fill();
-      // Legs (4 legs)
-      ctx.fillStyle = hc.dark;
-      if (headDir === 'up' || headDir === 'down') {
-        // Vertical travel - legs hang left/right
-        const ly = hy + hH - 2;
-        ctx.fillRect(hx,        ly + legSwing,  2, 4);
-        ctx.fillRect(hx + 2,    ly - legSwing,  2, 4);
-        ctx.fillRect(hx + hW-4, ly - legSwing,  2, 4);
-        ctx.fillRect(hx + hW-2, ly + legSwing,  2, 4);
-      } else {
-        // Horizontal travel - legs dangle above/below
-        const lx = hx + 1;
-        ctx.fillRect(lx,        hy + hH,  2, 4 + legSwing);
-        ctx.fillRect(lx + 2,    hy + hH,  2, 4 - legSwing);
-        ctx.fillRect(lx + hW-4, hy + hH,  2, 4 + legSwing);
-        ctx.fillRect(lx + hW-2, hy + hH,  2, 4 - legSwing);
+    // ── Shared helpers ─────────────────────────────────────────────────
+
+    const drawWheel = (wx, wy) => {
+      // Tyre
+      ctx.strokeStyle = bc.wheel;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.stroke();
+      // Hub
+      ctx.fillStyle = bc.spoke;
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.28, 0, Math.PI*2); ctx.fill();
+      // Spokes
+      ctx.strokeStyle = bc.spoke;
+      ctx.lineWidth = 1;
+      for (let s = 0; s < spokes; s++) {
+        const a = wheelSpin + (s / spokes) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(wx + Math.cos(a) * wheelR * 0.28, wy + Math.sin(a) * wheelR * 0.28);
+        ctx.lineTo(wx + Math.cos(a) * wheelR * 0.88, wy + Math.sin(a) * wheelR * 0.88);
+        ctx.stroke();
       }
-      // Mane strip
-      ctx.fillStyle = hc.mane;
-      if (headDir === 'up' || headDir === 'down') {
-        ctx.fillRect(hx + 1, hy, 2, hH);
-      } else {
-        ctx.fillRect(hx, hy + 1, hW, 2);
-      }
+      // Rim highlight
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(wx - 1, wy - 1, wheelR * 0.9, Math.PI*1.1, Math.PI*1.8); ctx.stroke();
     };
 
-    const drawWagon = (wx, wy) => {
-      if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 5; }
-      // Body
+    const drawWagonBody = (wx, wy) => {
+      if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
+      const by = wy + bounce;
+      // Side shading (left darker)
       ctx.fillStyle = bc.body;
-      ctx.fillRect(wx, wy, wW, wH);
-      // T1+: canvas cover strip across top of wagon
-      if (packTier >= 1) {
-        // T1=cream, T2=orange, T3=gold, T4=bright gold
-        const roofColors = ['', '#d4c08a', '#e07820', '#d4af37', '#ffd700'];
-        ctx.fillStyle = roofColors[Math.min(packTier, 4)];
-        ctx.fillRect(wx, wy, wW, Math.max(3, Math.round(wH * 0.3)));
+      ctx.fillRect(wx, by, wW, wH);
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(wx, by, 3, wH);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(wx + wW - 3, by, 3, wH);
+      // Plank lines
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.lineWidth = 0.5;
+      for (let pl = 3; pl < wH - 1; pl += 3) {
+        ctx.beginPath(); ctx.moveTo(wx+1, by+pl); ctx.lineTo(wx+wW-1, by+pl); ctx.stroke();
       }
-      // T2+: window dot each side
+      // Roof/canopy
+      ctx.fillStyle = bc.roof;
+      if (packTier === 0) {
+        // Flat plank roof
+        ctx.fillRect(wx - 1, by - wRoofH, wW + 2, wRoofH);
+        ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
+        ctx.strokeRect(wx - 1, by - wRoofH, wW + 2, wRoofH);
+      } else {
+        // Arched canvas canopy
+        ctx.beginPath();
+        ctx.moveTo(wx - 1, by);
+        ctx.bezierCurveTo(wx - 1, by - wRoofH * 1.6, wx + wW + 1, by - wRoofH * 1.6, wx + wW + 1, by);
+        ctx.fillStyle = bc.roof;
+        ctx.fill();
+        ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      // Cargo pack on top (T2+)
       if (packTier >= 2) {
-        ctx.fillStyle = 'rgba(20,10,5,0.7)';
-        ctx.fillRect(wx + 2, wy + 3, 3, 3);
-        ctx.fillRect(wx + wW - 5, wy + 3, 3, 3);
+        ctx.fillStyle = 'rgba(100,70,30,0.6)';
+        ctx.fillRect(wx + 2, by - wRoofH - 3, wW - 4, 3);
+        ctx.strokeStyle = bc.trim; ctx.lineWidth = 0.5;
+        ctx.strokeRect(wx + 2, by - wRoofH - 3, wW - 4, 3);
       }
-      // T4: gilded side panels
+      // T4 gold side rails
       if (packTier === 4) {
-        ctx.fillStyle = 'rgba(255,215,0,0.35)';
-        ctx.fillRect(wx, wy + 3, 2, wH - 3);
-        ctx.fillRect(wx + wW - 2, wy + 3, 2, wH - 3);
+        ctx.fillStyle = 'rgba(255,215,0,0.5)';
+        ctx.fillRect(wx, by + 2, 2, wH - 4);
+        ctx.fillRect(wx + wW - 2, by + 2, 2, wH - 4);
       }
-      // Trim outline
+      // Player identity stripe
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillRect(wx + wW/2 - 2, by + wH - 3, 4, 3);
+      // Trim border
       ctx.shadowBlur = 0;
       ctx.strokeStyle = bc.trim;
       ctx.lineWidth = packTier >= 3 ? 1.5 : 1;
-      ctx.strokeRect(wx, wy, wW, wH);
-      // Player identity stripe (purple)
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(wx + wW/2 - 2, wy + wH - 3, 4, 3);
+      ctx.strokeRect(wx, by, wW, wH);
     };
 
-    // Harness line from wagon to horse
     const drawHarness = (x1, y1, x2, y2) => {
-      ctx.strokeStyle = bootsTier >= 3 ? '#d4af37' : '#5a3010';
+      ctx.strokeStyle = bootsTier >= 3 ? '#d4af37' : '#5a3820';
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      // Two reins
+      ctx.beginPath();
+      ctx.moveTo(x1, y1 - 1); ctx.lineTo(x2, y2 - 1);
+      ctx.moveTo(x1, y1 + 1); ctx.lineTo(x2, y2 + 1);
+      ctx.stroke();
     };
 
-    // Layout depends on direction
-    // CENTER of sprite at (0,0); horse in travel direction, wagon behind
-    const gap = 2; // gap between horse and wagon
-    if (dir === 'DOWN') {
-      // Horse above (y negative), wagon below
-      const hx = -hW/2;
-      const hy = -hH - gap - wH/2;
-      const wx = -wW/2;
-      const wy = -wH/2;
-      drawWagon(wx, wy);
-      drawHarness(0, wy, 0, hy + hH);
-      drawHorse(hx, hy, 'down');
-    } else if (dir === 'UP') {
-      // Wagon above, horse below (facing up)
-      const wx = -wW/2;
-      const wy = -wH/2;
-      const hx = -hW/2;
-      const hy = wH/2 + gap;
-      drawWagon(wx, wy);
-      drawHarness(0, wy + wH, 0, hy);
-      drawHorse(hx, hy, 'up');
-    } else if (dir === 'RIGHT') {
-      // Horse to the right, wagon to the left
-      const wy = -wH/2;
-      const wx = -wW/2 - gap/2 - hW/2;
-      const hx = wW/2 + gap/2;
-      const hy = -hH/2;
-      drawWagon(wx - wW/2, wy);
-      drawHarness(wx, 0, hx, hy + hH/2);
-      drawHorse(hx, hy, 'right');
-    } else { // LEFT
-      // Horse to the left, wagon to the right
-      const wy = -wH/2;
-      const wx = hW/2 + gap/2;
-      const hx = -hW/2 - gap/2 - wW/2;
-      const hy = -hH/2;
-      drawWagon(wx, wy);
-      drawHarness(wx, 0, hx + hW, hy + hH/2);
-      drawHorse(hx, hy, 'left');
+    // ── Horse drawing: proper arc-based body ───────────────────────────
+    // dir = which direction the horse is walking toward
+    // pos (hx,hy) = center of horse body
+    const drawHorse = (hcx, hcy, dir) => {
+      const legPhase1 = moving ? Math.sin(phase * 2) * legLen * 0.5 : 0;
+      const legPhase2 = moving ? Math.sin(phase * 2 + Math.PI) * legLen * 0.5 : 0;
+
+      // Horiz or vert stance
+      const horiz = (dir === 'RIGHT' || dir === 'LEFT');
+      const flip   = dir === 'LEFT' ? -1 : 1;
+
+      ctx.save();
+      ctx.translate(hcx, hcy);
+      if (horiz && dir === 'LEFT') ctx.scale(-1, 1);
+
+      if (hc.glow) { ctx.shadowColor = '#a0d8ff'; ctx.shadowBlur = 10; }
+
+      if (horiz) {
+        // Side-view horse
+        // Body ellipse
+        ctx.fillStyle = hc.belly;
+        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.9, hH * 0.45, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = hc.body;
+        ctx.beginPath(); ctx.ellipse(-1, -1, hW * 0.82, hH * 0.38, -0.15, 0, Math.PI*2); ctx.fill();
+        // Neck + head
+        ctx.fillStyle = hc.body;
+        ctx.beginPath();
+        ctx.moveTo(hW * 0.6, -hH * 0.3);
+        ctx.bezierCurveTo(hW * 0.9, -hH * 0.7, hW * 1.3, -hH * 0.8, hW * 1.5, -hH * 0.5);
+        ctx.bezierCurveTo(hW * 1.4, -hH * 0.2, hW * 0.9, -hH * 0.1, hW * 0.6, -hH * 0.1);
+        ctx.fill();
+        // Head
+        ctx.fillStyle = hc.body;
+        ctx.beginPath(); ctx.ellipse(hW * 1.55, -hH * 0.55, hW * 0.32, hH * 0.22, -0.3, 0, Math.PI*2); ctx.fill();
+        // Nose/muzzle
+        ctx.fillStyle = hc.nose;
+        ctx.beginPath(); ctx.ellipse(hW * 1.75, -hH * 0.48, hW * 0.14, hH * 0.12, 0.2, 0, Math.PI*2); ctx.fill();
+        // Eye
+        ctx.fillStyle = '#1a0a00';
+        ctx.beginPath(); ctx.arc(hW * 1.45, -hH * 0.65, 1.2, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.beginPath(); ctx.arc(hW * 1.45 + 0.4, -hH * 0.65 - 0.4, 0.4, 0, Math.PI*2); ctx.fill();
+        // Mane
+        ctx.fillStyle = hc.mane;
+        ctx.beginPath();
+        ctx.moveTo(hW * 0.6, -hH * 0.3);
+        ctx.bezierCurveTo(hW * 0.7, -hH * 0.9, hW * 1.1, -hH * 0.95, hW * 1.3, -hH * 0.7);
+        ctx.lineWidth = 2.5; ctx.strokeStyle = hc.mane; ctx.stroke();
+        // Tail
+        ctx.strokeStyle = hc.mane; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-hW * 0.85, -hH * 0.1);
+        ctx.bezierCurveTo(-hW * 1.2, hH * 0.2, -hW * 1.1, hH * 0.5, -hW * 0.9, hH * 0.6);
+        ctx.stroke();
+        // Legs (4 — side view shows 2 pairs offset)
+        ctx.lineWidth = 2; ctx.strokeStyle = hc.dark; ctx.lineCap = 'round';
+        // Back legs
+        ctx.beginPath();
+        ctx.moveTo(-hW * 0.45, hH * 0.38);
+        ctx.lineTo(-hW * 0.45 + legPhase1 * 0.4, hH * 0.38 + legLen * 0.5);
+        ctx.lineTo(-hW * 0.35 + legPhase1 * 0.6, hH * 0.38 + legLen);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-hW * 0.15, hH * 0.38);
+        ctx.lineTo(-hW * 0.15 + legPhase2 * 0.4, hH * 0.38 + legLen * 0.5);
+        ctx.lineTo(-hW * 0.05 + legPhase2 * 0.6, hH * 0.38 + legLen);
+        ctx.stroke();
+        // Front legs
+        ctx.beginPath();
+        ctx.moveTo(hW * 0.25, hH * 0.35);
+        ctx.lineTo(hW * 0.25 + legPhase2 * 0.4, hH * 0.35 + legLen * 0.5);
+        ctx.lineTo(hW * 0.35 + legPhase2 * 0.6, hH * 0.35 + legLen);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(hW * 0.5, hH * 0.32);
+        ctx.lineTo(hW * 0.5 + legPhase1 * 0.4, hH * 0.32 + legLen * 0.5);
+        ctx.lineTo(hW * 0.6 + legPhase1 * 0.6, hH * 0.32 + legLen);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+
+      } else {
+        // Top-down / rear view horse (UP/DOWN)
+        const yscale = dir === 'DOWN' ? 1 : -1;
+        ctx.scale(1, yscale);
+        // Body oval
+        ctx.fillStyle = hc.belly;
+        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.45, hH * 0.5, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = hc.body;
+        ctx.beginPath(); ctx.ellipse(0, -hH * 0.05, hW * 0.38, hH * 0.44, 0, 0, Math.PI*2); ctx.fill();
+        // Neck/head (pointing down = toward viewer)
+        ctx.fillStyle = hc.body;
+        ctx.beginPath(); ctx.ellipse(0, hH * 0.5, hW * 0.25, hH * 0.18, 0, 0, Math.PI*2); ctx.fill();
+        // Muzzle
+        ctx.fillStyle = hc.nose;
+        ctx.beginPath(); ctx.ellipse(0, hH * 0.65, hW * 0.16, hH * 0.1, 0, 0, Math.PI*2); ctx.fill();
+        // Mane line
+        ctx.strokeStyle = hc.mane; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, -hH*0.42); ctx.lineTo(0, hH*0.2); ctx.stroke();
+        // Legs (4 corners)
+        ctx.strokeStyle = hc.dark; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        const pairs = [[-hW*0.38, hH*0.2 + legPhase1], [hW*0.38, hH*0.2 + legPhase2],
+                       [-hW*0.38, -hH*0.35 + legPhase2],[hW*0.38, -hH*0.35 + legPhase1]];
+        for (const [lx, ly] of pairs) {
+          ctx.beginPath(); ctx.moveTo(lx * 0.6, ly - 2); ctx.lineTo(lx, ly + legLen); ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    };
+
+    // ── Dust particles when moving ──────────────────────────────────────
+    if (moving) {
+      const dustCount = 3;
+      for (let d = 0; d < dustCount; d++) {
+        const dustPhase = ((t * 0.003 + d * 0.33) % 1);
+        const dustAlpha = (1 - dustPhase) * 0.35;
+        const dustR = dustPhase * 5;
+        // Dust trails behind carriage direction
+        let dox = 0, doy = 0;
+        if (dir === 'RIGHT') dox = -wW * 0.7 - dustPhase * 8;
+        else if (dir === 'LEFT') dox = wW * 0.7 + dustPhase * 8;
+        else if (dir === 'DOWN') doy = -wH - dustPhase * 8;
+        else doy = wH + dustPhase * 8;
+        const jx = (Math.sin(d * 2.3 + t * 0.01) * 4);
+        const jy = (Math.cos(d * 1.7 + t * 0.01) * 3);
+        ctx.save();
+        ctx.globalAlpha = dustAlpha;
+        ctx.fillStyle = '#c8b090';
+        ctx.beginPath(); ctx.arc(dox + jx, doy + jy, dustR, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // ── Ground shadow ───────────────────────────────────────────────────
+    ctx.globalAlpha = 0.20;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 8, 14 + packTier * 2, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // ── Layout: horse in travel direction, wagon behind ─────────────────
+    const gap = 3;
+    if (dir === 'RIGHT') {
+      const hcx = wW/2 + gap + hW * 0.9;
+      const hcy = bounce;
+      // Wheels (behind wagon body)
+      drawWheel(-wW/2 + wheelR * 0.6, wH/2 + wheelR * 0.3);
+      drawWheel(wW/2  - wheelR * 0.6, wH/2 + wheelR * 0.3);
+      drawWagonBody(-wW/2, -wH/2);
+      drawHarness(wW/2, bounce, hcx - hW * 0.85, bounce * 0.5);
+      drawHorse(hcx, hcy, 'RIGHT');
+    } else if (dir === 'LEFT') {
+      const hcx = -(wW/2 + gap + hW * 0.9);
+      const hcy = bounce;
+      drawWheel(-wW/2 + wheelR * 0.6, wH/2 + wheelR * 0.3);
+      drawWheel(wW/2  - wheelR * 0.6, wH/2 + wheelR * 0.3);
+      drawWagonBody(-wW/2, -wH/2);
+      drawHarness(-wW/2, bounce, hcx + hW * 0.85, bounce * 0.5);
+      drawHorse(hcx, hcy, 'LEFT');
+    } else if (dir === 'DOWN') {
+      const horse_y = -(hH * 0.5 + gap + wH/2);
+      drawWheel(-wW/2 + wheelR * 0.5, 0);
+      drawWheel( wW/2 - wheelR * 0.5, 0);
+      drawWagonBody(-wW/2, -wH/2 + bounce);
+      drawHarness(0, -wH/2 + bounce, 0, horse_y + hH * 0.45);
+      drawHorse(0, horse_y, 'DOWN');
+    } else { // UP
+      const horse_y = hH * 0.5 + gap + wH/2;
+      drawWheel(-wW/2 + wheelR * 0.5, 0);
+      drawWheel( wW/2 - wheelR * 0.5, 0);
+      drawWagonBody(-wW/2, -wH/2 + bounce);
+      drawHarness(0, wH/2 + bounce, 0, horse_y - hH * 0.45);
+      drawHorse(0, horse_y, 'UP');
     }
 
     ctx.shadowBlur = 0;
