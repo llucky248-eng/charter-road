@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.18'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.19'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5357,7 +5357,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.18',
+    version: 'v0.4.19',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6641,7 +6641,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.18',
+      buildVersion: 'v0.4.19',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7882,6 +7882,18 @@ function drawNpcBubble() {
   // Building tile IDs that get a 3D raised top face drawn above their grid row.
   const BUILDING_TILE_IDS = new Set([6, 7, 8, 12, 14, 15, 16]);
 
+  // Label + accent color for each building type — used for the facade banner sign
+  const BUILDING_META = {
+    6:  { label: 'Market',     accent: '#fbbf24', signBg: '#92400e' },
+    7:  { label: 'Tavern',     accent: '#fdba74', signBg: '#7c2d12' },
+    8:  { label: 'Warehouse',  accent: '#c4b5fd', signBg: '#3730a3' },
+    12: { label: 'Contracts',  accent: '#93c5fd', signBg: '#1e3a5f' },
+    13: { label: 'Bank',       accent: '#fde68a', signBg: '#78350f' },
+    14: { label: 'Inn',        accent: '#fca5a5', signBg: '#7f1d1d' },
+    15: { label: 'Guild Hall', accent: '#86efac', signBg: '#14532d' },
+    16: { label: 'Vacant',     accent: '#9ca3af', signBg: '#374151' },
+  };
+
   // Draw the raised "wall face" above a building tile so buildings look taller
   // than the player. Only called for the top row of a building block (no tile
   // of the same id directly above), to avoid stacking rise on every floor.
@@ -8531,11 +8543,59 @@ function drawNpcBubble() {
         ctx.fillRect(dx + doorW - 5, dy + Math.round(doorH * 0.55), 3, 3);
       }
 
-      // ── Building type badge (awning / sign strip at top of wall) ──
-      ctx.fillStyle = roofFace;
-      ctx.fillRect(bx + 3, by + 3, bw - 6, Math.round(TILE * 0.45));
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.fillRect(bx + 4, by + 4, bw - 8, 2);
+      // ── Hanging sign / banner with building name ──────────────────────
+      const meta = BUILDING_META[type];
+      if (meta) {
+        const signH    = Math.max(10, Math.round(TILE * 0.85));
+        const signPadX = Math.round(TILE * 0.35);
+        const signW    = Math.min(bw - signPadX * 2, bw * 0.82);
+        const signX    = bx + Math.round((bw - signW) / 2);
+        // Hang the sign from the top of the wall face (just below the roof rise)
+        const signY    = by + Math.round(TILE * 0.18);
+
+        // Hanging rope/chains (two short lines from roof to sign corners)
+        ctx.strokeStyle = 'rgba(100,80,40,0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(signX + signW * 0.2, signY);
+        ctx.lineTo(signX + signW * 0.2, signY - 4);
+        ctx.moveTo(signX + signW * 0.8, signY);
+        ctx.lineTo(signX + signW * 0.8, signY - 4);
+        ctx.stroke();
+
+        // Sign board background
+        ctx.fillStyle = meta.signBg;
+        ctx.fillRect(signX, signY, signW, signH);
+
+        // Sign board inner bevel (lighter top-left, darker bottom-right)
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(signX + 1, signY + 1, signW - 2, 2);
+        ctx.fillRect(signX + 1, signY + 1, 2, signH - 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(signX + 1, signY + signH - 2, signW - 2, 1);
+        ctx.fillRect(signX + signW - 2, signY + 1, 1, signH - 2);
+
+        // Sign text
+        const fontSize = Math.max(7, Math.min(11, Math.round(signH * 0.62)));
+        ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Text shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillText(meta.label, signX + signW / 2 + 1, signY + signH / 2 + 1);
+        // Text
+        ctx.fillStyle = meta.accent;
+        ctx.fillText(meta.label, signX + signW / 2, signY + signH / 2);
+
+        ctx.textBaseline = 'alphabetic';
+        ctx.textAlign = 'left';
+
+        // Sign border
+        ctx.strokeStyle = 'rgba(180,140,60,0.55)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(signX + 0.5, signY + 0.5, signW - 1, signH - 1);
+      }
 
       // ── Outer wall border ──
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
@@ -10700,7 +10760,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     // draw
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     drawWorld();
-    drawBuildingLabels();
+    // Building labels are now baked into drawBuildingSprites() as facade banners.
     drawEntities();
     for (const t of AI_TRADERS) drawAiTrader(t);
     drawTraderBubbles();
