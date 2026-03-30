@@ -2087,20 +2087,20 @@ function handleGlobalHudTap(clientX, clientY, e) {
       { id: 'trade_charter',      name: 'Trade Charter',      icon: '📜', desc: 'Royal charter. No one lowballs you. +12%',           cost: 1100,    sellBonus: 0.12 },
       { id: 'golden_abacus',      name: 'Golden Abacus',      icon: '🧮', desc: 'Every calculation in your favor. +16%',              cost: 2200,    sellBonus: 0.16 },
       { id: 'silk_tongue',        name: 'Silk Tongue',        icon: '🗣️', desc: 'Words worth gold. +20%',                             cost: 4000,    sellBonus: 0.20 },
-      { id: 'market_oracle',      name: 'Market Oracle',      icon: '🔮', desc: "Sees the best deal before it's offered. +24%",       cost: 7000,    sellBonus: 0.24 },
-      { id: 'guild_master_seal',  name: 'Guildmaster Seal',   icon: '⚜️', desc: 'Highest guild rank. +28%',                           cost: 12000,   sellBonus: 0.28 },
-      { id: 'royal_warrant',      name: 'Royal Warrant',      icon: '📋', desc: 'Signed by the crown. +32%',                          cost: 20000,   sellBonus: 0.32 },
-      { id: 'spice_calculator',   name: 'Spice Calculator',   icon: '🌶️', desc: 'Ancient merchant tool. +36%',                        cost: 32000,   sellBonus: 0.36 },
-      { id: 'diamond_ledger',     name: 'Diamond Ledger',     icon: '💎', desc: 'Diamond-inlaid. Inspires trust. +40%',               cost: 52000,   sellBonus: 0.40 },
-      { id: 'master_scale',       name: 'Master Scale',       icon: '⚖️', desc: 'Perfectly calibrated. +44%',                         cost: 85000,   sellBonus: 0.44 },
-      { id: 'arcane_ledger',      name: 'Arcane Ledger',      icon: '📖', desc: 'Self-updating. Never wrong. +48%',                   cost: 135000,  sellBonus: 0.48 },
-      { id: 'golden_tongue',      name: 'Golden Tongue',      icon: '💬', desc: 'Words turn to gold. +52%',                           cost: 210000,  sellBonus: 0.52 },
-      { id: 'prophecy_scroll',    name: 'Prophecy Scroll',    icon: '📿', desc: 'Predicts market prices. +56%',                       cost: 330000,  sellBonus: 0.56 },
-      { id: 'void_contract',      name: 'Void Contract',      icon: '🌀', desc: 'Binding across dimensions. +60%',                    cost: 520000,  sellBonus: 0.60 },
-      { id: 'time_ledger',        name: 'Time Ledger',        icon: '⏳', desc: 'Prices from the future. +64%',                       cost: 820000,  sellBonus: 0.64 },
-      { id: 'cosmic_deal',        name: 'Cosmic Deal',        icon: '🌟', desc: 'Universe agrees. +68%',                              cost: 1300000, sellBonus: 0.68 },
-      { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +72%',            cost: 2000000, sellBonus: 0.72 },
-      { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +75%',                 cost: 3200000, sellBonus: 0.75 },
+      { id: 'market_oracle',      name: 'Market Oracle',      icon: '🔮', desc: "Sees the best deal before it's offered. +24%",       cost: 6500,    sellBonus: 0.24 },
+      { id: 'guild_master_seal',  name: 'Guildmaster Seal',   icon: '⚜️', desc: 'Highest guild rank. +28%',                           cost: 10000,   sellBonus: 0.28 },
+      { id: 'royal_warrant',      name: 'Royal Warrant',      icon: '📋', desc: 'Signed by the crown. +32%',                          cost: 15000,   sellBonus: 0.32 },
+      { id: 'spice_calculator',   name: 'Spice Calculator',   icon: '🌶️', desc: 'Ancient merchant tool. +36%',                        cost: 22000,   sellBonus: 0.36 },
+      { id: 'diamond_ledger',     name: 'Diamond Ledger',     icon: '💎', desc: 'Diamond-inlaid. Inspires trust. +40%',               cost: 32000,   sellBonus: 0.40 },
+      { id: 'master_scale',       name: 'Master Scale',       icon: '⚖️', desc: 'Perfectly calibrated. +44%',                         cost: 46000,   sellBonus: 0.44 },
+      { id: 'arcane_ledger',      name: 'Arcane Ledger',      icon: '📖', desc: 'Self-updating. Never wrong. +48%',                   cost: 65000,   sellBonus: 0.48 },
+      { id: 'golden_tongue',      name: 'Golden Tongue',      icon: '💬', desc: 'Words turn to gold. +52%',                           cost: 77000,   sellBonus: 0.52 },
+      { id: 'prophecy_scroll',    name: 'Prophecy Scroll',    icon: '📿', desc: 'Predicts market prices. +56%',                       cost: 90000,   sellBonus: 0.56 },
+      { id: 'void_contract',      name: 'Void Contract',      icon: '🌀', desc: 'Binding across dimensions. +60%',                    cost: 105000,  sellBonus: 0.60 },
+      { id: 'time_ledger',        name: 'Time Ledger',        icon: '⏳', desc: 'Prices from the future. +64%',                       cost: 120000,  sellBonus: 0.64 },
+      { id: 'cosmic_deal',        name: 'Cosmic Deal',        icon: '🌟', desc: 'Universe agrees. +68%',                              cost: 140000,  sellBonus: 0.68 },
+      { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +72%',            cost: 158000,  sellBonus: 0.72 },
+      { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +75%',                 cost: 175000,  sellBonus: 0.75 },
     ],
   };
 
@@ -2474,7 +2474,7 @@ const NPC_INTERACT_RADIUS = 18;
     { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },  // mid-tier, good margins when specced
     { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },  // mid-game tier
     { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy - late-game route
-    { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink' },  // contraband
+    { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink', sourceCities: ['ironholt','crosshaven'] },  // contraband; only profitable when sourced from ironholt/crosshaven
   ];
 
   // --- Market model (minimal, deterministic)
@@ -2535,7 +2535,7 @@ const NPC_INTERACT_RADIUS = 18;
     // Optimistically update local cache immediately
     if (!ECONOMY.pressure[cityId]) ECONOMY.pressure[cityId] = {};
     const delta = (direction === 'buy' ? qty : -qty) * 0.02;
-    ECONOMY.pressure[cityId][itemId] = Math.max(-0.5, Math.min(0.5,
+    ECONOMY.pressure[cityId][itemId] = Math.max(-0.25, Math.min(0.25,
       (ECONOMY.pressure[cityId][itemId] || 0) + delta
     ));
     // Push to server async
@@ -2549,7 +2549,8 @@ const NPC_INTERACT_RADIUS = 18;
   // Get economy price modifier for a city/item (1.0 = no effect)
   function economyModifier(cityId, itemId) {
     const p = ECONOMY.pressure[cityId]?.[itemId] || 0;
-    // pressure +0.5 → price ×1.5, pressure -0.5 → price ×0.67
+    // pressure clamped to ±0.25: max +0.25 → price ×1.25, max -0.25 → price ×0.75
+    // Halved from ±0.5 to prevent heavy trade from completely collapsing a route.
     return 1 + p;
   }
 
@@ -2864,12 +2865,13 @@ const NPC_INTERACT_RADIUS = 18;
     const it = ITEMS.find(x => x.id === want);
     const base = it ? it.base : 20;
     // Best single-route margin per unit for this item (approximate — used as reference)
+    // Tuned so net contract profit (reward - buy cost) is ~1.5-4.5× free trade margin.
     const bestMarginRef = {
-      grain: 3, food: 4, ore: 9, herbs: 4, potion: 8, relic: 14, ink: 13,
+      grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13,
     }[want] || 5;
-    // Contract pays: buy cost (at cheapest city ≈ base * 0.85) + best margin * 1.6 per unit
+    // Contract pays: buy cost (at cheapest city ≈ base * 0.85) + best margin * 1.2 per unit
     const buyCostRef = Math.round(base * 0.88);
-    const deliveryPremium = Math.round(bestMarginRef * 1.6); // 60% above best free margin
+    const deliveryPremium = Math.round(bestMarginRef * 1.2); // 20% above best free margin (down from 60%)
     const perUnit = buyCostRef + deliveryPremium;
     // qty multiplier: diminishing — each extra unit adds 75% of per-unit value
     const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.75 : 2.35;
@@ -5178,8 +5180,8 @@ function drawNpcBubble() {
       const pressureBoost = state.hunger * 0.4;
       if (pressureBoost > 0.02) {
         if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
-        ECONOMY.pressure[cid]['food']  = Math.min(0.5, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
-        ECONOMY.pressure[cid]['grain'] = Math.min(0.5, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
+        ECONOMY.pressure[cid]['food']  = Math.min(0.25, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
+        ECONOMY.pressure[cid]['grain'] = Math.min(0.25, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
       }
       // Natural growth/decline
       if (state.hunger < 0.2) {
@@ -5614,6 +5616,11 @@ function drawNpcBubble() {
     const p = ui.mode === 'buy' ? _q.buy : _q.sell; // buy at ask, sell at bid
 
     if (ui.mode === 'buy') {
+      // Block buying items that have a sourceCities restriction in non-source cities.
+      if (it.sourceCities && !it.sourceCities.includes(c.id)) {
+        toast(`${it.name} is not available here.`, 2);
+        return;
+      }
       const w = invWeight();
       const free = Math.max(0, player.capacity - w);
       const maxBySpace = it.weight > 0 ? Math.floor(free / it.weight) : 0;
@@ -5782,11 +5789,13 @@ function drawNpcBubble() {
         const sellPrice = isPermitRow ? null : _quote.sell;      // display sell price = bid
         const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
+        const notAvailHere = (!isPermitRow) && it.sourceCities && !it.sourceCities.includes(c.id);
 
         const title = isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name;
         const sub = isPermitRow ? 'Reduces inspections in this city' : `Have: ${have} · Wt: ${it.weight}`;
         const right = isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`;
         const badge = contra ? '<span class="cr-badge">CONTRABAND</span>' : '';
+        const notAvailBadge = notAvailHere ? '<span class="cr-badge" style="background:#444;color:#999">NOT STOCKED</span>' : '';
 
         // Enriched price info for regular items
         const deltaPct = isPermitRow ? 0 : Math.round(((_quote.mid - it.base) / it.base) * 100);
@@ -5822,7 +5831,7 @@ function drawNpcBubble() {
 
           if (isMobile) {
             const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
-            const disabled = ui.mode === 'buy' ? (maxBuy <= 0) : (have <= 0);
+            const disabled = ui.mode === 'buy' ? (maxBuy <= 0 || notAvailHere) : (have <= 0);
             const btn = `<button class="cr-action" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
@@ -5830,7 +5839,7 @@ function drawNpcBubble() {
                   <div class="cr-card-title">${htmlEscape(title)}</div>
                   <div class="cr-card-sub">${htmlEscape(sub)}</div>
                   ${priceRowHtml}
-                  ${badge}
+                  ${badge}${notAvailBadge}
                 </div>
                 <div class="cr-right">
                   ${deltaHtml}
@@ -5842,9 +5851,10 @@ function drawNpcBubble() {
             const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
             const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
 
-            const q1 = mkBtn('±1', 1, false);
-            const q5 = mkBtn('±5', 5, maxBuy < 5);
-            const qMax = mkBtn(ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, maxBuy <= 0);
+            const buyDisabled = notAvailHere || maxBuy <= 0;
+            const q1 = mkBtn('±1', 1, ui.mode === 'buy' ? buyDisabled : have <= 0);
+            const q5 = mkBtn('±5', 5, ui.mode === 'buy' ? (buyDisabled || maxBuy < 5) : have < 5);
+            const qMax = mkBtn(ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, ui.mode === 'buy' ? buyDisabled : have <= 0);
 
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
@@ -5852,7 +5862,7 @@ function drawNpcBubble() {
                   <div class="cr-card-title">${htmlEscape(title)}</div>
                   <div class="cr-card-sub">${htmlEscape(sub)}</div>
                   ${priceRowHtml}
-                  ${badge}
+                  ${badge}${notAvailBadge}
                 </div>
                 <div class="cr-right">
                   ${deltaHtml}
@@ -10418,37 +10428,39 @@ if (showTabs) {
         const price = isPermitRow ? PERMIT_PRICE : (ui.mode === 'buy' ? _mq.buy : _mq.sell);
         const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
+        const notAvailHereCanvas = (!isPermitRow) && it.sourceCities && !it.sourceCities.includes(c.id);
         const hasPermit = !!player.permits[c.id];
 
         // name
-        ctx.fillStyle = '#2a1f14';
+        ctx.fillStyle = notAvailHereCanvas ? '#888' : '#2a1f14';
         ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 20);
 
         // price (right)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : `${price}g`, sheetX + sheetW - 16, cardY + 20);
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 20);
         ctx.textAlign = 'left';
 
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : `You have: ${have} · Weight: ${it.weight}`, innerX, cardY + 42);
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : (notAvailHereCanvas ? 'Not stocked here · Sell only' : `You have: ${have} · Weight: ${it.weight}`), innerX, cardY + 42);
 
 // action button
 const btnY = cardY + cardH - btnH - btnPad;
 const btnX = sheetX + btnInset;
 const btnW = sheetW - btnInset * 2;
-ctx.fillStyle = ui.mode === 'buy' ? 'rgba(34,197,94,0.18)' : 'rgba(59,130,246,0.18)';
-ctx.strokeStyle = ui.mode === 'buy' ? 'rgba(34,197,94,0.6)' : 'rgba(59,130,246,0.6)';
+const btnDisabled = notAvailHereCanvas && ui.mode === 'buy';
+ctx.fillStyle = btnDisabled ? 'rgba(100,100,100,0.18)' : (ui.mode === 'buy' ? 'rgba(34,197,94,0.18)' : 'rgba(59,130,246,0.18)');
+ctx.strokeStyle = btnDisabled ? 'rgba(100,100,100,0.4)' : (ui.mode === 'buy' ? 'rgba(34,197,94,0.6)' : 'rgba(59,130,246,0.6)');
 ctx.beginPath();
 if (ctx.roundRect) ctx.roundRect(btnX, btnY, btnW, btnH, 10);
 else ctx.rect(btnX, btnY, btnW, btnH);
 ctx.fill();
 ctx.stroke();
-ctx.fillStyle = ui.mode === 'buy' ? '#166534' : '#1d4ed8';
+ctx.fillStyle = btnDisabled ? '#888' : (ui.mode === 'buy' ? '#166534' : '#1d4ed8');
 ctx.font = `900 ${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-const actLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
+const actLabel = btnDisabled ? 'N/A' : (ui.mode === 'buy' ? 'BUY' : 'SELL');
 const actW = ctx.measureText(actLabel).width;
 ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE));
 
