@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.21'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.22'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2033,29 +2033,74 @@ function handleGlobalHudTap(clientX, clientY, e) {
   // ── GEAR SYSTEM ─────────────────────────────────────────────────────────────
   // Three upgrade slots: pack (capacity), boots (speed), tool (trade bonus)
   const GEAR = {
-    // Pack - cargo capacity, carriage body grows
+    // Pack - cargo capacity (T0–T19), carriage visual caps at T4
     pack: [
-      { id: 'satchel',        name: 'Satchel',           icon: '🎒', desc: 'A worn cloth bag. Fits barely anything.',         cost: 0,    capacity: 18 },
-      { id: 'traders_pack',   name: "Trader's Pack",     icon: '🗃️', desc: 'Leather-bound. Room to breathe.',                 cost: 120,  capacity: 28 },
-      { id: 'merchant_cart',  name: 'Merchant Cart',     icon: '🛒', desc: 'A proper hand-cart. Serious haul.',               cost: 350,  capacity: 42 },
-      { id: 'cargo_wagon',    name: 'Cargo Wagon',       icon: '🪵', desc: 'Reinforced wagon bed. Double the goods.',         cost: 800,  capacity: 60 },
-      { id: 'royal_carriage', name: 'Royal Carriage',    icon: '👑', desc: 'Gold-trimmed. Built for a merchant lord.',        cost: 2000, capacity: 85 },
+      { id: 'satchel',          name: 'Satchel',            icon: '🎒', desc: 'A worn cloth bag. Fits barely anything.',              cost: 0,       capacity: 18   },
+      { id: 'traders_pack',     name: "Trader's Pack",      icon: '🗃️', desc: 'Leather-bound. Room to breathe.',                      cost: 120,     capacity: 26   },
+      { id: 'merchant_cart',    name: 'Merchant Cart',      icon: '🛒', desc: 'A proper hand-cart. Serious haul.',                    cost: 300,     capacity: 36   },
+      { id: 'cargo_wagon',      name: 'Cargo Wagon',        icon: '🪵', desc: 'Reinforced wagon bed. Double the goods.',              cost: 700,     capacity: 50   },
+      { id: 'royal_carriage',   name: 'Royal Carriage',     icon: '👑', desc: 'Gold-trimmed. Built for a merchant lord.',             cost: 1500,    capacity: 68   },
+      { id: 'guild_hauler',     name: 'Guild Hauler',       icon: '🏛️', desc: 'Guild-endorsed. Extra cargo permits.',                 cost: 2800,    capacity: 90   },
+      { id: 'iron_strongbox',   name: 'Iron Strongbox',     icon: '⚙️', desc: 'Reinforced iron panels. Built to last.',               cost: 5000,    capacity: 118  },
+      { id: 'silk_caravan',     name: 'Silk Caravan',       icon: '🎪', desc: 'Multiple compartments. Silk-lined.',                   cost: 8500,    capacity: 152  },
+      { id: 'war_chest',        name: 'War Chest',          icon: '🛡️', desc: 'Military-grade storage. No limits.',                   cost: 14000,   capacity: 194  },
+      { id: 'master_wagon',     name: 'Master Wagon',       icon: '🏆', desc: 'Hand-built by master craftsmen.',                      cost: 22000,   capacity: 245  },
+      { id: 'noble_train',      name: 'Noble Train',        icon: '🚂', desc: 'Three wagons chained. Noble convoy.',                  cost: 34000,   capacity: 308  },
+      { id: 'merchant_fleet',   name: 'Merchant Fleet',     icon: '⛵', desc: 'Coordinated pack mules. Massive scale.',               cost: 52000,   capacity: 384  },
+      { id: 'trading_company',  name: 'Trading Company',    icon: '🏢', desc: 'Full company logistics. Unstoppable.',                 cost: 80000,   capacity: 475  },
+      { id: 'royal_train',      name: 'Royal Train',        icon: '👸', desc: 'Royal charter. Unlimited royal pass.',                 cost: 120000,  capacity: 583  },
+      { id: 'grand_caravan',    name: 'Grand Caravan',      icon: '🌟', desc: 'Legendary convoy. All roads bow.',                     cost: 180000,  capacity: 712  },
+      { id: 'dragon_wagon',     name: 'Dragon Wagon',       icon: '🐉', desc: 'Enchanted. Carries the weight of kingdoms.',           cost: 260000,  capacity: 864  },
+      { id: 'arcane_hold',      name: 'Arcane Hold',        icon: '🔮', desc: 'Magical expansion. Space defies physics.',             cost: 380000,  capacity: 1042 },
+      { id: 'void_carriage',    name: 'Void Carriage',      icon: '🌀', desc: 'Pocket dimension. Near-infinite cargo.',               cost: 550000,  capacity: 1250 },
+      { id: 'timeless_vault',   name: 'Timeless Vault',     icon: '⏳', desc: 'Time-locked storage. Legendary artifact.',             cost: 800000,  capacity: 1490 },
+      { id: 'cosmic_hauler',    name: 'Cosmic Hauler',      icon: '🌌', desc: 'Transcendent. Carries entire markets.',                cost: 1200000, capacity: 1760 },
     ],
-    // Boots - travel speed, horse quality
+    // Boots - travel speed (T0–T19), horse visual caps at T4
     boots: [
-      { id: 'worn_boots',   name: 'Worn Boots',       icon: '👞', desc: 'Blistered feet. Gets the job done.',              cost: 0,    speed: 90  },
-      { id: 'road_boots',   name: 'Road Boots',       icon: '👟', desc: 'Sturdy leather. Long-route ready.',              cost: 150,  speed: 115 },
-      { id: 'swift_horse',  name: 'Swift Horse',      icon: '🐴', desc: 'A reliable road horse. Trots all day.',          cost: 500,  speed: 145 },
-      { id: 'war_horse',    name: 'War Horse',        icon: '🏇', desc: 'Trained charger. Blazes any road.',              cost: 1200, speed: 185 },
-      { id: 'phantom_mare', name: 'Phantom Mare',     icon: '⚡', desc: 'A legend on four hooves. Pure speed.',           cost: 3000, speed: 240 },
+      { id: 'worn_boots',       name: 'Worn Boots',         icon: '👞', desc: 'Blistered feet. Gets the job done.',                   cost: 0,       speed: 90    },
+      { id: 'road_boots',       name: 'Road Boots',         icon: '👟', desc: 'Sturdy leather. Long-route ready.',                    cost: 150,     speed: 112   },
+      { id: 'swift_horse',      name: 'Swift Horse',        icon: '🐴', desc: 'A reliable road horse. Trots all day.',                cost: 400,     speed: 138   },
+      { id: 'war_horse',        name: 'War Horse',          icon: '🏇', desc: 'Trained charger. Blazes any road.',                    cost: 900,     speed: 168   },
+      { id: 'phantom_mare',     name: 'Phantom Mare',       icon: '⚡', desc: 'A legend on four hooves. Pure speed.',                 cost: 2000,    speed: 203   },
+      { id: 'wind_rider',       name: 'Wind Rider',         icon: '🌬️', desc: 'Bred for open roads. Never tires.',                   cost: 3800,    speed: 243   },
+      { id: 'thunder_steed',    name: 'Thunder Steed',      icon: '⛈️', desc: 'Hooves like thunder. Roads fear it.',                 cost: 7000,    speed: 288   },
+      { id: 'storm_gallop',     name: 'Storm Gallop',       icon: '🌪️', desc: 'Storm-born speed. Unstoppable force.',                cost: 12000,   speed: 340   },
+      { id: 'celestial_run',    name: 'Celestial Run',      icon: '🌠', desc: 'Blessed by road spirits. Flies low.',                  cost: 20000,   speed: 398   },
+      { id: 'silver_charger',   name: 'Silver Charger',     icon: '🥈', desc: 'Silver-shod. Fastest mortal horse.',                  cost: 32000,   speed: 464   },
+      { id: 'golden_stallion',  name: 'Golden Stallion',    icon: '🥇', desc: 'Gold-plated hooves. Pure legend.',                    cost: 50000,   speed: 538   },
+      { id: 'shadow_sprint',    name: 'Shadow Sprint',      icon: '🌑', desc: 'Shadow-phase travel. Near teleport.',                  cost: 78000,   speed: 621   },
+      { id: 'dragon_mount',     name: 'Dragon Mount',       icon: '🐲', desc: 'Dragon-bonded. Flies over terrain.',                   cost: 120000,  speed: 714   },
+      { id: 'void_strider',     name: 'Void Strider',       icon: '🕳️', desc: 'Steps through mini-voids. No distance.',             cost: 180000,  speed: 818   },
+      { id: 'time_gallop',      name: 'Time Gallop',        icon: '⏰', desc: 'Moves faster than time itself.',                       cost: 270000,  speed: 934   },
+      { id: 'arcane_mount',     name: 'Arcane Mount',       icon: '✨', desc: 'Magical construct. Infinite endurance.',               cost: 400000,  speed: 1062  },
+      { id: 'royal_charger',    name: 'Royal Charger',      icon: '👸', desc: 'Royal bloodline. All gates open.',                    cost: 600000,  speed: 1203  },
+      { id: 'legendary_run',    name: 'Legendary Run',      icon: '🏅', desc: 'Spoken of in every tavern.',                           cost: 900000,  speed: 1358  },
+      { id: 'cosmic_horse',     name: 'Cosmic Horse',       icon: '🌌', desc: 'Constellation-born. Rides starlight.',                 cost: 1300000, speed: 1528  },
+      { id: 'eternal_steed',    name: 'Eternal Steed',      icon: '♾️', desc: 'Never rests. Never stops. Eternal.',                  cost: 2000000, speed: 1714  },
     ],
-    // Tool - sell price bonus
+    // Tool - sell price bonus (T0–T19)
     tool: [
-      { id: 'bare_hands',       name: 'Bare Hands',       icon: '✋', desc: 'You bargain with a shrug.',                     cost: 0,    sellBonus: 0    },
-      { id: 'merchant_ledger',  name: 'Merchant Ledger',  icon: '📒', desc: 'Track prices. Sell for more. +8%',             cost: 200,  sellBonus: 0.08 },
-      { id: 'guild_seal',       name: 'Guild Seal',       icon: '🔖', desc: 'Guild-certified. They pay respect. +15%',      cost: 600,  sellBonus: 0.15 },
-      { id: 'trade_charter',    name: 'Trade Charter',    icon: '📜', desc: 'Royal charter. No one lowballs you. +25%',     cost: 1500, sellBonus: 0.25 },
-      { id: 'golden_abacus',    name: 'Golden Abacus',    icon: '🧮', desc: 'Legendary. Every deal tips your way. +40%',    cost: 4000, sellBonus: 0.40 },
+      { id: 'bare_hands',         name: 'Bare Hands',         icon: '✋', desc: 'You bargain with a shrug.',                           cost: 0,       sellBonus: 0.00 },
+      { id: 'merchant_ledger',    name: 'Merchant Ledger',    icon: '📒', desc: 'Track prices. Sell for more. +4%',                   cost: 200,     sellBonus: 0.04 },
+      { id: 'guild_seal',         name: 'Guild Seal',         icon: '🔖', desc: 'Guild-certified. They pay respect. +8%',             cost: 500,     sellBonus: 0.08 },
+      { id: 'trade_charter',      name: 'Trade Charter',      icon: '📜', desc: 'Royal charter. No one lowballs you. +12%',           cost: 1100,    sellBonus: 0.12 },
+      { id: 'golden_abacus',      name: 'Golden Abacus',      icon: '🧮', desc: 'Every calculation in your favor. +16%',              cost: 2200,    sellBonus: 0.16 },
+      { id: 'silk_tongue',        name: 'Silk Tongue',        icon: '🗣️', desc: 'Words worth gold. +20%',                             cost: 4000,    sellBonus: 0.20 },
+      { id: 'market_oracle',      name: 'Market Oracle',      icon: '🔮', desc: "Sees the best deal before it's offered. +24%",       cost: 7000,    sellBonus: 0.24 },
+      { id: 'guild_master_seal',  name: 'Guildmaster Seal',   icon: '⚜️', desc: 'Highest guild rank. +28%',                           cost: 12000,   sellBonus: 0.28 },
+      { id: 'royal_warrant',      name: 'Royal Warrant',      icon: '📋', desc: 'Signed by the crown. +32%',                          cost: 20000,   sellBonus: 0.32 },
+      { id: 'spice_calculator',   name: 'Spice Calculator',   icon: '🌶️', desc: 'Ancient merchant tool. +36%',                        cost: 32000,   sellBonus: 0.36 },
+      { id: 'diamond_ledger',     name: 'Diamond Ledger',     icon: '💎', desc: 'Diamond-inlaid. Inspires trust. +40%',               cost: 52000,   sellBonus: 0.40 },
+      { id: 'master_scale',       name: 'Master Scale',       icon: '⚖️', desc: 'Perfectly calibrated. +44%',                         cost: 85000,   sellBonus: 0.44 },
+      { id: 'arcane_ledger',      name: 'Arcane Ledger',      icon: '📖', desc: 'Self-updating. Never wrong. +48%',                   cost: 135000,  sellBonus: 0.48 },
+      { id: 'golden_tongue',      name: 'Golden Tongue',      icon: '💬', desc: 'Words turn to gold. +52%',                           cost: 210000,  sellBonus: 0.52 },
+      { id: 'prophecy_scroll',    name: 'Prophecy Scroll',    icon: '📿', desc: 'Predicts market prices. +56%',                       cost: 330000,  sellBonus: 0.56 },
+      { id: 'void_contract',      name: 'Void Contract',      icon: '🌀', desc: 'Binding across dimensions. +60%',                    cost: 520000,  sellBonus: 0.60 },
+      { id: 'time_ledger',        name: 'Time Ledger',        icon: '⏳', desc: 'Prices from the future. +64%',                       cost: 820000,  sellBonus: 0.64 },
+      { id: 'cosmic_deal',        name: 'Cosmic Deal',        icon: '🌟', desc: 'Universe agrees. +68%',                              cost: 1300000, sellBonus: 0.68 },
+      { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +72%',            cost: 2000000, sellBonus: 0.72 },
+      { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +75%',                 cost: 3200000, sellBonus: 0.75 },
     ],
   };
 
@@ -5435,7 +5480,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.21',
+    version: 'v0.4.22',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -5603,7 +5648,7 @@ function drawNpcBubble() {
     const guildBonusMap = [0, 0.05, 0.10, 0.18];
     const guildBonus = playerGuild.joined ? (guildBonusMap[playerGuild.tier] || 0) : 0;
     // Cap combined tool+guild bonus at 40% to prevent exponential late-game income
-    const combinedBonus = Math.min(toolBonus + guildBonus, 0.40);
+    const combinedBonus = Math.min(toolBonus + guildBonus, 0.80);
     // p is already the spread-adjusted sell price from quoteFor; apply tax and bonus on top
     const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + combinedBonus)));
     const gain = sellN * netEach;
@@ -5875,31 +5920,54 @@ function drawNpcBubble() {
                   return slots.map(slot => {
                     const tiers = GEAR[slot];
                     const cur = player.gear[slot] ?? 0;
-                    return `<div style="margin-bottom:12px">
-                      <div style="font-weight:700;color:#f0d080;margin-bottom:6px">${slotLabels[slot]}</div>
-                      ${tiers.map((g, i) => {
+                    const maxT = tiers.length - 1;
+                    // Stat label per slot
+                    const statLabel = (g) => slot === 'pack'  ? `📦 ${g.capacity} cap`
+                                           : slot === 'boots' ? `⚡ ${g.speed} spd`
+                                           : `💰 +${Math.round(g.sellBonus*100)}%`;
+                    // Progress bar
+                    const pct = Math.round((cur / maxT) * 100);
+                    const progressBar = `<div style="height:4px;background:#1a1408;border-radius:2px;margin:4px 0 8px;overflow:hidden">
+                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#6a4a10,#f0d080);border-radius:2px;transition:width 0.3s"></div>
+                    </div>`;
+                    // Show: all owned (collapsed if >3), next 1 buyable, next 2 locked
+                    const showFrom = Math.max(0, cur - 2);
+                    const showTo   = Math.min(maxT, cur + 3);
+                    const hiddenBefore = showFrom > 0;
+                    const hiddenAfter  = showTo < maxT;
+                    return `<div style="margin-bottom:14px">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+                        <span style="font-weight:700;color:#f0d080">${slotLabels[slot]}</span>
+                        <span style="font-size:11px;color:#888">T${cur}/${maxT} &nbsp; ${statLabel(tiers[cur])}</span>
+                      </div>
+                      ${progressBar}
+                      ${hiddenBefore ? `<div style="font-size:10px;color:#555;margin-bottom:4px;padding-left:4px">▲ ${showFrom} earlier tiers owned</div>` : ''}
+                      ${tiers.slice(showFrom, showTo + 1).map((g, _i) => {
+                        const i = showFrom + _i;
                         const owned = i <= cur;
                         const isCurrent = i === cur;
                         const canBuy = i === cur + 1 && player.gold >= g.cost;
                         const tooExpensive = i === cur + 1 && player.gold < g.cost;
                         const locked = i > cur + 1;
-                        const badge = isCurrent ? '<span style="color:#4ade80;font-size:11px">✓ EQUIPPED</span>' : '';
-                        const cost = g.cost === 0 ? 'Default' : `${g.cost}g`;
-                        const btnStyle = canBuy
-                          ? 'background:#4a3a10;border:1px solid #f0d080;color:#f0d080;cursor:pointer;'
-                          : 'background:#1a1408;border:1px solid #444;color:#666;cursor:default;';
-                        const btn = locked ? `<span style="color:#444;font-size:11px">🔒 Locked</span>`
-                          : owned ? badge
-                          : `<button style="${btnStyle}padding:4px 10px;border-radius:4px;font-size:12px;" data-action="buy-gear" data-slot="${slot}" data-tier="${i}" ${tooExpensive ? 'disabled' : ''}>${tooExpensive ? `Need ${g.cost}g` : `Buy ${g.cost}g`}</button>`;
-                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:4px;border-radius:6px;background:${isCurrent ? '#1a2010' : '#0e0c08'};border:1px solid ${isCurrent ? '#4ade80' : '#2a2010'};">
-                          <div>
-                            <span style="font-size:15px">${g.icon}</span>
-                            <span style="color:${isCurrent ? '#e0cfa0' : locked ? '#555' : '#b0a070'};margin-left:6px;font-weight:${isCurrent ? '700' : '400'}">${g.name}</span>
-                            <div style="font-size:11px;color:#666;margin-left:22px">${g.desc}</div>
+                        const tierBadge = `<span style="font-size:9px;color:#666;margin-right:4px">T${i}</span>`;
+                        const btn = isCurrent
+                          ? `<span style="color:#4ade80;font-size:11px">✓ EQUIPPED</span>`
+                          : owned
+                          ? `<span style="color:#555;font-size:11px">✓ owned</span>`
+                          : locked
+                          ? `<span style="color:#333;font-size:11px">🔒</span>`
+                          : `<button style="${canBuy ? 'background:#4a3a10;border:1px solid #f0d080;color:#f0d080;cursor:pointer;' : 'background:#1a1408;border:1px solid #444;color:#666;cursor:default;'}padding:4px 10px;border-radius:4px;font-size:12px;" data-action="buy-gear" data-slot="${slot}" data-tier="${i}" ${tooExpensive ? 'disabled' : ''}>${tooExpensive ? `Need ${g.cost}g` : `Buy ${g.cost}g`}</button>`;
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;margin-bottom:3px;border-radius:6px;background:${isCurrent ? '#1a2010' : owned ? '#0f0e0a' : '#0e0c08'};border:1px solid ${isCurrent ? '#4ade80' : owned ? '#2a2a1a' : '#1a1810'};">
+                          <div style="flex:1;min-width:0">
+                            ${tierBadge}<span style="font-size:14px">${g.icon}</span>
+                            <span style="color:${isCurrent ? '#e0cfa0' : locked ? '#444' : owned ? '#888' : '#b0a070'};margin-left:5px;font-weight:${isCurrent ? '700' : '400'}">${g.name}</span>
+                            <span style="font-size:10px;color:${isCurrent ? '#a0e060' : '#666'};margin-left:6px">${statLabel(g)}</span>
+                            <div style="font-size:10px;color:#555;margin-left:22px;margin-top:1px">${g.desc}</div>
                           </div>
-                          <div style="text-align:right">${btn}</div>
+                          <div style="text-align:right;flex-shrink:0;margin-left:8px">${btn}</div>
                         </div>`;
                       }).join('')}
+                      ${hiddenAfter ? `<div style="font-size:10px;color:#555;margin-top:4px;padding-left:4px">▼ ${maxT - showTo} more tiers locked</div>` : ''}
                     </div>`;
                   }).join('');
                 })() : `${rumorsHtml}${rows.join('')}`}
@@ -6719,7 +6787,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.21',
+      buildVersion: 'v0.4.22',
       savedAt: Date.now(),
       player: {
         x: player.x,
