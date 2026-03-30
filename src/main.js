@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.17'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.18'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -619,6 +619,9 @@ ${line4}`;
   }
 
   const TILE = IS_MOBILE ? 12 : 16;
+  // Scale factor applied to player carriage + AI trader carriage drawings.
+  // 2.0 = carriage spans ~2×2 tiles, matching the visual weight of buildings.
+  const CARRIAGE_SCALE = 2.0;
   // How many pixels building tiles extend upward as a raised 3D top face.
   // Makes buildings visually taller/bigger relative to the player (who is ~1 tile tall).
   const BUILDING_RISE = IS_MOBILE ? 10 : 14;
@@ -3850,6 +3853,7 @@ function drawAiTrader(t) {
 
   ctx.save();
   ctx.translate(sx, sy);
+  ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
   const r = t.radius;
 
   // AI traders always appear as carriages (parked or traveling)
@@ -3952,16 +3956,17 @@ function drawAiTrader(t) {
   drawWheel(W * 0.65, H * 0.24, W * 0.42);
 
   // ── Name label ─────────────────────────────────────────────────────
-  // Undo rotation for text so it's always readable
+  // Undo rotation+scale for text so it's always readable and sized correctly
   ctx.restore();
   ctx.save();
   ctx.translate(sx, sy);
+  const labelY = -(r * 2.2 * CARRIAGE_SCALE) - 10;
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(-22, -r*2.2-10, 44, 12);
+  ctx.fillRect(-22, labelY, 44, 12);
   ctx.fillStyle = t.color || '#f0d080';
   ctx.font = `bold ${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(t.name.split(' ')[0], 0, -r*2.2);
+  ctx.fillText(t.name.split(' ')[0], 0, labelY + 9);
   ctx.textAlign = 'left';
 
   // Interact hint
@@ -3970,7 +3975,7 @@ function drawAiTrader(t) {
     ctx.fillStyle = 'rgba(251,191,36,0.9)';
     ctx.font = `${Math.round(9*UI_SCALE)}px system-ui,sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText('[T] Trade', 0, -r*2.8);
+    ctx.fillText('[T] Trade', 0, labelY - 4);
     ctx.textAlign = 'left';
   }
 
@@ -5352,7 +5357,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.17',
+    version: 'v0.4.18',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6636,7 +6641,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.17',
+      buildVersion: 'v0.4.18',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8811,6 +8816,7 @@ function drawEntities() {
 
     ctx.save();
     ctx.translate(x, y);
+    ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
 
     // Shadow
     ctx.globalAlpha = 0.22;
