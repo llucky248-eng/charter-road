@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.19'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.20'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1431,8 +1431,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
     let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
     if (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined) {
       let bestDist = 9999, bestTile = null;
-      for (let dy = -3; dy <= 3; dy++) {
-        for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
           const nx = tapTileX + dx, ny = tapTileY + dy;
           const t = tileAt(nx, ny);
           if (TAP_BUILDING_ACTIONS[t] !== undefined) {
@@ -1441,7 +1441,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
           }
         }
       }
-      if (bestTile && bestDist <= 4) {
+      if (bestTile && bestDist <= 5) {
         tapTile = bestTile.t;
         resolvedTileX = bestTile.tx;
         resolvedTileY = bestTile.ty;
@@ -1452,8 +1452,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
       const action = TAP_BUILDING_ACTIONS[tapTile];
       const playerTX = Math.floor(player.x / TILE), playerTY = Math.floor(player.y / TILE);
       const distTiles = Math.max(Math.abs(resolvedTileX - playerTX), Math.abs(resolvedTileY - playerTY));
-      const c = currentOrNearestCity(8);
-      if (c && distTiles <= 6) {
+      const c = currentOrNearestCity(10);
+      if (c && distTiles <= 10) {
         // Close enough - open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
         else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
@@ -5357,7 +5357,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.19',
+    version: 'v0.4.20',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6641,7 +6641,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.19',
+      buildVersion: 'v0.4.20',
       savedAt: Date.now(),
       player: {
         x: player.x,
