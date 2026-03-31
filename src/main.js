@@ -2730,7 +2730,7 @@ const NPC_INTERACT_RADIUS = 18;
         const cid = row.city_id;
         // Treasury gold: take DB value if higher
         if (cityTreasury[cid]) {
-          if (row.gold != null) cityTreasury[cid].gold = row.gold; // Server-authoritative: trust DB value
+          if (row.gold != null) cityTreasury[cid].gold = Math.max(cityTreasury[cid].gold, row.gold);
           if (row.invest_log) cityTreasury[cid].investLog = row.invest_log;
         }
         // Population + hunger
@@ -2819,7 +2819,7 @@ const NPC_INTERACT_RADIUS = 18;
     const CITY_MULTS = {
       valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
       ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 0.85, potion: 1.00, relic: 1.00, ink: 1.00 },
       ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
     };
     const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
@@ -3566,88 +3566,107 @@ async function syncTradersFromServer() {
 
 // Call after world is ready - deferred slightly so world init completes first
 setTimeout(syncTradersFromServer, 1500);
-setInterval(syncTradersFromServer, 10_000); // refresh traders every 10s (matches world_tick cron)
+setInterval(syncTradersFromServer, 30_000); // refresh traders every 30s for multiplayer
 
 function traderArrive(t) {
-  // SERVER-AUTHORITATIVE: arrival logic (selling, gold, profit) handled by world_tick().
-  // Client only snaps visual position to city center.
+  // Snap to city center
   const destC = getCityById(t.toId);
   if (destC) {
     t.x = (destC.x + destC.w/2) * TILE;
     t.y = (destC.y + destC.h/2) * TILE;
   }
-  t.path = [];
+  // Sell all cargo at destination
+  let tripRevenue = 0;
+  for (const [itemId, qty] of Object.entries(t.inv)) {
+    if (!qty) continue;
+    const it = ITEMS.find(i => i.id === itemId);
+    if (it) { const q = quoteFor(t.toId, it); const earned = q.sell * qty; t.gold += earned; tripRevenue += earned; }
+  }
+  if (tripRevenue > 0) {
+    t.totalProfit = (t.totalProfit || 0) + tripRevenue;
+    t.tripsCompleted = (t.tripsCompleted || 0) + 1;
+  }
+  t.inv = {};
+  t.path = [];       // clear path so stale idx can't re-trigger
   t.pathIdx = 0;
-  // Do NOT modify t.gold, t.inv, t.totalProfit, t.tripsCompleted, t.state here.
-  // Next syncTradersFromServer() will pull the authoritative state.
+  t.state = 'in_city';
+  t.cityTimer = 5 + Math.random() * 8;
+  pushTraderToDb(t); // sync trader arrival to DB for other clients
 }
 
 function traderDepart(t) {
-  // SERVER-AUTHORITATIVE: route decisions and buying handled by world_tick().
-  // Client does nothing — next syncTradersFromServer() will update state.
+  const route = traderDecideRoute(t);
+  // Never route to the same city
+  if (route.toId === t.toId) {
+    const others = world.cities.filter(c => c.id !== t.toId);
+    if (others.length) route.toId = others[Math.floor(Math.random() * others.length)].id;
+  }
+  t.fromId = t.toId;
+  t.toId = route.toId;
+  t.itemId = route.itemId;
+  // Buy cargo
+  const it = ITEMS.find(i => i.id === route.itemId);
+  if (it) {
+    const buyQ = quoteFor(t.fromId, it);
+    const units = Math.min(
+      Math.floor(t.capacity / it.weight),
+      t.gold > 0 ? Math.floor(t.gold / buyQ.buy) : 0
+    );
+    if (units > 0) {
+      t.gold -= buyQ.buy * units;
+      t.inv = { [route.itemId]: units };
+    }
+  }
+  t.path = buildTraderPath(t.fromId, t.toId);
+  t.pathIdx = 0;
+  t.state = 'traveling';
+  t._stuckT = stateTime;
+  t._lastX = t.x;
+  t._lastY = t.y;
+  pushTraderToDb(t); // sync trader departure to DB for other clients
 }
 
 function updateAiTraders(dt) {
-  // SERVER-AUTHORITATIVE: all state changes (arrive/depart/gold/profit) handled by world_tick().
-  // Client only animates visual positions along paths and fires speech bubbles.
   for (const t of AI_TRADERS) {
-    // ── In city: just sit at city center, no timer countdown ──────────
+    // ── In city: wait then depart ─────────────────────────────────────
     if (t.state === 'in_city') {
-      const destC = getCityById(t.toId || t.fromId);
-      if (destC) {
-        t.x = (destC.x + destC.w/2) * TILE;
-        t.y = (destC.y + destC.h/2) * TILE;
-      }
-      maybeFireTraderBubble(t, dt);
+      t.cityTimer -= dt;
+      if (t.cityTimer <= 0) traderDepart(t);
       continue;
     }
 
     if (t.state !== 'traveling') continue;
 
-    // ── Traveling: follow path waypoints (visual only) ───────────────
-    if (!t.path || t.path.length === 0) {
-      // No path built yet — build one from DB state
-      if (t.fromId && t.toId && t.fromId !== t.toId) {
-        t.path = buildTraderPath(t.fromId, t.toId);
-        t.pathIdx = 0;
-      }
-      if (!t.path || t.path.length === 0) continue; // still no path, wait for next sync
-    }
+    // ── Traveling: follow path waypoints ─────────────────────────────
+    if (!t.path || t.path.length === 0) { traderArrive(t); continue; }
 
-    // Guard: pathIdx out of range → snap to end of path
-    if (t.pathIdx >= t.path.length) {
-      const last = t.path[t.path.length - 1];
-      if (last) { t.x = last.x; t.y = last.y; }
-      continue;
-    }
+    // Guard: pathIdx out of range → arrive
+    if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
 
     const target = t.path[t.pathIdx];
-    if (!target) continue;
+    if (!target) { traderArrive(t); continue; }
 
     const dx = target.x - t.x;
     const dy = target.y - t.y;
     const dist = Math.hypot(dx, dy);
 
     if (dist < 12) {
-      // Reached waypoint - advance visual index
+      // Reached waypoint - advance
       t.pathIdx++;
-      if (t.pathIdx >= t.path.length) {
-        // Visually arrived at destination — snap to last waypoint
-        const last = t.path[t.path.length - 1];
-        if (last) { t.x = last.x; t.y = last.y; }
-      }
-      continue;
+      if (t.pathIdx >= t.path.length) { traderArrive(t); }
+      continue; // re-evaluate next frame
     }
 
-    // Move visually
+    // Move
     t.x += (dx / dist) * t.speed * dt;
     t.y += (dy / dist) * t.speed * dt;
 
-    // Stuck detection - skip waypoint if blocked for 3s (visual only)
+    // Stuck detection - skip waypoint if blocked for 3s
     if (stateTime - (t._stuckT || 0) > 3000) {
       const moved = Math.hypot(t.x - (t._lastX || t.x), t.y - (t._lastY || t.y));
       if (moved < 8) {
         t.pathIdx = Math.min(t.pathIdx + 1, t.path.length);
+        if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
       }
       t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y;
     }
