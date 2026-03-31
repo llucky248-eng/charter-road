@@ -2704,8 +2704,9 @@ const NPC_INTERACT_RADIUS = 18;
       if (wsRows.length > 0) {
         const ws = wsRows[0];
         if (typeof ws.day === 'number' && ws.day > time.day) {
-          // Another player advanced time - silently catch up (cap at 10 days to avoid a runaway)
-          const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 10);
+          // Server (or another player) advanced time - catch up.
+          // Cap at 30 days to avoid runaway on first load after long server-only run.
+          const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 30);
           for (let i = 0; i < daysAhead; i++) {
             time.day++;
             populationTick();
@@ -3503,8 +3504,29 @@ async function syncTradersFromServer() {
     if (!Array.isArray(rows) || rows.length === 0) return;
 
     for (const row of rows) {
-      const t = AI_TRADERS.find(tr => tr.id === row.id);
-      if (!t) continue;
+      let t = AI_TRADERS.find(tr => tr.id === row.id);
+      // If trader exists in DB but not yet locally (e.g. server spawned between client loads),
+      // create a local stub so the client renders them correctly.
+      if (!t) {
+        const def = TRADER_DEFS.find(d => d.id === row.id);
+        if (!def) continue;
+        const fromC = getCityById(row.from_id) || getCityById('valdenmere');
+        t = {
+          ...def,
+          capacity: 12,
+          startGold: row.start_gold || 80,
+          inv: {},
+          x: (fromC.x + fromC.w/2) * TILE,
+          y: (fromC.y + fromC.h/2) * TILE,
+          path: [], pathIdx: 0,
+          fromId: row.from_id, toId: row.to_id, itemId: row.item_id,
+          state: row.state || 'traveling',
+          cityTimer: 0, _lastX: 0, _lastY: 0, _stuckT: 0, radius: 7,
+          gold: row.gold, totalProfit: row.total_profit || 0,
+          tripsCompleted: row.trips_completed || 0,
+        };
+        AI_TRADERS.push(t);
+      }
       // Sync economy data
       t.gold           = row.gold;
       t.totalProfit    = row.total_profit;
