@@ -2730,7 +2730,7 @@ const NPC_INTERACT_RADIUS = 18;
         const cid = row.city_id;
         // Treasury gold: take DB value if higher
         if (cityTreasury[cid]) {
-          if (row.gold != null) cityTreasury[cid].gold = Math.max(cityTreasury[cid].gold, row.gold);
+          if (row.gold != null) cityTreasury[cid].gold = row.gold;
           if (row.invest_log) cityTreasury[cid].investLog = row.invest_log;
         }
         // Population + hunger
@@ -2819,7 +2819,7 @@ const NPC_INTERACT_RADIUS = 18;
     const CITY_MULTS = {
       valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
       ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 0.85, potion: 1.00, relic: 1.00, ink: 1.00 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00 },
       ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
     };
     const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
@@ -3566,85 +3566,66 @@ async function syncTradersFromServer() {
 
 // Call after world is ready - deferred slightly so world init completes first
 setTimeout(syncTradersFromServer, 1500);
-setInterval(syncTradersFromServer, 30_000); // refresh traders every 30s for multiplayer
+setInterval(syncTradersFromServer, 10_000); // refresh traders every 10s for tighter server-auth sync
 
 function traderArrive(t) {
-  // Snap to city center
+  // Visual-only: snap sprite to city center. State/gold/profit managed by server world_tick().
   const destC = getCityById(t.toId);
   if (destC) {
     t.x = (destC.x + destC.w/2) * TILE;
     t.y = (destC.y + destC.h/2) * TILE;
   }
-  // Sell all cargo at destination
-  let tripRevenue = 0;
-  for (const [itemId, qty] of Object.entries(t.inv)) {
-    if (!qty) continue;
-    const it = ITEMS.find(i => i.id === itemId);
-    if (it) { const q = quoteFor(t.toId, it); const earned = q.sell * qty; t.gold += earned; tripRevenue += earned; }
-  }
-  if (tripRevenue > 0) {
-    t.totalProfit = (t.totalProfit || 0) + tripRevenue;
-    t.tripsCompleted = (t.tripsCompleted || 0) + 1;
-  }
-  t.inv = {};
-  t.path = [];       // clear path so stale idx can't re-trigger
+  // Clear client-side path so animation stops cleanly
+  t.path = [];
   t.pathIdx = 0;
-  t.state = 'in_city';
-  t.cityTimer = 5 + Math.random() * 8;
-  pushTraderToDb(t); // sync trader arrival to DB for other clients
 }
 
 function traderDepart(t) {
-  const route = traderDecideRoute(t);
-  // Never route to the same city
-  if (route.toId === t.toId) {
-    const others = world.cities.filter(c => c.id !== t.toId);
-    if (others.length) route.toId = others[Math.floor(Math.random() * others.length)].id;
-  }
-  t.fromId = t.toId;
-  t.toId = route.toId;
-  t.itemId = route.itemId;
-  // Buy cargo
-  const it = ITEMS.find(i => i.id === route.itemId);
-  if (it) {
-    const buyQ = quoteFor(t.fromId, it);
-    const units = Math.min(
-      Math.floor(t.capacity / it.weight),
-      t.gold > 0 ? Math.floor(t.gold / buyQ.buy) : 0
-    );
-    if (units > 0) {
-      t.gold -= buyQ.buy * units;
-      t.inv = { [route.itemId]: units };
-    }
-  }
-  t.path = buildTraderPath(t.fromId, t.toId);
-  t.pathIdx = 0;
-  t.state = 'traveling';
-  t._stuckT = stateTime;
-  t._lastX = t.x;
-  t._lastY = t.y;
-  pushTraderToDb(t); // sync trader departure to DB for other clients
+  // No-op: route decisions, buying cargo, and state transitions are handled by server world_tick().
+  // Visual path will be rebuilt on next syncTradersFromServer() when server updates state.
 }
 
 function updateAiTraders(dt) {
   for (const t of AI_TRADERS) {
-    // ── In city: wait then depart ─────────────────────────────────────
+    // ── In city: snap to city center, no timer (server decides departure) ────
     if (t.state === 'in_city') {
-      t.cityTimer -= dt;
-      if (t.cityTimer <= 0) traderDepart(t);
+      const c = getCityById(t.toId || t.fromId);
+      if (c) {
+        t.x = (c.x + c.w/2) * TILE;
+        t.y = (c.y + c.h/2) * TILE;
+      }
+      maybeFireTraderBubble(t, dt);
       continue;
     }
 
     if (t.state !== 'traveling') continue;
 
-    // ── Traveling: follow path waypoints ─────────────────────────────
-    if (!t.path || t.path.length === 0) { traderArrive(t); continue; }
+    // ── Traveling: animate along path waypoints (visual only) ────────
+    if (!t.path || t.path.length === 0) {
+      // No path yet — snap to destination visually
+      const destC = getCityById(t.toId);
+      if (destC) {
+        t.x = (destC.x + destC.w/2) * TILE;
+        t.y = (destC.y + destC.h/2) * TILE;
+      }
+      continue;
+    }
 
-    // Guard: pathIdx out of range → arrive
-    if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
+    // Guard: pathIdx out of range → snap to destination
+    if (t.pathIdx >= t.path.length) {
+      const destC = getCityById(t.toId);
+      if (destC) {
+        t.x = (destC.x + destC.w/2) * TILE;
+        t.y = (destC.y + destC.h/2) * TILE;
+      }
+      continue;
+    }
 
     const target = t.path[t.pathIdx];
-    if (!target) { traderArrive(t); continue; }
+    if (!target) {
+      t.pathIdx++;
+      continue;
+    }
 
     const dx = target.x - t.x;
     const dy = target.y - t.y;
@@ -3653,30 +3634,31 @@ function updateAiTraders(dt) {
     if (dist < 12) {
       // Reached waypoint - advance
       t.pathIdx++;
-      if (t.pathIdx >= t.path.length) { traderArrive(t); }
-      continue; // re-evaluate next frame
+      if (t.pathIdx >= t.path.length) {
+        // Reached end of path — snap to destination (visual only, no state change)
+        const destC = getCityById(t.toId);
+        if (destC) {
+          t.x = (destC.x + destC.w/2) * TILE;
+          t.y = (destC.y + destC.h/2) * TILE;
+        }
+      }
+      continue;
     }
 
     // Move
     t.x += (dx / dist) * t.speed * dt;
     t.y += (dy / dist) * t.speed * dt;
 
-    // Stuck detection - skip waypoint if blocked for 3s
+    // Stuck detection - skip waypoint if blocked for 3s (visual only)
     if (stateTime - (t._stuckT || 0) > 3000) {
       const moved = Math.hypot(t.x - (t._lastX || t.x), t.y - (t._lastY || t.y));
       if (moved < 8) {
         t.pathIdx = Math.min(t.pathIdx + 1, t.path.length);
-        if (t.pathIdx >= t.path.length) { traderArrive(t); continue; }
       }
       t._stuckT = stateTime; t._lastX = t.x; t._lastY = t.y;
     }
 
     maybeFireTraderBubble(t, dt);
-  }
-
-  // Also tick in_city bubbles
-  for (const t of AI_TRADERS) {
-    if (t.state === 'in_city') maybeFireTraderBubble(t, dt);
   }
 }
 
