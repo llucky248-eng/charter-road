@@ -90,15 +90,20 @@ $$;
 GRANT EXECUTE ON FUNCTION aggregate_economy() TO anon;
 
 -- 6. Seed initial zeroed rows for all city/item combos (optional but useful)
+-- Items: grain, cloth, fish, iron, herbs, food, ore, potion, ink, relic
 INSERT INTO market_economy (city_id, item_id, pressure) VALUES
   ('valdenmere', 'grain', 0), ('valdenmere', 'cloth', 0), ('valdenmere', 'fish', 0),
   ('valdenmere', 'iron',  0), ('valdenmere', 'herbs', 0), ('valdenmere', 'food', 0),
+  ('valdenmere', 'ore',   0), ('valdenmere', 'potion',0), ('valdenmere', 'ink',  0), ('valdenmere', 'relic', 0),
   ('ashport',    'grain', 0), ('ashport',    'cloth', 0), ('ashport',    'fish', 0),
   ('ashport',    'iron',  0), ('ashport',    'herbs', 0), ('ashport',    'food', 0),
+  ('ashport',    'ore',   0), ('ashport',    'potion',0), ('ashport',    'ink',  0), ('ashport',    'relic', 0),
   ('crosshaven', 'grain', 0), ('crosshaven', 'cloth', 0), ('crosshaven', 'fish', 0),
   ('crosshaven', 'iron',  0), ('crosshaven', 'herbs', 0), ('crosshaven', 'food', 0),
+  ('crosshaven', 'ore',   0), ('crosshaven', 'potion',0), ('crosshaven', 'ink',  0), ('crosshaven', 'relic', 0),
   ('ironholt',   'grain', 0), ('ironholt',   'cloth', 0), ('ironholt',   'fish', 0),
-  ('ironholt',   'iron',  0), ('ironholt',   'herbs', 0), ('ironholt',   'food', 0)
+  ('ironholt',   'iron',  0), ('ironholt',   'herbs', 0), ('ironholt',   'food', 0),
+  ('ironholt',   'ore',   0), ('ironholt',   'potion',0), ('ironholt',   'ink',  0), ('ironholt',   'relic', 0)
 ON CONFLICT (city_id, item_id) DO NOTHING;
 
 -- 7. Player saves (per-player game state, keyed by uid)
