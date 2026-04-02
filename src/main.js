@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.25'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.26'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2670,7 +2670,7 @@ const NPC_INTERACT_RADIUS = 18;
   async function syncOtherPlayers() {
     if (__QA.enabled || !ECONOMY.enabled) return;
     const now = Date.now();
-    if (now - _lastPresenceFetch < 5000) return;
+    if (now - _lastPresenceFetch < 15000) return; // 5s→15s: players move slowly, was 7% of egress
     _lastPresenceFetch = now;
     try {
       const cutoff = new Date(now - 30000).toISOString();
@@ -2693,7 +2693,7 @@ const NPC_INTERACT_RADIUS = 18;
   async function syncWorldState() {
     if (__QA.enabled) return;
     const _wsNow = Date.now();
-    if (_wsNow - _lastWorldStateSync < 10_000) return; // max once every 10s
+    if (_wsNow - _lastWorldStateSync < 30_000) return; // max once every 30s
     _lastWorldStateSync = _wsNow;
     try {
       // ── 1. World time from world_state ──
@@ -2722,7 +2722,7 @@ const NPC_INTERACT_RADIUS = 18;
 
       // ── 2. City state from city_treasury ──
       const rows = await fetch(
-        `${ECONOMY.url}/rest/v1/city_treasury?select=*`,
+        `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []);
 
@@ -2762,7 +2762,7 @@ const NPC_INTERACT_RADIUS = 18;
 
   // Initial sync on load (syncWorldState deferred - needs buildSlotOnMap defined first)
   economySync();
-  setInterval(syncWorldState, 10_000); // every 10s for tighter multiplayer sync
+  setInterval(syncWorldState, 30_000); // every 30s — world tick is 5min, 10s was wasteful egress
 
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
@@ -3566,7 +3566,7 @@ async function syncTradersFromServer() {
 
 // Call after world is ready - deferred slightly so world init completes first
 setTimeout(syncTradersFromServer, 1500);
-setInterval(syncTradersFromServer, 10_000); // refresh traders every 10s for tighter server-auth sync
+setInterval(syncTradersFromServer, 30_000); // every 30s — AI traders tick every 5min, 10s was the #1 egress driver
 
 function traderArrive(t) {
   // Visual-only: snap sprite to city center. State/gold/profit managed by server world_tick().
@@ -5499,7 +5499,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.25',
+    version: 'v0.4.26',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
