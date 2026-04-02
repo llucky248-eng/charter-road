@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.27'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.28'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2639,7 +2639,9 @@ const NPC_INTERACT_RADIUS = 18;
   const otherPlayers = {};
   let _lastPresencePush = 0;
   let _lastPresenceFetch = 0;
-  let _lastWorldStateSync = 0; // rate-limit syncWorldState() calls
+  let _realtimeClient = null;
+  let _realtimeConnected = false;
+  let _realtimeFallbackTimer = null;
 
   function pushPlayerPresence() {
     if (__QA.enabled || !ECONOMY.enabled) return;
@@ -2692,9 +2694,6 @@ const NPC_INTERACT_RADIUS = 18;
 
   async function syncWorldState() {
     if (__QA.enabled) return;
-    const _wsNow = Date.now();
-    if (_wsNow - _lastWorldStateSync < 30_000) return; // max once every 30s
-    _lastWorldStateSync = _wsNow;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
@@ -2762,7 +2761,44 @@ const NPC_INTERACT_RADIUS = 18;
 
   // Initial sync on load (syncWorldState deferred - needs buildSlotOnMap defined first)
   economySync();
-  setInterval(syncWorldState, 30_000); // every 30s — world tick is 5min, 10s was wasteful egress
+
+  function initRealtimeSubscriptions() {
+    if (!ECONOMY.enabled || __QA.enabled) return;
+    if (typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function') {
+      console.warn('[REALTIME] supabase-js not loaded — falling back to 60s polling');
+      setInterval(syncWorldState, 60_000);
+      setInterval(syncTradersFromServer, 60_000);
+      return;
+    }
+    const { createClient } = window.supabase;
+    _realtimeClient = createClient(ECONOMY.url, ECONOMY.key);
+
+    // Fallback: if realtime doesn't connect within 10s, poll every 60s
+    _realtimeFallbackTimer = setTimeout(() => {
+      if (!_realtimeConnected) {
+        console.warn('[REALTIME] Connection timeout — falling back to 60s polling');
+        setInterval(syncWorldState, 60_000);
+        setInterval(syncTradersFromServer, 60_000);
+      }
+    }, 10_000);
+
+    _realtimeClient
+      .channel('world-sync')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_traders' },
+          () => syncTradersFromServer())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_state' },
+          () => syncWorldState())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'city_treasury' },
+          () => syncWorldState())
+      .subscribe((status) => {
+        console.log('[REALTIME] status:', status);
+        if (status === 'SUBSCRIBED') {
+          _realtimeConnected = true;
+          clearTimeout(_realtimeFallbackTimer);
+          console.log('[REALTIME] Connected — polling disabled');
+        }
+      });
+  }
 
   function citySeed(cityId) {
     // Keep stable across reloads within a run; if a global seed exists, incorporate later.
@@ -3565,8 +3601,11 @@ async function syncTradersFromServer() {
 }
 
 // Call after world is ready - deferred slightly so world init completes first
-setTimeout(syncTradersFromServer, 1500);
-setInterval(syncTradersFromServer, 30_000); // every 30s — AI traders tick every 5min, 10s was the #1 egress driver
+setTimeout(() => {
+  syncTradersFromServer();
+  syncWorldState();
+  initRealtimeSubscriptions();
+}, 1500);
 
 function traderArrive(t) {
   // Visual-only: snap sprite to city center. State/gold/profit managed by server world_tick().
@@ -5499,7 +5538,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.27',
+    version: 'v0.4.28',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6814,7 +6853,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.27',
+      buildVersion: 'v0.4.28',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10930,7 +10969,7 @@ function drawEvent() {
         }
       }
       // Sync global economy on city entry
-      if (nowId) { economySync(); syncWorldState(); } // rate-limited internally
+      if (nowId) { economySync(); syncWorldState(); } // on city entry: refresh world state
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
