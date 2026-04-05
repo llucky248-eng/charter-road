@@ -4928,11 +4928,11 @@ function renderIntelModal() {
       return `
         <div style="background:#1e1b14;border:1px solid #3a3420;border-radius:6px;padding:8px 10px;margin-bottom:6px">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-weight:600;color:#f0d080">${dirIcon(c.direction)} ${c.itemName}</span>
+            <span style="font-weight:600;color:#f0d080">${dirIcon(c.direction)} ${htmlEscape(c.itemName)}</span>
             <span style="color:#888;font-size:11px">${daysLeft}d left</span>
           </div>
           <div style="color:#b0a080;font-size:12px;margin-top:3px">
-            In <b>${c.cityName}</b>: ~${c.predictedPrice}g (${dirLabel(c.direction)})
+            In <b>${htmlEscape(c.cityName)}</b>: ~${c.predictedPrice}g (${dirLabel(c.direction)})
           </div>
           ${canSell ? `<button data-sell="${c.id}" style="margin-top:5px;background:#2a3a1a;border:1px solid #4a6a2a;color:#a0d060;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">Sell for ${INTEL_SELL_PRICE}g</button>` : `<span style="font-size:10px;color:#555">Same city - can't sell here</span>`}
         </div>
