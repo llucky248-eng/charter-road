@@ -148,7 +148,8 @@ function contractTierForRep(rep) {
 // isObj
 function isObj(x) { return !!x && typeof x === 'object'; }
 
-// validateSave (minimal inline version – mirrors logic in main.js)
+// validateSave — mirrors logic in main.js exactly (copy verbatim on any change)
+const SAVE_SCHEMA_VERSION = 1;
 function validateSave(s) {
   const errors = [];
   if (!isObj(s)) errors.push('save is not an object');
@@ -173,6 +174,17 @@ function validateSave(s) {
     if (p.lastCityId != null && typeof p.lastCityId !== 'string') {
       errors.push('player.lastCityId must be string|null');
     }
+    if (p.gear !== undefined) {
+      if (!isObj(p.gear)) {
+        errors.push('player.gear must be object');
+      } else {
+        for (const slot of ['pack', 'boots', 'tool']) {
+          if (p.gear[slot] !== undefined && !Number.isInteger(p.gear[slot])) {
+            errors.push(`player.gear.${slot} must be an integer`);
+          }
+        }
+      }
+    }
   }
   if (!isObj(s?.time)) errors.push('time missing');
   else {
@@ -180,6 +192,9 @@ function validateSave(s) {
     if (!Number.isFinite(t.day)) errors.push('time.day must be number');
     if (!Number.isFinite(t.frac)) errors.push('time.frac must be number');
     if (!Number.isFinite(t.seed)) errors.push('time.seed must be number');
+  }
+  if (s.marketDrift !== undefined) {
+    if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
   }
   if (s.contracts !== undefined) {
     if (!isObj(s.contracts)) errors.push('contracts must be object');
@@ -193,6 +208,40 @@ function validateSave(s) {
     if (!Array.isArray(s.openedCaches)) errors.push('openedCaches must be an array if present');
   }
   return { ok: errors.length === 0, errors };
+}
+
+// migrateSave — mirrors logic in main.js exactly (copy verbatim on any change)
+function migrateSave(raw) {
+  let s;
+  try { s = JSON.parse(JSON.stringify(raw)); } catch { s = raw; }
+  const v = Number.isInteger(s?.saveVersion) ? s.saveVersion : 0;
+  if (v > SAVE_SCHEMA_VERSION) return s; // future version — return as-is
+  if (v === 0) {
+    s.saveVersion = 1;
+    s.player ||= {};
+    s.player.inv ||= {};
+    if (s.player.rep?.sunspire !== undefined) { s.player.rep.valdenmere = s.player.rep.sunspire; delete s.player.rep.sunspire; }
+    if (s.player.rep?.gloomwharf !== undefined) { s.player.rep.ashport = s.player.rep.gloomwharf; delete s.player.rep.gloomwharf; }
+    if (s.player.permits?.sunspire !== undefined) { s.player.permits.valdenmere = s.player.permits.sunspire; delete s.player.permits.sunspire; }
+    if (s.player.permits?.gloomwharf !== undefined) { s.player.permits.ashport = s.player.permits.gloomwharf; delete s.player.permits.gloomwharf; }
+    s.player.rep ||= { valdenmere: 0, ashport: 0, crosshaven: 0, ironholt: 0 };
+    s.player.permits ||= { valdenmere: false, ashport: false, crosshaven: false, ironholt: false };
+    for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) {
+      s.player.rep[cid] ??= 0;
+      s.player.permits[cid] ??= false;
+    }
+    s.player.facing ||= { x: 0, y: 1 };
+    s.time ||= { day: 1, frac: 0, seed: 1 };
+    s.marketDrift ||= {};
+    for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) s.marketDrift[cid] ||= {};
+    if (s.marketDrift.sunspire) { s.marketDrift.valdenmere = s.marketDrift.sunspire; delete s.marketDrift.sunspire; }
+    if (s.marketDrift.gloomwharf) { s.marketDrift.ashport = s.marketDrift.gloomwharf; delete s.marketDrift.gloomwharf; }
+    s.contracts ||= { active: null };
+    if (s.contracts.active === undefined) s.contracts.active = null;
+    if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+  }
+  if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+  return s;
 }
 
 // smoothPath (pure portion — no isSolid/player, just path compression logic)
@@ -508,6 +557,110 @@ test('lastCityId number → fail', () => {
   const s = makeSave();
   s.player.lastCityId = 42;
   assert(!validateSave(s).ok);
+});
+test('gear absent → ok (optional field)', () => {
+  const s = makeSave();
+  delete s.player.gear;
+  assert(validateSave(s).ok);
+});
+test('gear valid integers → ok', () => {
+  const s = makeSave();
+  s.player.gear = { pack: 1, boots: 0, tool: 2 };
+  assert(validateSave(s).ok, JSON.stringify(validateSave(s).errors));
+});
+test('gear not an object → fail', () => {
+  const s = makeSave();
+  s.player.gear = 'bad';
+  assert(!validateSave(s).ok);
+});
+test('gear slot is float → fail', () => {
+  const s = makeSave();
+  s.player.gear = { pack: 1.5, boots: 0, tool: 0 };
+  assert(!validateSave(s).ok);
+});
+test('gear slot is string → fail', () => {
+  const s = makeSave();
+  s.player.gear = { pack: 'max', boots: 0, tool: 0 };
+  assert(!validateSave(s).ok);
+});
+test('marketDrift absent → ok', () => {
+  const s = makeSave();
+  assert(validateSave(s).ok);
+});
+test('marketDrift as object → ok', () => {
+  assert(validateSave(makeSave({ marketDrift: { valdenmere: {} } })).ok);
+});
+test('marketDrift not an object → fail', () => {
+  assert(!validateSave(makeSave({ marketDrift: 'bad' })).ok);
+});
+
+console.log('\n=== migrateSave ===');
+function makeV0Save(overrides = {}) {
+  // v0 save: no saveVersion, old city ids
+  return {
+    player: {
+      x: 10, y: 20, gold: 100, capacity: 10,
+      inv: {}, rep: { sunspire: 3 }, permits: { sunspire: true },
+      facing: { x: 1, y: 0 },
+    },
+    time: { day: 2, frac: 0.3, seed: 42 },
+    ...overrides,
+  };
+}
+test('v0 → v1: saveVersion set to 1', () => {
+  const out = migrateSave(makeV0Save());
+  assertEqual(out.saveVersion, 1);
+});
+test('v0 → v1: sunspire rep migrated to valdenmere', () => {
+  const out = migrateSave(makeV0Save());
+  assertEqual(out.player.rep.valdenmere, 3);
+  assert(out.player.rep.sunspire === undefined, 'sunspire key should be deleted');
+});
+test('v0 → v1: sunspire permit migrated to valdenmere', () => {
+  const out = migrateSave(makeV0Save());
+  assertEqual(out.player.permits.valdenmere, true);
+  assert(out.player.permits.sunspire === undefined, 'sunspire permit key should be deleted');
+});
+test('v0 → v1: all city rep keys present after migration', () => {
+  const out = migrateSave(makeV0Save());
+  for (const cid of ['valdenmere', 'ashport', 'crosshaven', 'ironholt']) {
+    assert(cid in out.player.rep, `rep missing key: ${cid}`);
+  }
+});
+test('v0 → v1: openedCaches defaulted to []', () => {
+  const out = migrateSave(makeV0Save());
+  assert(Array.isArray(out.openedCaches) && out.openedCaches.length === 0);
+});
+test('v0 → v1: marketDrift created with all city keys', () => {
+  const out = migrateSave(makeV0Save());
+  for (const cid of ['valdenmere', 'ashport', 'crosshaven', 'ironholt']) {
+    assert(isObj(out.marketDrift[cid]), `marketDrift missing: ${cid}`);
+  }
+});
+test('v0 → v1: gloomwharf marketDrift migrated to ashport', () => {
+  const raw = makeV0Save();
+  raw.marketDrift = { gloomwharf: { grain: 0.1 } };
+  const out = migrateSave(raw);
+  assert(isObj(out.marketDrift.ashport), 'ashport should exist');
+  assert(out.marketDrift.gloomwharf === undefined, 'gloomwharf key should be deleted');
+});
+test('v1 → v1: no changes applied (idempotent)', () => {
+  const save = makeSave();
+  const out = migrateSave(save);
+  assertEqual(out.saveVersion, 1);
+  assertEqual(out.player.gold, save.player.gold);
+});
+test('future version: returned as-is without mangling', () => {
+  const futureSave = { saveVersion: 99, player: { x: 1, y: 2 }, time: {}, custom: 'data' };
+  const out = migrateSave(futureSave);
+  assertEqual(out.saveVersion, 99);
+  assertEqual(out.custom, 'data');
+});
+test('future version: openedCaches not injected (schema unknown)', () => {
+  const futureSave = { saveVersion: 99, player: {}, time: {} };
+  const out = migrateSave(futureSave);
+  // v0 defaulting logic should NOT run for future versions
+  assert(out.openedCaches === undefined, 'should not inject openedCaches for unknown future version');
 });
 
 console.log('\n=== smoothPath ===');
