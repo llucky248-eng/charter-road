@@ -756,6 +756,254 @@ test('null db → local wins (dbDay=0 < localDay=1)', () => {
   assert(pickNewerSave(null, { savedAt: 1000, time: { day: 1 } }) === 'local');
 });
 
+// ─── DB layer (fetch-mocked) ──────────────────────────────────────────────────
+// Tests for saveGameToDb / loadGameFromDb / deleteSaveFromDb.
+// Each test gets its own context with an injected fetch stub so no real network
+// calls are made. The factory mirrors the exact logic in src/main.js.
+
+function makeDbContext({ playerId = 'player1', qaEnabled = false, economyEnabled = true, fetchStub } = {}) {
+  const SUPABASE_URL = 'https://test.supabase.co';
+  const SUPABASE_KEY = 'test-key';
+  const calls = []; // recorded fetch invocations: { url, method, body }
+
+  const defaultFetch = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : undefined });
+    return { ok: true, text: async () => '', json: async () => [] };
+  };
+  const fetch = fetchStub || defaultFetch;
+
+  function economyHeaders() {
+    return { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
+  }
+
+  let dbSaveInFlight = false;
+  let dbSavePending  = null;
+
+  async function saveGameToDb(state) {
+    if (qaEnabled) return;
+    if (!economyEnabled) return;
+    if (dbSaveInFlight) { dbSavePending = state; return; }
+    dbSaveInFlight = true;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/player_saves`, {
+        method: 'POST',
+        headers: { ...economyHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ uid: playerId, save_data: state, updated_at: new Date().toISOString() }),
+      });
+      if (!res.ok) await res.text().catch(() => '');
+    } catch {}
+    finally {
+      dbSaveInFlight = false;
+      if (dbSavePending) {
+        const pending = dbSavePending;
+        dbSavePending = null;
+        await saveGameToDb(pending);
+      }
+    }
+  }
+
+  async function loadGameFromDb() {
+    if (playerId === '0') return null;
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/player_saves?uid=eq.${encodeURIComponent(playerId)}&select=save_data`,
+        { headers: economyHeaders() }
+      );
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      return rows[0].save_data;
+    } catch { return null; }
+  }
+
+  async function deleteSaveFromDb() {
+    if (qaEnabled || !economyEnabled) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/player_saves?uid=eq.${encodeURIComponent(playerId)}`,
+        { method: 'DELETE', headers: economyHeaders() }
+      );
+    } catch {}
+  }
+
+  return { saveGameToDb, loadGameFromDb, deleteSaveFromDb, calls };
+}
+
+// ─── Summary + async test runner ─────────────────────────────────────────────
+// Sync tests already ran above. Async DB tests run here before the final count.
+
+const _asyncTests = [];
+function asyncTest(name, fn) { _asyncTests.push({ name, fn }); }
+
+// saveGameToDb
+asyncTest('saveGameToDb: QA mode → no fetch call', async () => {
+  const ctx = makeDbContext({ qaEnabled: true });
+  await ctx.saveGameToDb({ savedAt: 1 });
+  assertEqual(ctx.calls.length, 0, 'should not call fetch in QA mode');
+});
+asyncTest('saveGameToDb: economy disabled → no fetch call', async () => {
+  const ctx = makeDbContext({ economyEnabled: false });
+  await ctx.saveGameToDb({ savedAt: 1 });
+  assertEqual(ctx.calls.length, 0);
+});
+asyncTest('saveGameToDb: success → POST to player_saves with uid + save_data', async () => {
+  const ctx = makeDbContext({ playerId: 'p42' });
+  await ctx.saveGameToDb({ savedAt: 999, time: { day: 3 } });
+  assertEqual(ctx.calls.length, 1);
+  assertEqual(ctx.calls[0].method, 'POST');
+  assert(ctx.calls[0].url.includes('/rest/v1/player_saves'), 'wrong endpoint');
+  assertEqual(ctx.calls[0].body.uid, 'p42');
+  assertEqual(ctx.calls[0].body.save_data.savedAt, 999);
+});
+asyncTest('saveGameToDb: HTTP error → swallowed, does not throw', async () => {
+  const ctx = makeDbContext({
+    fetchStub: async () => ({ ok: false, text: async () => 'bad request', json: async () => [] }),
+  });
+  await ctx.saveGameToDb({ savedAt: 1 }); // must not throw
+});
+asyncTest('saveGameToDb: network error → swallowed, does not throw', async () => {
+  const ctx = makeDbContext({ fetchStub: async () => { throw new Error('network down'); } });
+  await ctx.saveGameToDb({ savedAt: 1 }); // must not throw
+});
+asyncTest('saveGameToDb: in-flight lock queues second save', async () => {
+  let unblockFirst;
+  let callCount = 0;
+  const ctx = makeDbContext({
+    fetchStub: async (url, opts) => {
+      ctx.calls.push({ url, method: opts.method || 'POST', body: JSON.parse(opts.body) });
+      callCount++;
+      if (callCount === 1) await new Promise(r => { unblockFirst = r; }); // only block first
+      return { ok: true };
+    },
+  });
+  const p1 = ctx.saveGameToDb({ savedAt: 1 });   // starts, blocks in fetch
+  await Promise.resolve();                         // yield so p1 enters fetch
+  ctx.saveGameToDb({ savedAt: 2 });               // queued as pending (returns immediately)
+  assertEqual(ctx.calls.length, 1, 'only one fetch in flight');
+  unblockFirst();
+  await p1;
+  await new Promise(r => setTimeout(r, 0));       // let pending flush
+  assertEqual(ctx.calls.length, 2, 'pending save flushed after first completes');
+  assertEqual(ctx.calls[1].body.save_data.savedAt, 2, 'pending state is the queued save');
+});
+asyncTest('saveGameToDb: only latest pending state sent (coalescing)', async () => {
+  let unblockFirst;
+  let callCount = 0;
+  const ctx = makeDbContext({
+    fetchStub: async (url, opts) => {
+      ctx.calls.push({ body: JSON.parse(opts.body) });
+      callCount++;
+      if (callCount === 1) await new Promise(r => { unblockFirst = r; }); // only block first
+      return { ok: true };
+    },
+  });
+  const p1 = ctx.saveGameToDb({ savedAt: 10 });  // in flight, blocks
+  await Promise.resolve();
+  ctx.saveGameToDb({ savedAt: 20 });              // pending → 20
+  ctx.saveGameToDb({ savedAt: 30 });              // overrides pending → 30
+  ctx.saveGameToDb({ savedAt: 40 });              // overrides pending → 40
+  unblockFirst();
+  await p1;
+  await new Promise(r => setTimeout(r, 0));
+  assertEqual(ctx.calls.length, 2, 'exactly 2 fetches total');
+  assertEqual(ctx.calls[1].body.save_data.savedAt, 40, 'only latest state (40) was sent, not 20 or 30');
+});
+
+// loadGameFromDb
+asyncTest('loadGameFromDb: guest uid=0 → null without fetch', async () => {
+  const ctx = makeDbContext({
+    playerId: '0',
+    fetchStub: async () => { throw new Error('should not be called'); },
+  });
+  const result = await ctx.loadGameFromDb();
+  assert(result === null, 'guest must return null');
+  assertEqual(ctx.calls.length, 0, 'no fetch for guest');
+});
+asyncTest('loadGameFromDb: non-guest, no rows → null', async () => {
+  const ctx = makeDbContext({
+    fetchStub: async (url, opts) => {
+      ctx.calls.push({ url });
+      return { ok: true, json: async () => [] };
+    },
+  });
+  const result = await ctx.loadGameFromDb();
+  assert(result === null);
+  assertEqual(ctx.calls.length, 1, 'fetch was called');
+});
+asyncTest('loadGameFromDb: non-ok response → null', async () => {
+  const ctx = makeDbContext({ fetchStub: async () => ({ ok: false, json: async () => [] }) });
+  assert(await ctx.loadGameFromDb() === null);
+});
+asyncTest('loadGameFromDb: network error → null', async () => {
+  const ctx = makeDbContext({ fetchStub: async () => { throw new Error('offline'); } });
+  assert(await ctx.loadGameFromDb() === null);
+});
+asyncTest('loadGameFromDb: valid row → returns save_data', async () => {
+  const saveData = { savedAt: 5000, time: { day: 7 }, player: { gold: 300 } };
+  const ctx = makeDbContext({
+    playerId: 'userX',
+    fetchStub: async () => ({ ok: true, json: async () => [{ save_data: saveData }] }),
+  });
+  const result = await ctx.loadGameFromDb();
+  assertEqual(result.savedAt, 5000);
+  assertEqual(result.time.day, 7);
+  assertEqual(result.player.gold, 300);
+});
+asyncTest('loadGameFromDb: URL includes uid filter', async () => {
+  const ctx = makeDbContext({
+    playerId: 'abc123',
+    fetchStub: async (url, opts) => {
+      ctx.calls.push({ url });
+      return { ok: true, json: async () => [] };
+    },
+  });
+  await ctx.loadGameFromDb();
+  assert(ctx.calls[0].url.includes('uid=eq.abc123'), `URL missing uid filter: ${ctx.calls[0].url}`);
+});
+
+// deleteSaveFromDb
+asyncTest('deleteSaveFromDb: QA mode → no fetch', async () => {
+  const ctx = makeDbContext({ qaEnabled: true });
+  await ctx.deleteSaveFromDb();
+  assertEqual(ctx.calls.length, 0);
+});
+asyncTest('deleteSaveFromDb: economy disabled → no fetch', async () => {
+  const ctx = makeDbContext({ economyEnabled: false });
+  await ctx.deleteSaveFromDb();
+  assertEqual(ctx.calls.length, 0);
+});
+asyncTest('deleteSaveFromDb: sends DELETE to player_saves with uid filter', async () => {
+  const ctx = makeDbContext({
+    playerId: 'del99',
+    fetchStub: async (url, opts) => {
+      ctx.calls.push({ url, method: opts.method });
+      return { ok: true };
+    },
+  });
+  await ctx.deleteSaveFromDb();
+  assertEqual(ctx.calls.length, 1);
+  assertEqual(ctx.calls[0].method, 'DELETE');
+  assert(ctx.calls[0].url.includes('uid=eq.del99'), 'URL missing uid filter');
+});
+asyncTest('deleteSaveFromDb: network error → swallowed, does not throw', async () => {
+  const ctx = makeDbContext({ fetchStub: async () => { throw new Error('gone'); } });
+  await ctx.deleteSaveFromDb(); // must not throw
+});
+
+// Run async tests
+console.log('\n=== DB layer (fetch-mocked) ===');
+for (const { name, fn } of _asyncTests) {
+  try {
+    await fn();
+    console.log(`  ✓ ${name}`);
+    passed++;
+  } catch (e) {
+    console.error(`  ✗ ${name}`);
+    console.error(`    ${e.message}`);
+    failed++;
+  }
+}
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
