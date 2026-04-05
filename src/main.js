@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.29'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.30'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5538,7 +5538,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.29',
+    version: 'v0.4.30',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6811,9 +6811,22 @@ function drawNpcBubble() {
 
   const _isGuest = false; // always write to DB so world.html can see every player
 
+  // In-flight lock: prevents out-of-order DB writes when saves arrive faster
+  // than the network can deliver them. Only the latest pending state is kept.
+  let _dbSaveInFlight = false;
+  let _dbSavePending  = null;
+
   async function saveGameToDb(state) {
     if (__QA.enabled) return; // never write to DB in QA mode
     if (!ECONOMY.enabled) return;
+
+    if (_dbSaveInFlight) {
+      // A write is already in flight — queue only the latest state.
+      _dbSavePending = state;
+      return;
+    }
+
+    _dbSaveInFlight = true;
     try {
       const res = await fetch(`${ECONOMY.url}/rest/v1/player_saves`, {
         method: 'POST',
@@ -6831,10 +6844,21 @@ function drawNpcBubble() {
       }
     } catch (e) {
       console.warn('[SAVE] DB save failed (non-fatal, local save still written):', e.message);
+    } finally {
+      _dbSaveInFlight = false;
+      // Flush the latest pending state if one accumulated while we were writing.
+      if (_dbSavePending) {
+        const pending = _dbSavePending;
+        _dbSavePending = null;
+        saveGameToDb(pending);
+      }
     }
   }
 
   async function loadGameFromDb() {
+    // All guests share uid='0' — never cross-load another guest's save.
+    // Guests rely on localStorage exclusively.
+    if (_playerId === '0') return null;
     try {
       const res = await fetch(
         `${ECONOMY.url}/rest/v1/player_saves?uid=eq.${encodeURIComponent(_playerId)}&select=save_data`,
@@ -6853,7 +6877,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.29',
+      buildVersion: 'v0.4.30',
       savedAt: Date.now(),
       player: {
         x: player.x,
