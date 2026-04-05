@@ -45,6 +45,7 @@ idx = idx.replace(/'\?v=\d+\.\d+\.\d+([^']*?)'/g, `'?v=${next}$1'`);
 idx = idx.replace(/HTML build:\s*v\d+\.\d+\.\d+/g, `HTML build: v${next}`);
 js = js.replace(/NPC_DIAG_BUILD\s*=\s*'v\d+\.\d+\.\d+'/m, `NPC_DIAG_BUILD = 'v${next}'`);
 js = js.replace(/version\s*:\s*'v\d+\.\d+\.\d+'/m, `version: 'v${next}'`);
+js = js.replace(/buildVersion\s*:\s*'v\d+\.\d+\.\d+'/m, `buildVersion: 'v${next}'`);
 
 if (idx===indexHtml) die('index.html not updated (no matches)');
 // main.js may have one or both patterns — just verify something changed
