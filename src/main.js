@@ -6930,6 +6930,18 @@ function drawNpcBubble() {
       if (p.lastCityId != null && typeof p.lastCityId !== 'string') {
         errors.push('player.lastCityId must be string|null');
       }
+
+      if (p.gear !== undefined) {
+        if (!isObj(p.gear)) {
+          errors.push('player.gear must be object');
+        } else {
+          for (const slot of ['pack', 'boots', 'tool']) {
+            if (p.gear[slot] !== undefined && !Number.isInteger(p.gear[slot])) {
+              errors.push(`player.gear.${slot} must be an integer`);
+            }
+          }
+        }
+      }
     }
 
     if (!isObj(s?.time)) errors.push('time missing');
@@ -6942,9 +6954,6 @@ function drawNpcBubble() {
 
     if (s.marketDrift !== undefined) {
       if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
-      else {
-        if (!isObj(s.marketDrift)) errors.push('marketDrift must be object');
-      }
     }
 
     if (s.contracts !== undefined) {
@@ -6970,6 +6979,12 @@ function drawNpcBubble() {
     catch { s = JSON.parse(JSON.stringify(raw)); }
 
     const v = Number.isInteger(s?.saveVersion) ? s.saveVersion : 0;
+
+    // Save from a newer build — don't mangle it, let validateSave catch any issues.
+    if (v > SAVE_SCHEMA_VERSION) {
+      console.warn(`[MIGRATE] Save version ${v} is newer than supported ${SAVE_SCHEMA_VERSION} — loading as-is`);
+      return s;
+    }
 
     if (v === 0) {
       s.saveVersion = 1;
@@ -7175,9 +7190,27 @@ function drawNpcBubble() {
   function deleteSave() {
     try {
       localStorage.removeItem(SAVE_KEY);
-      console.log('[SAVE] Save deleted');
+      console.log('[SAVE] Local save deleted');
     } catch (e) {
-      console.warn('[SAVE] Failed to delete:', e);
+      console.warn('[SAVE] Failed to delete locally:', e);
+    }
+    deleteSaveFromDb(); // fire-and-forget: prevent DB save from overwriting a fresh game
+  }
+
+  async function deleteSaveFromDb() {
+    if (__QA.enabled || !ECONOMY.enabled) return;
+    try {
+      const res = await fetch(
+        `${ECONOMY.url}/rest/v1/player_saves?uid=eq.${encodeURIComponent(_playerId)}`,
+        { method: 'DELETE', headers: economyHeaders() }
+      );
+      if (res.ok) {
+        console.log(`[SAVE] DB save deleted (uid=${_playerId})`);
+      } else {
+        console.warn(`[SAVE] DB delete HTTP ${res.status} (uid=${_playerId})`);
+      }
+    } catch (e) {
+      console.warn('[SAVE] DB delete failed (non-fatal):', e.message);
     }
   }
 
