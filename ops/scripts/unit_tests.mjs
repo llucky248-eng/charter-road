@@ -111,18 +111,29 @@ function htmlEscape(s) {
     .replaceAll("'", '&#39;');
 }
 
-// rewardForContract
+// rewardForContract — mirrors src/main.js exactly (copy verbatim on any change)
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+const ITEMS_FOR_REWARD = [
+  { id: 'grain',  base: 10 },
+  { id: 'food',   base: 16 },
+  { id: 'ore',    base: 22 },
+  { id: 'herbs',  base: 24 },
+  { id: 'potion', base: 40 },
+  { id: 'relic',  base: 60 },
+  { id: 'ink',    base: 75 },
+];
 function rewardForContract(want, qty) {
-  const ITEMS = [
-    { id: 'grain', base: 5 }, { id: 'food', base: 8 }, { id: 'ore', base: 14 },
-    { id: 'herbs', base: 12 }, { id: 'potion', base: 30 }, { id: 'relic', base: 60 },
-  ];
-  const it = ITEMS.find(x => x.id === want);
+  const it = ITEMS_FOR_REWARD.find(x => x.id === want);
   const base = it ? it.base : 20;
-  const premium = want === 'relic' ? 22 : (want === 'potion' ? 10 : 6);
-  const r = 10 + premium + Math.round(base * qty * 0.85);
-  return clamp(r, 18, 160);
+  const bestMarginRef = {
+    grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13,
+  }[want] || 5;
+  const buyCostRef = Math.round(base * 0.88);
+  const deliveryPremium = Math.round(bestMarginRef * 1.2);
+  const perUnit = buyCostRef + deliveryPremium;
+  const qtyMult = qty === 1 ? 1.0 : qty === 2 ? 1.75 : 2.35;
+  const r = Math.round(perUnit * qtyMult);
+  return clamp(r, 18, 280);
 }
 
 // contractTierForRep
@@ -347,24 +358,59 @@ test('plain text unchanged', () => {
 });
 
 console.log('\n=== rewardForContract ===');
-test('relic reward is in [18,160]', () => {
+test('relic qty=1 is in [18,280]', () => {
   const r = rewardForContract('relic', 1);
-  assert(r >= 18 && r <= 160, `got ${r}`);
+  assert(r >= 18 && r <= 280, `got ${r}`);
+});
+test('relic qty=1 exact value (buyCostRef=53 + deliveryPremium=22 = 75)', () => {
+  assertEqual(rewardForContract('relic', 1), 75);
 });
 test('potion reward > grain reward (same qty)', () => {
   assert(rewardForContract('potion', 1) > rewardForContract('grain', 1), 'potion should pay more');
 });
+test('ink reward > grain reward (same qty)', () => {
+  assert(rewardForContract('ink', 1) > rewardForContract('grain', 1), 'ink should pay more than grain');
+});
+test('ink qty=1 exact value (buyCostRef=66 + deliveryPremium=16 = 82)', () => {
+  assertEqual(rewardForContract('ink', 1), 82);
+});
 test('higher qty → higher reward', () => {
   assert(rewardForContract('ore', 3) > rewardForContract('ore', 1), 'more qty → more reward');
 });
-test('unknown item uses base=20 fallback without crash', () => {
-  const r = rewardForContract('dragonskin', 2);
-  assert(r >= 18 && r <= 160, `got ${r}`);
+test('qty=2 multiplier (~1.75× qty=1)', () => {
+  const q1 = rewardForContract('herbs', 1); // perUnit=29 → r=29
+  const q2 = rewardForContract('herbs', 2); // perUnit=29 × 1.75 → r=51
+  assert(q2 > q1, `qty=2 (${q2}) should exceed qty=1 (${q1})`);
+  // ratio should be close to 1.75
+  const ratio = q2 / q1;
+  assert(ratio > 1.5 && ratio < 2.0, `ratio ${ratio.toFixed(2)} out of expected 1.5–2.0`);
 });
-test('reward clamped to minimum 18', () => {
-  // qty=0 should still hit floor
-  const r = rewardForContract('grain', 0);
-  assert(r >= 18, `got ${r}`);
+test('qty=3 multiplier (~2.35× qty=1)', () => {
+  const q1 = rewardForContract('food', 1); // perUnit=20 → r=20
+  const q3 = rewardForContract('food', 3); // perUnit=20 × 2.35 → r=47
+  assert(q3 > q1, `qty=3 (${q3}) should exceed qty=1 (${q1})`);
+  const ratio = q3 / q1;
+  assert(ratio > 2.0 && ratio < 2.7, `ratio ${ratio.toFixed(2)} out of expected 2.0–2.7`);
+});
+test('clamp ceiling is 280 (relic qty=3 would be 176, below 280)', () => {
+  // relic: perUnit=75, qtyMult=2.35 → r=round(176.25)=176 — above old 160 ceiling, below new 280
+  const r = rewardForContract('relic', 3);
+  assertEqual(r, 176, `expected 176, got ${r}`);
+});
+test('clamp ceiling 280 not 160: relic qty=3 exceeds old 160 ceiling', () => {
+  assert(rewardForContract('relic', 3) > 160, 'relic qty=3 should exceed old 160 ceiling');
+});
+test('grain qty=1 hits floor: r=17 clamped to 18', () => {
+  // grain: buyCostRef=round(8.8)=9, deliveryPremium=round(8.4)=8, perUnit=17, qtyMult=1.0 → r=17 → clamp=18
+  assertEqual(rewardForContract('grain', 1), 18);
+});
+test('unknown item uses base=20 fallback without crash', () => {
+  const r = rewardForContract('dragonskin', 1);
+  assert(r >= 18 && r <= 280, `got ${r}`);
+});
+test('unknown item bestMarginRef falls back to 5', () => {
+  // base=20: buyCostRef=round(17.6)=18, deliveryPremium=round(6)=6, perUnit=24, qty=1 → r=24
+  assertEqual(rewardForContract('dragonskin', 1), 24);
 });
 
 console.log('\n=== contractTierForRep ===');
@@ -492,11 +538,6 @@ test('L-shaped path keeps corner', () => {
   assertEqual(out.length, 3, `expected 3, got ${out.length}: ${JSON.stringify(out)}`);
 });
 
-// ─── Summary ─────────────────────────────────────────────────────────────────
-console.log(`\n${'─'.repeat(40)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
-
 // ─── _pickNewerSave ───────────────────────────────────────────────────────────
 // Pure function extracted from loadGameAsync() — determines whether DB or
 // localStorage wins when both saves exist.
@@ -561,3 +602,8 @@ test('only db has timestamp → fall back to day comparison', () => {
 test('null db → local wins (dbDay=0 < localDay=1)', () => {
   assert(pickNewerSave(null, { savedAt: 1000, time: { day: 1 } }) === 'local');
 });
+
+// ─── Summary ─────────────────────────────────────────────────────────────────
+console.log(`\n${'─'.repeat(40)}`);
+console.log(`Results: ${passed} passed, ${failed} failed`);
+if (failed > 0) process.exit(1);
