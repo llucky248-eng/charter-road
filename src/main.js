@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.32'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.33'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3110,7 +3110,7 @@ const NPC_INTERACT_RADIUS = 18;
   // tileX/Y (set after makeMap), tileW/H (building footprint), tileType, doorSide, playerFunded
   const cityBuildings = {
     valdenmere: {
-      market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
       barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'west',  playerFunded:0 },
       granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
       guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:15, doorSide:'south', playerFunded:0 },
@@ -3118,7 +3118,7 @@ const NPC_INTERACT_RADIUS = 18;
       inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:7,  doorSide:'east',  playerFunded:0 },
     },
     ashport: {
-      market:    { level:0, maxLevel:2, costPerLevel:[80,160],      effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:2, costPerLevel:[80,160],      effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
       warehouse: { level:0, maxLevel:3, costPerLevel:[70,140,250],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       inn:       { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:5, tileType:7,  doorSide:'east',  playerFunded:0 },
       guild:     { level:0, maxLevel:1, costPerLevel:[150],         effect:'popIncentive',   gain:0.08, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:15, doorSide:'east',  playerFunded:0 },
@@ -3126,13 +3126,13 @@ const NPC_INTERACT_RADIUS = 18;
     crosshaven: {
       granary:   { level:0, maxLevel:2, costPerLevel:[50,100],      effect:'foodSubsidy',    gain:0.12, built:false, tileX:0, tileY:0, tileW:3, tileH:3, tileType:8,  doorSide:'west',  playerFunded:0 },
       inn:       { level:0, maxLevel:1, costPerLevel:[55],          effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:7,  doorSide:'east',  playerFunded:0 },
-      market:    { level:0, maxLevel:1, costPerLevel:[70],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:3, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:1, costPerLevel:[70],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
     },
     ironholt: {
       barracks:  { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'east',  playerFunded:0 },
       warehouse: { level:0, maxLevel:3, costPerLevel:[80,160,280],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
-      market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
     },
   };
 
@@ -5538,7 +5538,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.32',
+    version: 'v0.4.33',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6877,7 +6877,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.32',
+      buildVersion: 'v0.4.33',
       savedAt: Date.now(),
       player: {
         x: player.x,
