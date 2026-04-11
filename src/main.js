@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.36'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.37'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3118,8 +3118,8 @@ const NPC_INTERACT_RADIUS = 18;
       market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
       barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'west',  playerFunded:0 },
       granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
-      guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:15, doorSide:'south', playerFunded:0 },
-      warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
+      guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:15, doorSide:'south', playerFunded:0 },
+      warehouse: { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:7, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       inn:       { level:0, maxLevel:1, costPerLevel:[70],          effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:7,  doorSide:'east',  playerFunded:0 },
     },
     ashport: {
@@ -3148,17 +3148,17 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.valdenmere.inn.tileX       = 8+2;   cityBuildings.valdenmere.inn.tileY       = 8+2;
     cityBuildings.valdenmere.granary.tileX   = 8+2;   cityBuildings.valdenmere.granary.tileY   = 8+9;
     cityBuildings.valdenmere.market.tileX    = 18;    cityBuildings.valdenmere.market.tileY    = 19;
-    cityBuildings.valdenmere.barracks.tileX  = 8+18;  cityBuildings.valdenmere.barracks.tileY  = 8+14;
-    cityBuildings.valdenmere.warehouse.tileX = 8+2;   cityBuildings.valdenmere.warehouse.tileY = 8+15;
-    cityBuildings.valdenmere.guild.tileX     = 8+18;  cityBuildings.valdenmere.guild.tileY     = 8+2;
+    cityBuildings.valdenmere.barracks.tileX  = 8+18;  cityBuildings.valdenmere.barracks.tileY  = 21;    // csY+3=21
+    cityBuildings.valdenmere.warehouse.tileX = 8+2;   cityBuildings.valdenmere.warehouse.tileY = 21;    // csY+3=21
+    cityBuildings.valdenmere.guild.tileX     = 8+18;  cityBuildings.valdenmere.guild.tileY     = 12;    // csY-6=12
     // Ashport (x=92, y=55, w=24, h=16) — shifted 4 left; gate x=104
     // gx=92+12=104, dockY=55+floor(16*0.68)=55+10=65, mktY=55+floor(16*0.38)=55+6=61
     cityBuildings.ashport.inn.tileX       = 92+2;  cityBuildings.ashport.inn.tileY       = 55+2;
     cityBuildings.ashport.market.tileX    = 99;    cityBuildings.ashport.market.tileY    = 61;
-    cityBuildings.ashport.guild.tileX     = 92+2;  cityBuildings.ashport.guild.tileY     = 55+11;
-    cityBuildings.ashport.warehouse.tileX = 92+14; cityBuildings.ashport.warehouse.tileY = 55+12;
+    cityBuildings.ashport.guild.tileX     = 92+2;  cityBuildings.ashport.guild.tileY     = 61;     // dockY-4=61
+    cityBuildings.ashport.warehouse.tileX = 92+14; cityBuildings.ashport.warehouse.tileY = 66;     // dockY+1=66
     // Crosshaven (x=55, y=65, w=14, h=10) — unchanged
-    cityBuildings.crosshaven.granary.tileX = 55+7;  cityBuildings.crosshaven.granary.tileY = 65+2;
+    cityBuildings.crosshaven.granary.tileX = 64;    cityBuildings.crosshaven.granary.tileY = 65+2; // gx+2=64
     cityBuildings.crosshaven.inn.tileX     = 55+1;  cityBuildings.crosshaven.inn.tileY     = 65+2;
     cityBuildings.crosshaven.market.tileX  = 57;    cityBuildings.crosshaven.market.tileY  = 70;
     // Ironholt (x=105, y=14, w=20, h=14) — gx=115, yardY=22, mktY=19
@@ -3166,7 +3166,7 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;
     cityBuildings.ironholt.market.tileX    = 116;   cityBuildings.ironholt.market.tileY    = 14;
     cityBuildings.ironholt.granary.tileX   = 105+2;  cityBuildings.ironholt.granary.tileY   = 14+9;
-    cityBuildings.ironholt.warehouse.tileX = 105+1;  cityBuildings.ironholt.warehouse.tileY = 14+9; // shifted left for margin
+    cityBuildings.ironholt.warehouse.tileX = 105+2;  cityBuildings.ironholt.warehouse.tileY = 14+9; // x0+2=107
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -5543,7 +5543,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.36',
+    version: 'v0.4.37',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6882,7 +6882,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.36',
+      buildVersion: 'v0.4.37',
       savedAt: Date.now(),
       player: {
         x: player.x,
