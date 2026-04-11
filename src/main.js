@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.35'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.36'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1718,9 +1718,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
         // ── Grand town square (center, where avenues cross) ──
         paintPlaza(msX-5, csY-3, 11, 7);           // extra-large cobble square
-        m[csY*MAP_W + (msX-6)] = 6;                // market stall W of square
-        m[csY*MAP_W + (msX+6)] = 6;                // market stall E of square
-        m[(csY-4)*MAP_W + msX] = 6;                // market stall N
         m[(csY-2)*MAP_W + msX] = 12;               // contracts board in square
 
         // ── Guildhall (NE of square, faces the plaza) ──
@@ -1759,8 +1756,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
         // ── Market square (mid-city, on main road) ──
         paintPlaza(gx-4, mktY-2, 8, 5);             // wider market square
-        m[mktY*MAP_W+(gx-5)] = 6;
-        m[mktY*MAP_W+(gx+4)] = 6;
         m[(mktY+1)*MAP_W+gx] = 12;
 
         // ── Inn/Tavern (NW, large sailors' lodge) ──
@@ -1791,7 +1786,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
         // ── Central well + plaza (village heart) ──
         paintPlaza(gx-1, mktY-1, 3, 3);             // small cobble plaza
-        m[mktY*MAP_W+(gx-2)] = 6;                   // market stall W
         m[mktY*MAP_W+gx] = 12;                      // contracts board
 
         // ── Inn/Tavern (west side — landmark, travelers see it first) ──
@@ -1820,7 +1814,6 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
         // ── Market + contracts at main junction ──
         paintPlaza(gx-3, mktY-2, 6, 5);             // larger market plaza
-        m[mktY*MAP_W+(gx-4)] = 6;                   // market stall W
         m[(mktY+1)*MAP_W+gx] = 12;                  // contracts board
 
         // ── Market building (NE, near workers lodge entrance) ──
@@ -5550,7 +5543,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.35',
+    version: 'v0.4.36',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6889,7 +6882,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.35',
+      buildVersion: 'v0.4.36',
       savedAt: Date.now(),
       player: {
         x: player.x,
