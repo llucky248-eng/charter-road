@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.42'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.43'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -742,7 +742,10 @@ ${line4}`;
         }
         if (!tileClear(nx, ny)) continue;
 
-        const tentativeG = (gScore.get(currentKey) ?? Infinity) + COSTS[d];
+        // Terrain cost: forest/swamp are expensive so A* prefers roads
+        const nt = tileAt(nx, ny);
+        const terrainCost = nt === 10 ? 3.0 : nt === 11 ? 2.5 : 1.0;
+        const tentativeG = (gScore.get(currentKey) ?? Infinity) + COSTS[d] * terrainCost;
         const nk = key(nx, ny);
         if (tentativeG < (gScore.get(nk) ?? Infinity)) {
           cameFrom.set(nk, currentKey);
@@ -1061,8 +1064,9 @@ ${line4}`;
     }
 
     const nx = dx / dist, ny = dy / dist;
-    const stepX = nx * player.speed * dt;
-    const stepY = ny * player.speed * dt;
+    const tMul = terrainSpeedMul(player.x, player.y);
+    const stepX = nx * player.speed * tMul * dt;
+    const stepY = ny * player.speed * tMul * dt;
     player.facing = { x: nx, y: ny };
 
     // Wall-slide movement
@@ -1564,8 +1568,18 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable)
-  const SOLID = new Set([2, 3]);
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid)
+  const SOLID = new Set([2, 3, 17]);
+
+  // Terrain speed multiplier — forest slows, swamp slows more, road is full speed
+  function terrainSpeedMul(px, py) {
+    const tx = Math.floor(px / TILE);
+    const ty = Math.floor(py / TILE);
+    const t = tileAt(tx, ty);
+    if (t === 10) return 0.45;  // forest: 45% speed
+    if (t === 11) return 0.55;  // swamp: 55% speed
+    return 1.0;
+  }
 
   // Live reference to the map array - set by makeMap(), used by buildSlotOnMap()
   let mapData = null;
@@ -1926,23 +1940,41 @@ function handleGlobalHudTap(clientX, clientY, e) {
       }
     };
 
-    // Mountains (tile 17) — highlands and ridges (placed first so forests can mix edges)
-    paintPatch(252, 14, 18, 17, 0.80);   // Ironholt highlands NE
-    paintPatch(268, 65, 14, 17, 0.75);   // Far-east cliff wall
-    paintPatch(248, 168, 16, 17, 0.70);  // SE corner peaks
-    paintPatch(24, 8, 14, 17, 0.70);     // NW ridge above Valdenmere
-    paintPatch(155, 6, 22, 17, 0.82);    // North central range (above river at y=12-14)
-    paintPatch(90, 172, 14, 17, 0.65);   // South highlands below Crosshaven
-    paintPatch(10, 130, 10, 17, 0.68);   // Far-west cliffs
+    // Mountains (tile 17, solid) — strategic barriers that channel players onto roads
+    // Roads are tile 1 (not tile 0), so paintPatch can't overwrite them — mountains
+    // naturally gap where roads run, creating clear passes through the ranges.
 
-    // Forests (tile 10) — scaled ×2 from old map + additional patches for the larger world
-    paintPatch(92, 76, 22, 10, 0.85);    // Central forest
-    paintPatch(164, 144, 22, 10, 0.80);  // SE forest
-    paintPatch(36, 100, 16, 10, 0.78);   // W forest
-    paintPatch(130, 50, 18, 10, 0.75);   // N-central forest
-    paintPatch(50, 155, 12, 10, 0.72);   // SW forest
-    paintPatch(200, 90, 14, 10, 0.70);   // Mid-east forest
-    paintPatch(70, 50, 10, 10, 0.68);    // N-central pocket forest
+    // ── North range (barrier between Valdenmere and the north river / Ironholt highway) ──
+    paintPatch(100, 8, 24, 17, 0.82);    // Wide N barrier (above river, W of bridge gap)
+    paintPatch(180, 8, 20, 17, 0.80);    // NE barrier (between bridge and Ironholt)
+    paintPatch(250, 10, 16, 17, 0.78);   // Far NE peaks near Ironholt
+
+    // ── Central mountain spine (divides north highway from south valley roads) ──
+    paintPatch(110, 85, 22, 17, 0.80);   // W-central spine
+    paintPatch(155, 90, 20, 17, 0.78);   // Central spine (road passes below at y=112)
+    paintPatch(200, 80, 18, 17, 0.76);   // E-central ridge (between detour and main roads)
+
+    // ── Eastern wall (forces IH→A traffic through the eastern loop road) ──
+    paintPatch(268, 70, 10, 17, 0.85);   // Far-east cliffs (impassable wall)
+    paintPatch(268, 110, 10, 17, 0.82);  // SE coastal cliffs (above Ashport approach)
+
+    // ── Southern highlands (below CH→A and IH→A southern approach roads) ──
+    paintPatch(140, 172, 18, 17, 0.72);  // S highlands barrier
+    paintPatch(220, 170, 14, 17, 0.68);  // SE corner peaks
+    paintPatch(60, 170, 14, 17, 0.65);   // SW corner peaks
+
+    // ── Pocket ranges (visual variety + discourage off-road shortcuts) ──
+    paintPatch(10, 60, 8, 17, 0.70);     // NW corner crags
+    paintPatch(10, 140, 8, 17, 0.68);    // W edge crags
+
+    // Forests (tile 10) — slow terrain (45% speed) that discourages off-road travel
+    paintPatch(92, 76, 22, 10, 0.85);    // Central forest (between N and S highways)
+    paintPatch(164, 144, 22, 10, 0.80);  // SE forest (around CH→A route)
+    paintPatch(36, 100, 16, 10, 0.78);   // W forest (between V and CH)
+    paintPatch(130, 50, 18, 10, 0.75);   // N-central forest (between highways)
+    paintPatch(50, 155, 14, 10, 0.72);   // SW forest
+    paintPatch(200, 90, 14, 10, 0.70);   // Mid-east forest (near detour)
+    paintPatch(70, 50, 10, 10, 0.68);    // NW pocket forest
 
     // Swamps (tile 11)
     paintPatch(180, 72, 16, 11, 0.75);   // NE swamp
@@ -5578,7 +5610,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.42',
+    version: 'v0.4.43',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6917,7 +6949,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.42',
+      buildVersion: 'v0.4.43',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7471,8 +7503,9 @@ function drawNpcBubble() {
     const nx = mag > 0 ? ax / mag : 0;
     const ny = mag > 0 ? ay / mag : 0;
 
-    player.vx = nx * player.speed;
-    player.vy = ny * player.speed;
+    const tMul = terrainSpeedMul(player.x, player.y);
+    player.vx = nx * player.speed * tMul;
+    player.vy = ny * player.speed * tMul;
 
     // Track last facing direction from input (for 8-way sprite)
     if (mag > 0) player.facing = { x: nx, y: ny };
