@@ -1,13 +1,13 @@
 {
-  "date": "2026-03-01",
+  "date": "2026-04-12",
   "cities": {
-    "sunspire": {
+    "valdenmere": {
       "npcs": {
-        "sunspire_scribe": [
+        "valdenmere_scribe": [
           "Rowen: The archives are three days behind.",
           "Rowen: Taxes rose again after the last caravan.",
           "Rowen: A permit stamp can save you trouble.",
-          "Rowen: Sunspire keeps ledgers tighter than chains.",
+          "Rowen: Valdenmere keeps ledgers tighter than chains.",
           "Rowen: I can hear the market bell from here.",
           "Rowen: Merchants whisper about relics at dusk.",
           "Rowen: Every city has its price; ours is just honest.",
@@ -15,22 +15,22 @@
           "Rowen: A clean manifest keeps your wagon moving.",
           "Rowen: The road is quiet when ink runs dry."
         ],
-        "sunspire_baker": [
+        "valdenmere_baker": [
           "Mara: Fresh loaves for the road\u2014if you pay upfront.",
           "Mara: Flour is scarce, but rations still sell.",
           "Mara: Travelers love warm bread more than gold.",
-          "Mara: Sunspire ovens never sleep.",
+          "Mara: Valdenmere ovens never sleep.",
           "Mara: Bring herbs and I\u2019ll trade you a crust.",
           "Mara: The guards eat first; everyone else waits.",
           "Mara: Markets buzz louder than my ovens.",
           "Mara: A pinch of salt keeps spirits steady.",
-          "Mara: I saw a courier racing to Gloomwharf.",
+          "Mara: I saw a courier racing south to Crosshaven.",
           "Mara: Keep your pack light, keep your steps fast."
         ],
-        "sunspire_guard": [
+        "valdenmere_guard": [
           "Venn: Papers ready? We don\u2019t bend for excuses.",
           "Venn: Contraband earns a night in the cells.",
-          "Venn: Sunspire\u2019s gates close at the third bell.",
+          "Venn: Valdenmere\u2019s gates close at the third bell.",
           "Venn: I\u2019ve seen more deals than duels.",
           "Venn: The road south is clear\u2014for now.",
           "Venn: Permits make inspections shorter.",
@@ -41,43 +41,123 @@
         ]
       }
     },
-    "gloomwharf": {
+    "ashport": {
       "npcs": {
-        "gloomwharf_fisher": [
+        "ashport_fisher": [
           "Maren: The tide brings profit and rot alike.",
           "Maren: Fish sells, if you can stomach the stink.",
-          "Maren: Gloomwharf taxes are light, but knives are not.",
+          "Maren: Ashport taxes are light, but knives are not.",
           "Maren: The docks remember every debt.",
           "Maren: I trade rumors for a clean hook.",
           "Maren: Storms hide smugglers better than fog.",
           "Maren: The market here answers to coin, not law.",
           "Maren: Keep your boots dry or lose a toe.",
-          "Maren: Sunspire men count coins; we count favors.",
+          "Maren: Valdenmere men count coins; we count favors.",
           "Maren: The sea doesn\u2019t care who you are."
         ],
-        "gloomwharf_smuggler": [
+        "ashport_smuggler": [
           "Lira: If it fits under a cloak, it fits the law.",
-          "Lira: Gloomwharf\u2019s best deals happen after dark.",
+          "Lira: Ashport\u2019s best deals happen after dark.",
           "Lira: Don\u2019t ask where I found it.",
           "Lira: Contraband? That\u2019s just \u201crare stock\u201d here.",
           "Lira: The docks have eyes; pay them.",
           "Lira: I know a shortcut if you know a price.",
-          "Lira: Sunspire\u2019s rules make good black-market business.",
+          "Lira: Valdenmere\u2019s rules make good black-market business.",
           "Lira: Keep moving\u2014guards hate still shadows.",
           "Lira: I trade whispers for weightless goods.",
           "Lira: The fog hides more than ships."
         ],
-        "gloomwharf_broker": [
+        "ashport_broker": [
           "Brusk: Prices swing like a pendulum\u2014watch it.",
           "Brusk: I can move ore faster than you can blink.",
           "Brusk: Contracts favor the bold, not the honest.",
-          "Brusk: Gloomwharf pays in silence.",
+          "Brusk: Ashport pays in silence.",
           "Brusk: Bring relics; I\u2019ll find a buyer.",
           "Brusk: Every deal leaves a footprint.",
           "Brusk: The road north bleeds profit if you rush.",
           "Brusk: Keep your numbers tight, your hands tighter.",
           "Brusk: I don\u2019t haggle\u2014time is the fee.",
           "Brusk: Markets here are sharp; come prepared."
+        ]
+      }
+    },
+    "crosshaven": {
+      "npcs": {
+        "crosshaven_innkeeper": [
+          "Bram: Bed and board, no questions asked.",
+          "Bram: The road north is clear today.",
+          "Bram: Pay upfront. Always.",
+          "Bram: Ironholt miners drink heavy but tip light.",
+          "Bram: Crosshaven sees all roads. I see all deals.",
+          "Bram: We\u2019re small, but we\u2019re on the map.",
+          "Bram: Travelers come through here like the seasons.",
+          "Bram: A warm hearth is worth more than a sword.",
+          "Bram: The east road gets rough after the rains.",
+          "Bram: Ask me anything; I won\u2019t remember telling you."
+        ],
+        "crosshaven_peddler": [
+          "Syla: I buy anything, sell anything.",
+          "Syla: Crosshaven sees all roads. I see all deals.",
+          "Syla: Herbs are cheap here if you know who to ask.",
+          "Syla: Valdenmere wants relics; Ironholt wants food.",
+          "Syla: I once sold a broken compass for twelve gold.",
+          "Syla: My cart is lighter than my secrets.",
+          "Syla: The best deals happen at dusk here.",
+          "Syla: Ashport\u2019s prices drop when the fleet returns.",
+          "Syla: A peddler\u2019s life: always moving, always watching.",
+          "Syla: Rations go fast when miners pass through."
+        ],
+        "crosshaven_guard": [
+          "Pel: Just the one of me, but I\u2019m enough.",
+          "Pel: Small town, clear rules.",
+          "Pel: State your business.",
+          "Pel: Crosshaven\u2019s quiet. Keep it that way.",
+          "Pel: I know every face in this village.",
+          "Pel: Trouble goes straight to the road.",
+          "Pel: Move along.",
+          "Pel: No weapons drawn inside.",
+          "Pel: Merchant or traveler?",
+          "Pel: The inn\u2019s that way if you need it."
+        ]
+      }
+    },
+    "ironholt": {
+      "npcs": {
+        "ironholt_miner": [
+          "Dag: Ten years underground, and still the sky surprises me.",
+          "Dag: Ore flows east this season.",
+          "Dag: Watch the shaft elevator \u2014 she sticks.",
+          "Dag: We dig hard so you can trade soft.",
+          "Dag: The seam goes deeper than the foreman admits.",
+          "Dag: Iron is patient. So am I.",
+          "Dag: They\u2019re hiring if your back is strong.",
+          "Dag: Keep away from the east shaft after dark.",
+          "Dag: Dust settles; debts don\u2019t.",
+          "Dag: Food\u2019s worth more than ore some weeks."
+        ],
+        "ironholt_foreman": [
+          "Boss Kira: Production is behind. Always behind.",
+          "Boss Kira: You want ore? Pay market rate or move on.",
+          "Boss Kira: No loitering near the smelter.",
+          "Boss Kira: Bring food and herbs; our stores run thin.",
+          "Boss Kira: The east vein is dry. Don\u2019t let that leave this yard.",
+          "Boss Kira: Ironholt doesn\u2019t do charity.",
+          "Boss Kira: Contracts are honored here, unlike Ashport.",
+          "Boss Kira: The smelter burns day and night.",
+          "Boss Kira: Lost two workers last week. Don\u2019t ask.",
+          "Boss Kira: Valdenmere\u2019s traders know where the good ore is."
+        ],
+        "ironholt_smith": [
+          "Torven: Steel remembers the hand that shaped it.",
+          "Torven: Good iron, if you need it.",
+          "Torven: The forge is always hungry.",
+          "Torven: I\u2019ve shod horses from here to Valdenmere.",
+          "Torven: Potions keep my hands from cracking in the cold.",
+          "Torven: A blade holds secrets longer than a man.",
+          "Torven: Ironholt ore is the finest on the road.",
+          "Torven: The market pays well when the army passes.",
+          "Torven: I don\u2019t sell\u2014I trade, if the metal\u2019s right.",
+          "Torven: Keep your tools sharper than your tongue."
         ]
       }
     }
