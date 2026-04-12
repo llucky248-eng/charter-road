@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.37'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.38'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1629,12 +1629,12 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // ── CITIES ──────────────────────────────────────────────────────────────
     // Valdenmere: large capital (NW) — expanded 28×20→30×22 for more district breathing room
     const cityA = { id:'valdenmere', name:'Valdenmere', x: 8,  y: 8,  w: 30, h: 22 };
-    // Ashport: medium fishing port (SE) — shifted 4 tiles west for better map centering
-    const cityB = { id:'ashport',    name:'Ashport',    x: 92, y: 55, w: 24, h: 16 };
-    // Crosshaven: small crossroads village (S-center)
-    const cityC = { id:'crosshaven', name:'Crosshaven', x: 55, y: 65, w: 14, h: 10 };
-    // Ironholt: medium mining town (NE)
-    const cityD = { id:'ironholt',   name:'Ironholt',   x: 105, y: 14, w: 20, h: 14 };
+    // Ashport: medium fishing port (SE) — expanded h:16→22 for dock district breathing room
+    const cityB = { id:'ashport',    name:'Ashport',    x: 92, y: 55, w: 24, h: 22 };
+    // Crosshaven: small crossroads village (S-center) — expanded h:10→16 to fit market district
+    const cityC = { id:'crosshaven', name:'Crosshaven', x: 55, y: 65, w: 14, h: 16 };
+    // Ironholt: medium mining town (NE) — expanded h:14→18 for ore yard district
+    const cityD = { id:'ironholt',   name:'Ironholt',   x: 105, y: 14, w: 20, h: 18 };
 
     // Helper: place a building block - outer wall ring (tile 3) with interior tile
     // bx,by = top-left tile of block, bw,bh = size including walls
@@ -1775,7 +1775,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         placeBuilding(gx+2, dockY+1, 5, 3, 8, 'north');
 
         // ── Market building (SW of market square, faces the plaza) ──
-        placeBuilding(99, 61, 4, 3, 6, 'south');
+        placeBuilding(99, 63, 4, 3, 6, 'south');
 
       } else if (c.id === 'crosshaven') {
         // Tiny village (14×10): single N-S road, organic scattered buildings
@@ -1816,8 +1816,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(gx-3, mktY-2, 6, 5);             // larger market plaza
         m[(mktY+1)*MAP_W+gx] = 12;                  // contracts board
 
-        // ── Market building (NE, near workers lodge entrance) ──
-        placeBuilding(116, 14, 4, 3, 6, 'south');
+        // ── Market building (NE, near workers lodge, faces plaza) ──
+        placeBuilding(116, 20, 4, 3, 6, 'south');
 
         // ── Foreman HQ (NW, authority building) ──
         placeBuilding(x0+2, y0+2, 5, 4, 4, 'east');
@@ -3151,22 +3151,22 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.valdenmere.barracks.tileX  = 8+18;  cityBuildings.valdenmere.barracks.tileY  = 21;    // csY+3=21
     cityBuildings.valdenmere.warehouse.tileX = 8+2;   cityBuildings.valdenmere.warehouse.tileY = 21;    // csY+3=21
     cityBuildings.valdenmere.guild.tileX     = 8+18;  cityBuildings.valdenmere.guild.tileY     = 12;    // csY-6=12
-    // Ashport (x=92, y=55, w=24, h=16) — shifted 4 left; gate x=104
-    // gx=92+12=104, dockY=55+floor(16*0.68)=55+10=65, mktY=55+floor(16*0.38)=55+6=61
+    // Ashport (x=92, y=55, w=24, h=22) — gate x=104
+    // gx=92+12=104, dockY=55+floor(22*0.68)=55+14=69, mktY=55+floor(22*0.38)=55+8=63
     cityBuildings.ashport.inn.tileX       = 92+2;  cityBuildings.ashport.inn.tileY       = 55+2;
-    cityBuildings.ashport.market.tileX    = 99;    cityBuildings.ashport.market.tileY    = 61;
-    cityBuildings.ashport.guild.tileX     = 92+2;  cityBuildings.ashport.guild.tileY     = 61;     // dockY-4=61
-    cityBuildings.ashport.warehouse.tileX = 92+14; cityBuildings.ashport.warehouse.tileY = 66;     // dockY+1=66
+    cityBuildings.ashport.market.tileX    = 99;    cityBuildings.ashport.market.tileY    = 63;     // mktY=63
+    cityBuildings.ashport.guild.tileX     = 92+2;  cityBuildings.ashport.guild.tileY     = 65;     // dockY-4=65
+    cityBuildings.ashport.warehouse.tileX = 92+14; cityBuildings.ashport.warehouse.tileY = 70;     // dockY+1=70
     // Crosshaven (x=55, y=65, w=14, h=10) — unchanged
     cityBuildings.crosshaven.granary.tileX = 64;    cityBuildings.crosshaven.granary.tileY = 65+2; // gx+2=64
     cityBuildings.crosshaven.inn.tileX     = 55+1;  cityBuildings.crosshaven.inn.tileY     = 65+2;
     cityBuildings.crosshaven.market.tileX  = 57;    cityBuildings.crosshaven.market.tileY  = 70;
-    // Ironholt (x=105, y=14, w=20, h=14) — gx=115, yardY=22, mktY=19
-    // bank at gx+2=117, guild at x0+2=107
-    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;
-    cityBuildings.ironholt.market.tileX    = 116;   cityBuildings.ironholt.market.tileY    = 14;
-    cityBuildings.ironholt.granary.tileX   = 105+2;  cityBuildings.ironholt.granary.tileY   = 14+9;
-    cityBuildings.ironholt.warehouse.tileX = 105+2;  cityBuildings.ironholt.warehouse.tileY = 14+9; // x0+2=107
+    // Ironholt (x=105, y=14, w=20, h=18) — gx=115, yardY=14+floor(18*0.60)=24, mktY=14+floor(18*0.36)=20
+    // bank at gx+2=117, guild at x0+2=107; two ore yard warehouses: west=(107,25), east=(116,25)
+    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;   // Foreman HQ unchanged
+    cityBuildings.ironholt.market.tileX    = 116;    cityBuildings.ironholt.market.tileY    = 20;      // mktY=20
+    cityBuildings.ironholt.granary.tileX   = 105+2;  cityBuildings.ironholt.granary.tileY   = 25;      // west ore yard (yardY+1=25)
+    cityBuildings.ironholt.warehouse.tileX = 116;    cityBuildings.ironholt.warehouse.tileY = 25;      // east ore yard (yardY+1=25)
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -5543,7 +5543,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.37',
+    version: 'v0.4.38',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6882,7 +6882,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.37',
+      buildVersion: 'v0.4.38',
       savedAt: Date.now(),
       player: {
         x: player.x,
