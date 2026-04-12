@@ -57,7 +57,7 @@ async function run() {
   console.log('Screenshot saved: mobile_baseline.png');
 
   // Open market modal via QA helper openMarketUI()
-  const opened = await page.evaluate(() => window.__QA.api.openMarketUI('gloomwharf', 'buy'));
+  const opened = await page.evaluate(() => window.__QA.api.openMarketUI('valdenmere', 'buy'));
   await page.waitForTimeout(200);
 
   if (!opened) {

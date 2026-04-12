@@ -106,7 +106,31 @@ INSERT INTO market_economy (city_id, item_id, pressure) VALUES
   ('ironholt',   'ore',   0), ('ironholt',   'potion',0), ('ironholt',   'ink',  0), ('ironholt',   'relic', 0)
 ON CONFLICT (city_id, item_id) DO NOTHING;
 
--- 7. Player saves (per-player game state, keyed by uid)
+-- 7. City treasury (server-side per-city economy state, managed by world_service)
+CREATE TABLE IF NOT EXISTS city_treasury (
+  city_id          TEXT PRIMARY KEY,
+  gold             INT NOT NULL DEFAULT 0,
+  tax_collected    INT NOT NULL DEFAULT 0,
+  permit_collected INT NOT NULL DEFAULT 0,
+  spent            INT NOT NULL DEFAULT 0,
+  population       INT NOT NULL DEFAULT 0,
+  invest_log       JSONB NOT NULL DEFAULT '[]',
+  city_bonus       JSONB NOT NULL DEFAULT '{}',
+  buildings        JSONB NOT NULL DEFAULT '{}',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE city_treasury ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read city_treasury"
+  ON city_treasury FOR SELECT USING (true);
+CREATE POLICY "public upsert city_treasury"
+  ON city_treasury FOR ALL USING (true) WITH CHECK (true);
+
+-- Seed one row per city so world_service can upsert without a prior fetch
+INSERT INTO city_treasury (city_id) VALUES
+  ('valdenmere'), ('ashport'), ('crosshaven'), ('ironholt')
+ON CONFLICT (city_id) DO NOTHING;
+
+-- 8. Player saves (per-player game state, keyed by uid)
 CREATE TABLE IF NOT EXISTS player_saves (
   uid         TEXT PRIMARY KEY,
   save_data   JSONB NOT NULL DEFAULT '{}',

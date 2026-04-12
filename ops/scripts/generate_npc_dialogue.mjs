@@ -44,15 +44,25 @@ function parseArgs(argv) {
 }
 
 const CITY_NPCS = {
-  sunspire: [
-    { id: 'sunspire_scribe', name: 'Archivist Rowen', role: 'scribe' },
-    { id: 'sunspire_baker', name: 'Mara the Baker', role: 'baker' },
-    { id: 'sunspire_guard', name: 'Captain Venn', role: 'guard' },
+  valdenmere: [
+    { id: 'valdenmere_scribe', name: 'Archivist Rowen', role: 'scribe' },
+    { id: 'valdenmere_baker', name: 'Mara the Baker', role: 'baker' },
+    { id: 'valdenmere_guard', name: 'Captain Venn', role: 'guard' },
   ],
-  gloomwharf: [
-    { id: 'gloomwharf_fisher', name: 'Old Maren', role: 'fisher' },
-    { id: 'gloomwharf_smuggler', name: 'Lira of the Docks', role: 'smuggler' },
-    { id: 'gloomwharf_broker', name: 'Brusk the Broker', role: 'broker' },
+  ashport: [
+    { id: 'ashport_fisher', name: 'Old Maren', role: 'fisher' },
+    { id: 'ashport_smuggler', name: 'Lira of the Docks', role: 'smuggler' },
+    { id: 'ashport_broker', name: 'Brusk the Broker', role: 'broker' },
+  ],
+  crosshaven: [
+    { id: 'crosshaven_innkeeper', name: 'Bram the Innkeeper', role: 'innkeeper' },
+    { id: 'crosshaven_peddler', name: 'Syla the Peddler', role: 'peddler' },
+    { id: 'crosshaven_guard', name: 'Pel the Guard', role: 'guard' },
+  ],
+  ironholt: [
+    { id: 'ironholt_miner', name: 'Dag the Miner', role: 'miner' },
+    { id: 'ironholt_foreman', name: 'Boss Kira', role: 'foreman' },
+    { id: 'ironholt_smith', name: 'Torven the Smith', role: 'smith' },
   ],
 };
 
@@ -75,8 +85,15 @@ function validate(data) {
   return true;
 }
 
+const CITY_NAMES = {
+  valdenmere: 'Valdenmere',
+  ashport: 'Ashport',
+  crosshaven: 'Crosshaven',
+  ironholt: 'Ironholt',
+};
+
 function fallbackLines(cityId, npc) {
-  const cityName = cityId === 'sunspire' ? 'Sunspire' : (cityId === 'gloomwharf' ? 'Gloomwharf' : cityId);
+  const cityName = CITY_NAMES[cityId] || cityId;
   const name = npc.name.split(' ')[0] || npc.name;
   const pool = [
     `${name}: ${cityName} keeps its own kind of order.`,
@@ -107,7 +124,7 @@ async function openaiGenerateLines({ apiKey, model, cityId, cityName, npc, date 
     `City: ${cityName} (id=${cityId})`,
     `NPC: ${npc.name} (id=${npc.id}, role=${npc.role})`,
     'Task: Generate exactly 10 short, punchy lines of ambient chatter the player can read in the city hub.',
-    'Make them feel city-specific (tax/inspect for Sunspire; lawless/profit for Gloomwharf).',
+    'Make them feel city-specific (scholarly/trade for Valdenmere; docks/lawless for Ashport; crossroads/rustic for Crosshaven; mining/industrial for Ironholt).',
   ].join('\n');
 
   const body = {
@@ -155,7 +172,7 @@ async function openaiGenerateLines({ apiKey, model, cityId, cityName, npc, date 
   const out = { date: args.date, cities: {} };
 
   for (const cityId of Object.keys(CITY_NPCS)) {
-    const cityName = cityId === 'sunspire' ? 'Sunspire' : (cityId === 'gloomwharf' ? 'Gloomwharf' : cityId);
+    const cityName = CITY_NAMES[cityId] || cityId;
     out.cities[cityId] = { npcs: {} };
 
     for (const npc of CITY_NPCS[cityId]) {
