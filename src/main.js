@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.38'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.39'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1742,7 +1742,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         placeBuilding(18, 19, 4, 3, 6, 'south');
 
       } else if (c.id === 'ashport') {
-        // Port city (24×16): gate south → main road N; wide dock road E-W at south
+        // Port city (24×22): gate south → main road N; wide dock road E-W at south
         // Districts: N=tavern+residences, mid=market square, S=docks+warehouses+guild
         const dockY = y0 + Math.floor(H * 0.68);   // dock road (slightly higher for more space)
         const mktY  = y0 + Math.floor(H * 0.38);   // market square row
@@ -1778,7 +1778,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         placeBuilding(99, 63, 4, 3, 6, 'south');
 
       } else if (c.id === 'crosshaven') {
-        // Tiny village (14×10): single N-S road, organic scattered buildings
+        // Tiny village (14×16): single N-S road, organic scattered buildings
         // No guild — too small. Feels like a pit stop, not a city.
         const mktY = y0 + Math.floor(H * 0.42);    // market slightly above mid
 
@@ -1803,7 +1803,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // ── No guild — village is too small ──
 
       } else if (c.id === 'ironholt') {
-        // Mining town (20×14): industrial grid — foreman on NW, workers on NE, ore yard S
+        // Mining town (20×18): industrial grid — foreman on NW, workers on NE, ore yard S
         // Wide main road through center, cross yard road for wagons
         const yardY = y0 + Math.floor(H * 0.60);   // ore yard cross road
         const mktY  = y0 + Math.floor(H * 0.36);   // market/contracts intersection
@@ -1817,7 +1817,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[(mktY+1)*MAP_W+gx] = 12;                  // contracts board
 
         // ── Market building (NE, near workers lodge, faces plaza) ──
-        placeBuilding(116, 20, 4, 3, 6, 'south');
+        // x=117 — one tile right of main road's 3-wide paint zone (x=114-116) to avoid road overlap
+        placeBuilding(117, mktY, 4, 3, 6, 'south');
 
         // ── Foreman HQ (NW, authority building) ──
         placeBuilding(x0+2, y0+2, 5, 4, 4, 'east');
@@ -1825,15 +1826,15 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // ── Workers Lodge / Inn (NE, close to gate) ──
         placeBuilding(gx+2, y0+2, 5, 4, 7, 'west');
 
-        // ── Bank (east side, mid section) ──
-        placeBuilding(gx+2, mktY+2, 4, 3, 13, 'west');
+        // ── Bank (east side, mid section) — mktY+3 keeps 1-row gap below market door ──
+        placeBuilding(gx+2, mktY+3, 4, 3, 13, 'west');
 
-        // ── Guild Hall (west side, miners' union) ──
-        placeBuilding(x0+2, mktY+2, 4, 3, 15, 'east');
+        // ── Guild Hall (west side, miners' union) — mktY+3 matches bank row ──
+        placeBuilding(x0+2, mktY+3, 4, 3, 15, 'east');
 
-        // ── Ore yard: two large warehouses with clear working space between ──
+        // ── Ore yard: two large warehouses — east starts at x=117 (clear of road paint zone) ──
         placeBuilding(x0+2, yardY+1, 6, 3, 8, 'north');
-        placeBuilding(gx+1, yardY+1, 6, 3, 8, 'north'); // shifted left vs gx+3 for margin
+        placeBuilding(gx+2, yardY+1, 6, 3, 8, 'north');
       }
 
       return { gx, gy };
@@ -1854,9 +1855,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
     //   Crosshaven ↔ Ironholt  : ~2.8 days  (via Valdenmere — long haul)
     //
     // Valdenmere gate: gateA.gx=23, gateA.gy=30 (city 30×22, gate y=8+22=30)
-    // Ironholt gate: gateD.gx=115, gateD.gy=28
-    // Crosshaven gate: gateC.gx=62, gateC.gy=75
-    // Ashport gate: gateB.gx=104, gateB.gy=71 (city shifted to x=92)
+    // Ironholt gate: gateD.gx=115, gateD.gy=32 (city 20×18, gate y=14+18=32)
+    // Crosshaven gate: gateC.gx=62, gateC.gy=81 (city 14×16, gate y=65+16=81)
+    // Ashport gate: gateB.gx=104, gateB.gy=77 (city 24×22, gate y=55+22=77)
 
     // ── Valdenmere → Ironholt (N highway via river bridge) ──────────────
     // Gate(23,31) → junction(32,32) → east junction(68,32) → north(68,9) → east(115,9) → Ironholt
@@ -1873,19 +1874,20 @@ function handleGlobalHudTap(clientX, clientY, e) {
     carveRoad(48, 56, 48, 70);                    // 14 tiles S (descent)
     carveRoad(48, 70, gateC.gx, gateC.gy+1);     // ~14 tiles E to gate → total ~80 tiles = 1.07 days
 
-    // ── Crosshaven → Ashport (S-E road, gentle arc) ──────────────────────
-    // Gate(62,76) → south(62,82) → arc east → north to Ashport
-    carveRoad(gateC.gx, gateC.gy+1, gateC.gx, 82);   // 6 tiles S
-    carveRoad(gateC.gx, 82, 78, 82);                   // 16 tiles E
-    carveRoad(78, 82, 78, 71);                          // 11 tiles N
-    carveRoad(78, 71, gateB.gx, gateB.gy+1);           // 26 tiles E → total CH→A: ~60 tiles = 0.8 days
+    // ── Crosshaven → Ashport (SE road via southern approach) ───────────────
+    // Gate(62,82) → east(78,82) → north to y=gy+2 → east to Ashport gate
+    // Route hugs south of Ashport (y=gateB.gy+2=79) to avoid dock warehouses at y=70-72
+    carveRoad(gateC.gx, gateC.gy+1, gateC.gx, 82);           // no-op (gy+1=82)
+    carveRoad(gateC.gx, 82, 78, 82);                           // 16 tiles E
+    carveRoad(78, 82, 78, gateB.gy+2);                         // 3 tiles N to gate approach
+    carveRoad(78, gateB.gy+2, gateB.gx, gateB.gy+2);          // 26 tiles E to Ashport gate → ~45 tiles = 0.6 days
 
-    // ── Ironholt → Ashport (loop east+south, no shortcut) ────────────────
-    // Gate(115,29) → SE junction(130,29) → south(130,54) → west to Ashport approach
-    carveRoad(gateD.gx, gateD.gy+1, 130, gateD.gy+1);  // 15 tiles E
-    carveRoad(130, gateD.gy+1, 130, 54);                 // 25 tiles S
-    carveRoad(130, 54, gateB.gx+5, 54);                  // 21 tiles W
-    carveRoad(gateB.gx+5, 54, gateB.gx+5, gateB.gy+1);  // 17 tiles S → total: ~78 tiles = 1.04 days
+    // ── Ironholt → Ashport (loop east+south via shared southern approach) ──
+    // Gate(115,33) → SE junction(130,33) → south to y=gy+2 → west to Ashport gate
+    // Both IH→A and CH→A share the y=79 approach road, avoiding dock warehouses
+    carveRoad(gateD.gx, gateD.gy+1, 130, gateD.gy+1);        // 15 tiles E
+    carveRoad(130, gateD.gy+1, 130, gateB.gy+2);              // ~46 tiles S to Ashport gate level
+    carveRoad(130, gateB.gy+2, gateB.gx, gateB.gy+2);        // 26 tiles W to Ashport gate → total: ~87 tiles = 1.16 days
 
     // Detour / cache route in NE highlands (off main roads)
     carveRoad(74, 14, 90, 26);
@@ -3162,11 +3164,12 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.crosshaven.inn.tileX     = 55+1;  cityBuildings.crosshaven.inn.tileY     = 65+2;
     cityBuildings.crosshaven.market.tileX  = 57;    cityBuildings.crosshaven.market.tileY  = 70;
     // Ironholt (x=105, y=14, w=20, h=18) — gx=115, yardY=14+floor(18*0.60)=24, mktY=14+floor(18*0.36)=20
-    // bank at gx+2=117, guild at x0+2=107; two ore yard warehouses: west=(107,25), east=(116,25)
-    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;   // Foreman HQ unchanged
-    cityBuildings.ironholt.market.tileX    = 116;    cityBuildings.ironholt.market.tileY    = 20;      // mktY=20
+    // bank at gx+2=117, guild at x0+2=107; ore yards: west=(107,25), east=(117,25)
+    // market at x=117 (clear of road paint zone x=114-116); bank/guild at mktY+3=23 (gap below market door)
+    cityBuildings.ironholt.barracks.tileX  = 105+2;  cityBuildings.ironholt.barracks.tileY  = 14+2;   // Foreman HQ (x0+2, y0+2)
+    cityBuildings.ironholt.market.tileX    = 117;    cityBuildings.ironholt.market.tileY    = 20;      // mktY=20 (x=117 avoids road)
     cityBuildings.ironholt.granary.tileX   = 105+2;  cityBuildings.ironholt.granary.tileY   = 25;      // west ore yard (yardY+1=25)
-    cityBuildings.ironholt.warehouse.tileX = 116;    cityBuildings.ironholt.warehouse.tileY = 25;      // east ore yard (yardY+1=25)
+    cityBuildings.ironholt.warehouse.tileX = 117;    cityBuildings.ironholt.warehouse.tileY = 25;      // east ore yard (gx+2, yardY+1)
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -5543,7 +5546,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.38',
+    version: 'v0.4.39',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6882,7 +6885,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.38',
+      buildVersion: 'v0.4.39',
       savedAt: Date.now(),
       player: {
         x: player.x,
