@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.39'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.40'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1720,26 +1720,33 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(msX-5, csY-3, 11, 7);           // extra-large cobble square
         m[(csY-2)*MAP_W + msX] = 12;               // contracts board in square
 
-        // ── Guildhall (NE of square, faces the plaza) ──
-        placeBuilding(msX+3, csY-6, 5, 4, 15, 'south');
+        // ── Guildhall (NE, south door → cross-street; y=csY-5 gives 1-row gap from residence) ──
+        placeBuilding(msX+3, csY-5, 5, 4, 15, 'south');   // y=13-16; door at y=16 → cross-street y=17
 
-        // ── Bank (NW of city, grand stone building) ──
-        placeBuilding(x0+2, csY-7, 5, 4, 13, 'east');
+        // ── Bank (NW quarter, east door → boulevard connector) ──
+        placeBuilding(x0+2, csY-5, 5, 4, 13, 'east');     // y=13-16; 1-row gap below inn
 
-        // ── Inn/Tavern (NW quarter, travelers' first stop) ──
-        placeBuilding(x0+2, y0+2, 5, 4, 7, 'east');
+        // ── Inn/Tavern (NW quarter, east door → boulevard connector) ──
+        placeBuilding(x0+2, y0+1, 5, 4, 7, 'east');       // y=9-12; 1-row gap above bank
 
-        // ── Warehouse district (SW corner, behind market) ──
+        // ── Warehouse district (SW corner, north door → cross-street connector) ──
         placeBuilding(x0+2, csY+3, 7, 3, 8, 'north');
 
-        // ── Residence block NE (noble quarter) ──
-        placeBuilding(msX+3, y0+2, 5, 4, 4, 'south');
+        // ── Residence block NE (noble quarter — west door → boulevard connector) ──
+        placeBuilding(msX+3, y0+1, 5, 4, 4, 'west');      // y=9-12; 1-row gap above guild
 
-        // ── Barracks (SE quarter, guards the south gate approach) ──
+        // ── Barracks (SE quarter, west door → boulevard connector) ──
         placeBuilding(msX+3, csY+3, 5, 4, 4, 'west');
 
-        // ── Market building (SW of town square, faces the plaza) ──
-        placeBuilding(18, 19, 4, 3, 6, 'south');
+        // ── Market building (north door faces the cross-street directly) ──
+        placeBuilding(msX-5, csY+1, 4, 3, 6, 'north');    // door at y=csY+1, cross-street at y=csY
+
+        // ── Road connectors: door → nearest street (skips walls/interiors, safe post-placeBuilding) ──
+        carveStreet(x0+7, y0+3, msX-1, y0+3);             // Inn east door (14,11) → W boulevard
+        carveStreet(x0+7, csY-3, msX-1, csY-3);           // Bank east door (14,15) → W boulevard
+        carveStreet(msX+2, y0+3, msX+1, y0+3);            // Residence west door (26,11) → E boulevard
+        carveStreet(x0+5, csY+2, x0+5, csY);              // Warehouse north door (13,21) → cross-street
+        carveStreet(msX+2, csY+5, msX+1, csY+5);          // Barracks west door (26,23) → E boulevard
 
       } else if (c.id === 'ashport') {
         // Port city (24×22): gate south → main road N; wide dock road E-W at south
@@ -1761,21 +1768,28 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // ── Inn/Tavern (NW, large sailors' lodge) ──
         placeBuilding(x0+2, y0+2, 5, 5, 7, 'east');
 
-        // ── Sailors' residence block NE ──
-        placeBuilding(gx+2, y0+2, 5, 4, 4, 'south');
+        // ── Sailors' residence block NE (west door → main road connector) ──
+        placeBuilding(gx+2, y0+2, 5, 4, 4, 'west');
 
-        // ── Bank (east of market, prominent position) ──
+        // ── Bank (east of market, west door → main road connector) ──
         placeBuilding(gx+2, mktY+1, 4, 3, 13, 'west');
 
-        // ── Trade Guild (west side near docks — sailors' union) ──
+        // ── Trade Guild (west side near docks, east door → main road connector) ──
         placeBuilding(x0+2, dockY-4, 4, 3, 15, 'east');
 
-        // ── Dock warehouses (south of dock road, with space between) ──
+        // ── Dock warehouses (north door → dock road — directly adjacent) ──
         placeBuilding(x0+2, dockY+1, 5, 3, 8, 'north');
         placeBuilding(gx+2, dockY+1, 5, 3, 8, 'north');
 
-        // ── Market building (SW of market square, faces the plaza) ──
+        // ── Market building (south door → connector east to main road) ──
         placeBuilding(99, 63, 4, 3, 6, 'south');
+
+        // ── Road connectors ──
+        carveStreet(x0+7, y0+4, gx-1, y0+4);             // Inn east door → main road
+        carveStreet(gx+1, y0+4, gx, y0+4);               // Residence west door → main road
+        carveStreet(gx-2, mktY+2, gx-1, mktY+2);         // Market south door → main road
+        carveStreet(gx+1, mktY+2, gx, mktY+2);           // Bank west door → main road
+        carveStreet(x0+6, dockY-3, gx-1, dockY-3);       // Guild east door → main road
 
       } else if (c.id === 'crosshaven') {
         // Tiny village (14×16): single N-S road, organic scattered buildings
@@ -1788,19 +1802,25 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(gx-1, mktY-1, 3, 3);             // small cobble plaza
         m[mktY*MAP_W+gx] = 12;                      // contracts board
 
-        // ── Inn/Tavern (west side — landmark, travelers see it first) ──
+        // ── Inn/Tavern (west side, east door → main road connector) ──
         placeBuilding(x0+1, y0+2, 4, 3, 7, 'east');
 
-        // ── Granary/storage (east side, north) ──
+        // ── Granary/storage (east side, west door → main road connector) ──
         placeBuilding(gx+2, y0+2, 3, 3, 8, 'west');
 
-        // ── Bank (east side, south of granary — tiny village branch) ──
-        placeBuilding(gx+2, mktY+2, 3, 3, 13, 'north');
+        // ── Bank (east side, south of granary — west door → main road connector) ──
+        placeBuilding(gx+2, mktY+2, 3, 3, 13, 'west');
 
-        // ── Market building (south of inn, village market) ──
+        // ── Market building (east door → main road connector) ──
         placeBuilding(57, 70, 4, 3, 6, 'east');
 
         // ── No guild — village is too small ──
+
+        // ── Road connectors ──
+        carveStreet(x0+5, y0+3, gx-1, y0+3);             // Inn east door → main road
+        carveStreet(gx+1, y0+3, gx, y0+3);               // Granary west door → main road
+        carveStreet(gx-1, mktY, gx, mktY);               // Market east door → main road
+        carveStreet(gx+1, mktY+3, gx, mktY+3);           // Bank west door → main road
 
       } else if (c.id === 'ironholt') {
         // Mining town (20×18): industrial grid — foreman on NW, workers on NE, ore yard S
@@ -1816,25 +1836,29 @@ function handleGlobalHudTap(clientX, clientY, e) {
         paintPlaza(gx-3, mktY-2, 6, 5);             // larger market plaza
         m[(mktY+1)*MAP_W+gx] = 12;                  // contracts board
 
-        // ── Market building (NE, near workers lodge, faces plaza) ──
-        // x=117 — one tile right of main road's 3-wide paint zone (x=114-116) to avoid road overlap
-        placeBuilding(117, mktY, 4, 3, 6, 'south');
+        // ── Market building (west door → main road connector; x=117 clears road paint zone) ──
+        placeBuilding(117, mktY, 4, 3, 6, 'west');
 
-        // ── Foreman HQ (NW, authority building) ──
+        // ── Foreman HQ (NW, east door → main road connector) ──
         placeBuilding(x0+2, y0+2, 5, 4, 4, 'east');
 
-        // ── Workers Lodge / Inn (NE, close to gate) ──
+        // ── Workers Lodge / Inn (NE, west door → main road connector) ──
         placeBuilding(gx+2, y0+2, 5, 4, 7, 'west');
 
-        // ── Bank (east side, mid section) — mktY+3 keeps 1-row gap below market door ──
+        // ── Bank (east side — west door opens on yard road directly) ──
         placeBuilding(gx+2, mktY+3, 4, 3, 13, 'west');
 
-        // ── Guild Hall (west side, miners' union) — mktY+3 matches bank row ──
+        // ── Guild Hall (west side — east door opens on yard road directly) ──
         placeBuilding(x0+2, mktY+3, 4, 3, 15, 'east');
 
-        // ── Ore yard: two large warehouses — east starts at x=117 (clear of road paint zone) ──
+        // ── Ore yard: north doors open directly onto yard cross road ──
         placeBuilding(x0+2, yardY+1, 6, 3, 8, 'north');
         placeBuilding(gx+2, yardY+1, 6, 3, 8, 'north');
+
+        // ── Road connectors ──
+        carveStreet(x0+7, y0+4, gx-1, y0+4);             // Foreman HQ east door → main road
+        carveStreet(gx+1, y0+4, gx, y0+4);               // Workers Lodge west door → main road
+        carveStreet(gx+1, mktY+1, gx, mktY+1);           // Market west door → main road
       }
 
       return { gx, gy };
@@ -3117,7 +3141,7 @@ const NPC_INTERACT_RADIUS = 18;
   // tileX/Y (set after makeMap), tileW/H (building footprint), tileType, doorSide, playerFunded
   const cityBuildings = {
     valdenmere: {
-      market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:3, costPerLevel:[80,160,300],  effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'north', playerFunded:0 },
       barracks:  { level:0, maxLevel:2, costPerLevel:[100,200],     effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'west',  playerFunded:0 },
       granary:   { level:0, maxLevel:2, costPerLevel:[60,120],      effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
       guild:     { level:0, maxLevel:1, costPerLevel:[200],         effect:'popIncentive',   gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:15, doorSide:'south', playerFunded:0 },
@@ -3139,20 +3163,20 @@ const NPC_INTERACT_RADIUS = 18;
       barracks:  { level:0, maxLevel:2, costPerLevel:[90,180],      effect:'guardDiscount',  gain:0.10, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:4,  doorSide:'east',  playerFunded:0 },
       warehouse: { level:0, maxLevel:3, costPerLevel:[80,160,280],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
-      market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'south', playerFunded:0 },
+      market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'west',  playerFunded:0 },
     },
   };
 
   // ── Assign tile positions + paint vacant lots (called after cityBuildings is declared) ──
   function initCityBuildingSlots() {
-    // Valdenmere (x=8, y=8, w=30, h=22) — gate x=23, cross-street y=18
-    // gx=8+15=23, csY=8+floor(22*0.48)=8+10=18
-    cityBuildings.valdenmere.inn.tileX       = 8+2;   cityBuildings.valdenmere.inn.tileY       = 8+2;
-    cityBuildings.valdenmere.granary.tileX   = 8+2;   cityBuildings.valdenmere.granary.tileY   = 8+9;
-    cityBuildings.valdenmere.market.tileX    = 18;    cityBuildings.valdenmere.market.tileY    = 19;
+    // Valdenmere (x=8, y=8, w=30, h=22) — gate x=23, csY=8+floor(22*0.48)=18
+    // inn/residence at y0+1=9; bank/guild at csY-5=13; market at csY+1=19 (door north to cross-street)
+    cityBuildings.valdenmere.inn.tileX       = 8+2;   cityBuildings.valdenmere.inn.tileY       = 8+1;   // y0+1=9
+    cityBuildings.valdenmere.granary.tileX   = 8+2;   cityBuildings.valdenmere.granary.tileY   = 8+9;   // mid-NW (unbuilt)
+    cityBuildings.valdenmere.market.tileX    = 18;    cityBuildings.valdenmere.market.tileY    = 19;    // csY+1=19
     cityBuildings.valdenmere.barracks.tileX  = 8+18;  cityBuildings.valdenmere.barracks.tileY  = 21;    // csY+3=21
     cityBuildings.valdenmere.warehouse.tileX = 8+2;   cityBuildings.valdenmere.warehouse.tileY = 21;    // csY+3=21
-    cityBuildings.valdenmere.guild.tileX     = 8+18;  cityBuildings.valdenmere.guild.tileY     = 12;    // csY-6=12
+    cityBuildings.valdenmere.guild.tileX     = 8+18;  cityBuildings.valdenmere.guild.tileY     = 13;    // csY-5=13
     // Ashport (x=92, y=55, w=24, h=22) — gate x=104
     // gx=92+12=104, dockY=55+floor(22*0.68)=55+14=69, mktY=55+floor(22*0.38)=55+8=63
     cityBuildings.ashport.inn.tileX       = 92+2;  cityBuildings.ashport.inn.tileY       = 55+2;
@@ -5546,7 +5570,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.39',
+    version: 'v0.4.40',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6885,7 +6909,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.39',
+      buildVersion: 'v0.4.40',
       savedAt: Date.now(),
       player: {
         x: player.x,
