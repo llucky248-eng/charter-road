@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.43'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.44'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5610,7 +5610,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.43',
+    version: 'v0.4.44',
     whatsNew: [
       'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
       'Other players visible on map as color-coded dots with name labels (same city/area only).',
@@ -6949,7 +6949,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.43',
+      buildVersion: 'v0.4.44',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8581,26 +8581,45 @@ function drawNpcBubble() {
       return;
     }
 
-    if (id === 17) { // mountain
+    if (id === 17) { // hill — soft rounded dome, not a sharp peak
       const n = hash2(tx, ty);
-      // Base rock face
-      ctx.fillStyle = n < 0.35 ? '#6b7280' : (n < 0.65 ? '#9ca3af' : '#b0b8c4');
+      // Grassy ground base
+      ctx.fillStyle = n < 0.5 ? '#5c7030' : '#516628';
       ctx.fillRect(x, y, TILE, TILE);
-      // Snow-capped peak (lighter triangle at top)
-      const peakW = 4 + (n * 5 | 0);
-      const peakH = 4 + (n * 4 | 0);
-      ctx.fillStyle = 'rgba(240,244,255,0.55)';
+
+      const hillH = 7 + (n * 4 | 0);     // height varies per tile for natural look
+      const hillCx = x + TILE * 0.5;
+      const baseY  = y + TILE - 1;
+
+      // Rounded hill dome via quadratic bezier (soft arch, not triangle)
+      ctx.fillStyle = n < 0.45 ? '#9e8a58' : '#8c7a4c';
       ctx.beginPath();
-      ctx.moveTo(x + TILE/2, y + 2);
-      ctx.lineTo(x + TILE/2 - peakW, y + 2 + peakH);
-      ctx.lineTo(x + TILE/2 + peakW, y + 2 + peakH);
+      ctx.moveTo(x, baseY);
+      ctx.quadraticCurveTo(hillCx, baseY - hillH, x + TILE, baseY);
+      ctx.lineTo(x + TILE, y + TILE);
+      ctx.lineTo(x, y + TILE);
       ctx.closePath();
       ctx.fill();
-      // Dark base shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fillRect(x, y + TILE - 4, TILE, 4);
-      // Edge darkening
-      ctx.fillStyle = 'rgba(0,0,0,0.07)';
+
+      // Grass highlight on the crest
+      ctx.fillStyle = 'rgba(110,150,55,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(hillCx - 3, baseY - hillH + 2);
+      ctx.quadraticCurveTo(hillCx, baseY - hillH - 1, hillCx + 3, baseY - hillH + 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Right-side shadow for gentle depth
+      ctx.fillStyle = 'rgba(0,0,0,0.13)';
+      ctx.beginPath();
+      ctx.moveTo(hillCx + 1, baseY - hillH + 4);
+      ctx.quadraticCurveTo(x + TILE - 2, baseY - 3, x + TILE, baseY);
+      ctx.lineTo(hillCx + 1, baseY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Edge pixel
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
       return;
