@@ -8303,20 +8303,23 @@ function drawNpcBubble() {
     }
 
     if (id === 1) {
-      ctx.fillStyle = '#7a5a2f';
+      const rn = hash2(tx, ty);
+      const roadBase = rn < 0.4 ? '#7a5a2f' : (rn < 0.7 ? '#7c5e32' : '#755830');
+      ctx.fillStyle = roadBase;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#a77b45';
+      // Worn center lane (lighter packed earth)
+      ctx.fillStyle = rn < 0.5 ? '#a07840' : '#a07a42';
       ctx.fillRect(x + 3, y + 2, TILE - 6, TILE - 4);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      // Subtle rut line
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(x + 4, y, 1, TILE);
+      ctx.fillRect(x + TILE - 5, y, 1, TILE);
+      // Edge shading from adjacent tiles
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
       if (tileAt(tx, ty-1) !== 1) ctx.fillRect(x, y, TILE, 2);
       if (tileAt(tx, ty+1) !== 1) ctx.fillRect(x, y + TILE - 2, TILE, 2);
       if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 2, TILE);
       if (tileAt(tx+1, ty) !== 1) ctx.fillRect(x + TILE - 2, y, 2, TILE);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
       return;
     }
 
@@ -8429,39 +8432,18 @@ function drawNpcBubble() {
     }
 
     if (id === 7) {
-      // Inn / Tavern - timbered building, warm window glow
-      // Stone foundation
-      ctx.fillStyle = '#4a3f2e';
+      // Inn interior floor — warm wood planks (the 3D sprite renders on top)
+      ctx.fillStyle = '#6b4c2a';
       ctx.fillRect(x, y, TILE, TILE);
-      // Building walls (warm plaster)
-      ctx.fillStyle = '#c4a882';
-      ctx.fillRect(x+1, y+3, TILE-2, TILE-5);
-      // Timber framing (dark cross beams)
-      ctx.fillStyle = '#3d2b1a';
-      ctx.fillRect(x+1, y+3, TILE-2, 1);      // top beam
-      ctx.fillRect(x+Math.floor(TILE/2), y+3, 1, TILE-4); // vertical beam
-      ctx.fillRect(x+1, y+Math.floor(TILE*0.6)|0, TILE-2, 1); // middle beam
-      // Thatched roof (dark red-brown triangle)
-      ctx.fillStyle = '#7c2d12';
-      ctx.beginPath();
-      ctx.moveTo(x + TILE/2, y);
-      ctx.lineTo(x, y+5);
-      ctx.lineTo(x+TILE, y+5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#9a3412';
-      ctx.fillRect(x, y+4, TILE, 1);
-      // Warm window glow
-      const glow = 0.55 + 0.15 * Math.sin(stateTime * 0.0012 + tx);
-      ctx.fillStyle = `rgba(251,191,36,${glow.toFixed(2)})`;
-      ctx.fillRect(x+3, y+5, 4, 4);
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(x+4, y+6, 2, 2);  // window cross
-      // Door
-      ctx.fillStyle = '#2a1810';
-      ctx.fillRect(x+TILE-6, y+TILE-7, 4, 6);
-      ctx.fillStyle = '#7c4a1a';
-      ctx.fillRect(x+TILE-5, y+TILE-6, 2, 4);
+      // Wood plank lines
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      const plankStep = Math.round(TILE / 4);
+      for (let py2 = plankStep; py2 < TILE; py2 += plankStep) {
+        ctx.fillRect(x, y + py2, TILE, 1);
+      }
+      // Subtle grain highlight
+      ctx.fillStyle = 'rgba(255,220,140,0.10)';
+      ctx.fillRect(x + 1, y + 1, TILE - 2, Math.round(TILE * 0.4));
       return;
     }
 
@@ -8860,14 +8842,39 @@ function drawNpcBubble() {
       ctx.fillStyle = roofTop;
       ctx.fillRect(bx, by - rise, bw, rise);
       // Roof highlight top edge
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(bx, by - rise, bw, 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(bx, by - rise, bw, 2);
+      // Ridge line along center of roof
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(bx + Math.round(bw * 0.25), by - rise + 3, Math.round(bw * 0.5), 1);
       // Roof shadow left edge
-      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
       ctx.fillRect(bx, by - rise, 3, rise);
+      // Roof right edge lighter (light comes from right)
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx + bw - 3, by - rise, 3, rise);
       // Roof face / fascia
       ctx.fillStyle = roofFace;
-      ctx.fillRect(bx, by - 5, bw, 5);
+      ctx.fillRect(bx, by - 6, bw, 6);
+      // Fascia highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(bx + 2, by - 6, bw - 4, 1);
+      // Inn chimney (type 7/14 only)
+      if (type === 7 || type === 14) {
+        const chX = bx + Math.round(bw * 0.75);
+        const chW = Math.max(3, Math.round(TILE * 0.28));
+        const chH = Math.round(rise * 0.55);
+        ctx.fillStyle = '#4a3020';
+        ctx.fillRect(chX, by - rise - chH, chW, chH);
+        ctx.fillStyle = '#2a1a10';
+        ctx.fillRect(chX - 1, by - rise - chH, chW + 2, 2); // chimney cap
+        // Smoke puff
+        const puff = 0.25 + 0.15 * Math.sin(stateTime * 0.0008 + slot.tileX * 0.5);
+        ctx.fillStyle = `rgba(200,200,200,${puff.toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(chX + chW / 2, by - rise - chH - 4, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // ── Front wall (full footprint) ──
       ctx.fillStyle = wallMain;
@@ -8912,21 +8919,37 @@ function drawNpcBubble() {
         ctx.fillRect(wx + Math.floor(winW / 2), winY, 1, winH);
       }
 
-      // ── Door: centered bottom, sized to building ──
+      // ── Door: draw on whichever face is visible from front ──
       const doorW = Math.round(TILE * 0.75);
       const doorH = Math.round(TILE * 1.0);
       const door  = slot.doorSide || 'south';
-      if (door === 'south') {
-        const dx = bx + Math.round(bw / 2 - doorW / 2);
-        const dy = by + bh - doorH;
+      {
+        let dx, dy, dw, dh;
+        if (door === 'south') {
+          dx = bx + Math.round(bw / 2 - doorW / 2);
+          dy = by + bh - doorH;
+          dw = doorW; dh = doorH;
+        } else if (door === 'north') {
+          dx = bx + Math.round(bw / 2 - doorW / 2);
+          dy = by;
+          dw = doorW; dh = doorH;
+        } else if (door === 'east') {
+          dx = bx + bw - Math.round(TILE * 0.35);
+          dy = by + Math.round(bh / 2 - doorH / 2);
+          dw = Math.round(TILE * 0.35); dh = doorH;
+        } else { // west
+          dx = bx;
+          dy = by + Math.round(bh / 2 - doorH / 2);
+          dw = Math.round(TILE * 0.35); dh = doorH;
+        }
         ctx.fillStyle = doorColor;
-        ctx.fillRect(dx, dy, doorW, doorH);
+        ctx.fillRect(dx, dy, dw, dh);
         // Door arch highlight
         ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.fillRect(dx + 2, dy + 2, doorW - 4, 3);
+        ctx.fillRect(dx + 2, dy + 2, Math.max(1, dw - 4), 3);
         // Door knob
         ctx.fillStyle = '#f59e0b';
-        ctx.fillRect(dx + doorW - 5, dy + Math.round(doorH * 0.55), 3, 3);
+        ctx.fillRect(dx + dw - 5, dy + Math.round(dh * 0.55), 3, 3);
       }
 
       // ── Hanging sign / banner with building name ──────────────────────
@@ -10351,7 +10374,7 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
   const rowH     = Math.round(15 * UI_SCALE);
   const fSz      = Math.round(11 * UI_SCALE);
   const fSzSm    = Math.round(10 * UI_SCALE);
-  const boxW     = Math.min(maxTextW, VIEW_W - x - Math.round(12 * UI_SCALE));
+  const boxW     = Math.min(Math.round(230 * UI_SCALE), VIEW_W - Math.round(16 * UI_SCALE));
 
   // Stat rows: [labelA, valueA, colorA, labelB, valueB, colorB]
   const LABEL    = 'rgba(138,160,179,0.75)';
@@ -10373,8 +10396,9 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
     + npcSection
     + padY;
 
-  const boxX = x;
-  const boxY = HUD_H + Math.round(4 * UI_SCALE);
+  // Pin to bottom-right corner so it never overlaps the main gameplay viewport
+  const boxX = VIEW_W - boxW - Math.round(8 * UI_SCALE);
+  const boxY = VIEW_H - boxH - Math.round(8 * UI_SCALE);
 
   ctx.save();
 
