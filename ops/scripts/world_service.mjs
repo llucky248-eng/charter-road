@@ -7,6 +7,8 @@
  * No npm dependencies — uses Node 18+ built-in fetch.
  */
 
+import { pathToFileURL } from 'node:url';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ycjhcsxxtinipwailbjb.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY';
 
@@ -20,13 +22,13 @@ const TRADER_DEFS = [
 ];
 
 const ITEMS = [
-  { id: 'grain',  name: 'Grain',         base: 10, weight: 2 },
+  { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },
   { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },
   { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },
   { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },
   { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },
   { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },
-  { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1 },
+  { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, sourceCities: ['ironholt', 'crosshaven'] },
 ];
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
@@ -90,14 +92,16 @@ const MAX_TICK = 1800; // cap elapsed seconds to avoid huge jumps (allow up to 6
 
 // Tax rate on every sale (fraction of revenue)
 const CITY_TAX = {
-  valdenmere: 0.12,  // capital — high tax
-  ashport:    0.08,  // merchant hub — moderate
-  crosshaven: 0.05,  // free port — low tax
-  ironholt:   0.15,  // military — heaviest tax
+  valdenmere: 0.08,
+  ashport:    0.05,
+  crosshaven: 0.03,
+  ironholt:   0.10,
 };
 
-// Premium items that require a trading permit to sell
-const PERMIT_ITEMS = new Set(['ink', 'relic', 'potion', 'cloth']);
+// AI traders now follow the same economy model as the client.
+// The old server-only premium-item permit system created routes and taxes the
+// player could never see, so it is disabled for parity.
+const PERMIT_ITEMS = new Set();
 
 // Permit cost and duration (in trips)
 const PERMIT_COST  = 150;  // FIX: reduced from 300 — was unaffordable for early traders (80-120g start)
@@ -131,7 +135,20 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
   }
 }
 
-// ── Price model (mirrors main.js v0.2.3 balance pass) ──────────────────────
+// ── Price model (mirrors main.js) ───────────────────────────────────────────
+
+const CITY_MULTS = {
+  valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
+  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
+  crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00 },
+  ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
+};
+
+const WORLD_STATE = {
+  day: 1,
+  frac: 0,
+  seed: 1,
+};
 
 // Same seeded functions as main.js
 function seeded01(a, b, c = 0) {
@@ -143,23 +160,41 @@ function seeded01(a, b, c = 0) {
 function citySeed(cityId) {
   return ({ valdenmere: 1337, ashport: 7331, crosshaven: 4219, ironholt: 9901 })[cityId] || 5555;
 }
-function townItemModifier(cityId, itemId) {
+
+function dayWobble(cityId, item) {
+  const day = Math.max(1, Math.floor(WORLD_STATE.day || 1));
   const cs = citySeed(cityId);
-  const u = seeded01(cs, itemId.length, itemId.charCodeAt(0) || 0);
-  const skew = (u * 2 - 1) * 0.35;      // ±35% per-item skew
-  const v = seeded01(cs, 999, 42);
-  const cityTilt = (v * 2 - 1) * 0.10;  // ±10% city-wide tilt
-  return 1 + skew + cityTilt;
+  const u = seeded01(cs ^ (item.base * 7), day, item.id.charCodeAt(0) || 0);
+  return 0.97 + u * 0.06;
 }
+
 function midPriceFor(cityId, item) {
-  return Math.max(1, Math.round(item.base * townItemModifier(cityId, item.id)));
+  const mult = CITY_MULTS[cityId]?.[item.id] ?? 1;
+  const wob = dayWobble(cityId, item);
+  const econ = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
+  return Math.max(1, Math.round(item.base * mult * wob * econ));
 }
 
 // Live market pressure snapshot loaded at tick start — keyed as "cityId:itemId"
 const PRESSURE_MAP = {};
 
+async function loadWorldState() {
+  try {
+    const rows = await sbFetch('/rest/v1/world_state?id=eq.main&select=day,frac,seed') || [];
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (row && typeof row === 'object') {
+      WORLD_STATE.day = Number.isFinite(row.day) ? row.day : WORLD_STATE.day;
+      WORLD_STATE.frac = Number.isFinite(row.frac) ? row.frac : WORLD_STATE.frac;
+      WORLD_STATE.seed = Number.isFinite(row.seed) ? row.seed : WORLD_STATE.seed;
+    }
+  } catch (e) {
+    console.warn('[WORLD_STATE] Failed to load (non-fatal):', e.message);
+  }
+}
+
 async function loadPressureMap() {
   try {
+    for (const key of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[key];
     const rows = await sbFetch('/rest/v1/market_economy?select=city_id,item_id,pressure') || [];
     for (const r of rows) PRESSURE_MAP[`${r.city_id}:${r.item_id}`] = r.pressure;
     console.log(`[PRESSURE] Loaded ${rows.length} pressure entries`);
@@ -168,19 +203,25 @@ async function loadPressureMap() {
   }
 }
 
-const PRESSURE_EFFECT = 0.20;
+const PRESSURE_EFFECT = 1;
+
+function marketDiscountFor(cityId) {
+  return CITY_TREASURY[cityId]?.city_bonus?.marketDiscount || 0;
+}
 
 function buyPrice(cityId, item) {
   const mid = midPriceFor(cityId, item);
-  const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
-  const factor = 1 + (SPREAD / 2) + (pressure * PRESSURE_EFFECT);
-  return Math.max(1, Math.round(mid * factor));
+  const discount = marketDiscountFor(cityId);
+  return Math.max(1, Math.round(mid * (1 + (SPREAD / 2)) * (1 - discount)));
 }
 function sellPrice(cityId, item) {
   const mid = midPriceFor(cityId, item);
-  const pressure = PRESSURE_MAP[`${cityId}:${item.id}`] || 0;
-  const factor = Math.max(0.5, 1 - (SPREAD / 2) - (pressure * PRESSURE_EFFECT));
-  return Math.max(1, Math.round(mid * factor));
+  return Math.max(1, Math.round(mid * (1 - (SPREAD / 2))));
+}
+
+function netSellPrice(cityId, item) {
+  const gross = sellPrice(cityId, item);
+  return Math.max(1, Math.round(gross * (1 - (CITY_TAX[cityId] || 0))));
 }
 
 // ── Route picking (mirrors main.js, extended with preferred_item bias) ────
@@ -193,12 +234,11 @@ function decideRoute(trader) {
   for (const toId of CITIES) {
     if (toId === fromId) continue;
     for (const item of ITEMS) {
-      // Skip permit items without gold for permit
-      if (PERMIT_ITEMS.has(item.id) && !hasValidPermit(trader, toId) && (trader.gold || 0) < PERMIT_COST) continue;
+      if (item.sourceCities && !item.sourceCities.includes(fromId)) continue;
 
-      const buy  = buyPrice(fromId, item);
-      const sell = sellPrice(toId, item);
-      const profit = sell - buy;
+      const buy = buyPrice(fromId, item);
+      const sellNet = netSellPrice(toId, item);
+      const profit = sellNet - buy;
       if (profit <= 0) continue;
 
       const units = Math.floor(traderCapacity(trader) / item.weight);
@@ -214,9 +254,9 @@ function decideRoute(trader) {
       if (sellPressure >= 0.4) score *= 0.3;        // heavily depressed sell market
       else if (sellPressure >= 0.25) score *= 0.6;  // moderately depressed
 
-      // FIX: bonus for routes where buy pressure is positive (item scarce at destination)
+      // Bonus for routes where the source city is oversupplied, matching client pressure behavior.
       const buyPressure = PRESSURE_MAP[`${fromId}:${item.id}`] || 0;
-      if (buyPressure <= -0.3) score *= 1.4;  // item oversupplied at source = cheap to buy
+      if (buyPressure <= -0.3) score *= 1.4;
 
       candidates.push({ fromId, toId, itemId: item.id, profit: profit * units, score });
     }
@@ -300,10 +340,10 @@ function reviewStrategy(trader) {
     for (const toId of CITIES) {
       if (toId === srcId) continue;
       for (const item of ITEMS) {
-        if (PERMIT_ITEMS.has(item.id) && (trader.gold || 0) < PERMIT_COST) continue;
+        if (item.sourceCities && !item.sourceCities.includes(srcId)) continue;
         const sellPressure = PRESSURE_MAP[`${toId}:${item.id}`] || 0;
         if (sellPressure >= 0.4) continue; // skip saturated sell markets entirely
-        const p = (sellPrice(toId, item) - buyPrice(srcId, item)) * Math.floor(traderCapacity(trader) / item.weight);
+        const p = (netSellPrice(toId, item) - buyPrice(srcId, item)) * Math.floor(traderCapacity(trader) / item.weight);
         if (p > 0) {
           // Weight by how close the source city is to the trader's current position
           const distWeight = srcId === fromId ? 1.5 : 1.0;
@@ -723,17 +763,24 @@ function tickTrader(t, elapsed) {
           console.log(`[${t.name}] Paid ${taxPaid}g tax (${Math.round(taxRate*100)}%) to ${t.to_id}`);
           addTaxRevenue(t.to_id, taxPaid, 'tax');
         }
-        t.gold            += revenue;
+        const cargoCost = Object.entries(t.inv || {}).reduce((sum, [itemId, qty]) => {
+          if (!qty) return sum;
+          const item = ITEMS.find(i => i.id === itemId);
+          if (!item) return sum;
+          return sum + (buyPrice(t.from_id, item) * qty);
+        }, 0);
+        const tripProfit = revenue - cargoCost;
+        t.gold += revenue;
         // FIX: gold floor — traders always keep at least 30g so they can buy basic cargo
         if (t.gold < 30) {
           console.log(`[${t.name}] ⚠️ Gold floor applied (${t.gold}g → 30g)`);
           t.gold = 30;
         }
-        t.total_profit     = (t.total_profit || 0) + revenue;
+        t.total_profit     = (t.total_profit || 0) + tripProfit;
         t.trips_completed  = (t.trips_completed || 0) + 1;
-        // Track per-trip profit history (keep last 10)
+        // Track per-trip realized profit history (keep last 10)
         const history = Array.isArray(t.profit_history) ? t.profit_history : [];
-        history.push({ trip: t.trips_completed, profit: revenue, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
+        history.push({ trip: t.trips_completed, profit: tripProfit, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
         if (history.length > 10) history.splice(0, history.length - 10);
         t.profit_history   = history;
         t.inv              = {};
@@ -741,7 +788,7 @@ function tickTrader(t, elapsed) {
         t.state            = 'in_city';
         t.city_timer       = 30 + Math.random() * 60;
         t.progress         = 0;
-        console.log(`[${t.name}] Arrived at ${t.to_id}, sold for ${revenue}g. Total profit: ${t.total_profit}g`);
+        console.log(`[${t.name}] Arrived at ${t.to_id}, revenue ${revenue}g, trip profit ${tripProfit}g. Total profit: ${t.total_profit}g`);
 
         // Gear upgrade check (every trip)
         tryGearUpgrade(t);
@@ -762,7 +809,8 @@ function tickTrader(t, elapsed) {
 async function main() {
   console.log(`[WORLD SIM] Tick starting at ${new Date().toISOString()}`);
 
-  // FIX: load market pressure before ticking so prices respond to supply/demand
+  await loadWorldState();
+  // Load market pressure before ticking so prices respond to supply/demand.
   await loadPressureMap();
 
   let traders = await fetchTraders();
@@ -831,7 +879,32 @@ async function main() {
   console.log('[WORLD SIM] Tick complete');
 }
 
-main().catch(err => {
-  console.error('[WORLD SIM] Fatal error:', err);
-  process.exit(1);
-});
+export {
+  ITEMS,
+  CITIES,
+  CITY_MULTS,
+  CITY_TAX,
+  SPREAD,
+  PRESSURE_EFFECT,
+  WORLD_STATE,
+  PRESSURE_MAP,
+  CITY_TREASURY,
+  seeded01,
+  citySeed,
+  dayWobble,
+  midPriceFor,
+  buyPrice,
+  sellPrice,
+  netSellPrice,
+  decideRoute,
+  traderCapacity,
+};
+
+const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch(err => {
+    console.error('[WORLD SIM] Fatal error:', err);
+    process.exit(1);
+  });
+}
