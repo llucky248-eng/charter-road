@@ -1,5 +1,16 @@
 # Iteration Log — The Charter Road
 
+## v0.4.46 — 2026-05-09 (Mining System)
+- **Mining hybrid system**: Ironholt now has a mine building slot. Funded mines auto-produce ore/coal and (rarely) gems each day, depositing the proceeds into the city treasury and nudging local supply pressure down.
+- **New items**: Coal (base 8g, weight 2 — bulk fuel, cheap at Ironholt) and Gemstones (base 80g, weight 1, rare drop — best price at Crosshaven).
+- **Player-active mining**: 6 ore-vein tiles (id 18) spawn deterministically on grass adjacent to mountains in the Ironholt vicinity. Tap/walk-up + tap to mine — drops 2–4 ore (10% +1 coal, 5% +1 gem). Costs 15 stamina (regens 1/sec, max 100). 30s per-vein cooldown.
+- **Contracts**: Ironholt-origin contracts can now request `coal` or `gem` (weighted pool); other cities still draw from the base pool.
+- **CITY_MULTS**: Ironholt sources coal 0.55× / gem 0.70×; Ashport pays premium for coal (1.30×); Crosshaven pays premium for gem (1.40×).
+- **HUD/world**: ⛏️ Mine FAB action when adjacent to a vein; mine status surfaced in the world.html dashboard for live cities.
+- **Save**: player.mineCooldown + mineStamina now persisted; older saves auto-default and pick up new inv slots.
+- **NPC dialogue**: Ironholt miner/foreman occasionally speak a live mine-status line based on built level.
+- **QA**: new helpers `qaForceBuildMine`, `qaMineNodeAt`, `qaPlayerMine`, `qaCityMineTick`, `qaSetStamina`, `qaGetMiningState`.
+
 ## v0.2.3 — 2026-03-27 (Balance Pass)
 - **Price variance fix**: `townItemModifier` skew increased from ±18% to ±35% + city tilt ±10% — every route now has viable margins
 - **Market spread**: reduced from 10% to 6% — spread no longer eats all profit on low-price items
