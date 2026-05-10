@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.45'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.46'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
