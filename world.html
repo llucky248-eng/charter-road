@@ -389,6 +389,8 @@ const INVEST_PROJECT_LABELS = {
   roadSpeed:      '🛤 Road Speed',
   foodSubsidy:    '🌾 Food Subsidy',
   popIncentive:   '👥 Pop Incentive',
+  guardDiscount:  '🛡 Guard Discount',
+  mineProduction: '⛏️ Mine Output',
 };
 
 function renderCityOverview(save, liveTreasuries) {
@@ -453,6 +455,17 @@ function renderCityOverview(save, liveTreasuries) {
           </div>
         </div>` : ''}
         <div class="stat"><span class="stat-label">💰 Treasury</span><span class="stat-val">${gold === '—' ? '—' : gold + 'g'}</span></div>
+        ${(() => {
+          const bld = live?.buildings || {};
+          const mine = bld.mine;
+          if (city.id === 'ironholt' || (mine && mine.built)) {
+            const lvl = mine?.level || 0;
+            const txt = mine?.built ? `Lv${lvl}` : 'unbuilt';
+            const col = mine?.built ? '#fbbf24' : '#4a6a80';
+            return `<div class="stat"><span class="stat-label">⛏️ Mine</span><span class="stat-val" style="color:${col}">${txt}</span></div>`;
+          }
+          return '';
+        })()}
         <div class="stat"><span class="stat-label">Tax Rate</span><span class="stat-val">${taxRate}</span></div>
         <div class="stat"><span class="stat-label">Tax Collected</span><span class="stat-val" style="color:#4ade80">+${taxCollected}g</span></div>
         <div class="stat"><span class="stat-label">Permit Fees</span><span class="stat-val" style="color:#a78bfa">+${permitCollected}g</span></div>

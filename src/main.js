@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.45'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.46'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -615,6 +615,44 @@ ${line4}`;
         }
         return __QA.api.getPlayerPos();
       },
+
+      // ── Mining QA helpers ─────────────────────────────────────────────
+      /** Force-build the Ironholt mine to a target level (1..maxLevel). */
+      qaForceBuildMine: (level = 1) => {
+        const slot = cityBuildings.ironholt?.mine;
+        if (!slot) return false;
+        const lv = Math.max(1, Math.min(slot.maxLevel, Math.floor(level)));
+        slot.level = lv;
+        slot.built = true;
+        slot.playerFunded = 0;
+        cityBonus.ironholt.mineProduction = slot.gain * lv;
+        if (typeof buildSlotOnMap === 'function' && slot.tileX > 0) buildSlotOnMap('ironholt', 'mine', slot);
+        return true;
+      },
+      /** Find the first mine_node tile (id 18) in the world. */
+      qaMineNodeAt: () => {
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            if (tileAt(x, y) === 18) return { tx: x, ty: y };
+          }
+        }
+        return null;
+      },
+      /** Trigger a single player swing at (tx, ty). Returns whether the swing landed. */
+      qaPlayerMine: (tx, ty) => {
+        const x = Number(tx), y = Number(ty);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+        return playerMineNode(x, y);
+      },
+      /** Get player mining state (for assertions). */
+      qaGetMiningState: () => ({
+        stamina: player.mineStamina,
+        cooldowns: { ...(player.mineCooldown || {}) },
+      }),
+      /** Set player stamina directly (for cooldown/full-cargo isolation tests). */
+      qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
+      /** Run cityMineTick once (no day advance). */
+      qaCityMineTick: () => { cityMineTick(); return cityBuildings.ironholt?.mine || null; },
     };
   }
 
@@ -1428,7 +1466,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // Building tap-to-interact: open immediately if close enough + in city,
     // otherwise walk to the tile first then open on arrival.
-    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant' };
+    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant', 18: 'mine' };
 
     // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
     // nearest building interior tile so tapping on a building's visible art still works.
@@ -1457,7 +1495,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
       const playerTX = Math.floor(player.x / TILE), playerTY = Math.floor(player.y / TILE);
       const distTiles = Math.max(Math.abs(resolvedTileX - playerTX), Math.abs(resolvedTileY - playerTY));
       const c = currentOrNearestCity(10);
-      if (c && distTiles <= 10) {
+      // Mine veins live in the wilderness around Ironholt (no city context required).
+      if (action === 'mine' && distTiles <= 2) {
+        playerMineNode(resolvedTileX, resolvedTileY);
+      } else if (c && distTiles <= 10) {
         // Close enough - open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
         else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
@@ -1469,7 +1510,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       } else {
         // Walk to building interior tile, open on arrival
         clickMove.markerX = sx; clickMove.markerY = sy;
-        planClickPath((resolvedTileX + 0.5) * TILE, (resolvedTileY + 0.5) * TILE, action);
+        planClickPath((resolvedTileX + 0.5) * TILE, (resolvedTileY + 0.5) * TILE, action, action === 'mine' ? { tx: resolvedTileX, ty: resolvedTileY } : null);
       }
       e.preventDefault(); return;
     }
@@ -1568,7 +1609,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid)
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid), 18 mine-node (walkable ore vein near Ironholt)
   const SOLID = new Set([2, 3, 17]);
 
   // Terrain speed multiplier — forest slows, swamp slows more, road is full speed
@@ -1988,6 +2029,34 @@ function handleGlobalHudTap(clientX, clientY, e) {
       const y = 1 + (Math.random() * (MAP_H-2) | 0);
       const idx = y*MAP_W + x;
       if (m[idx] === 0 && Math.random() < 0.08) m[idx] = 3;
+    }
+
+    // Mine nodes (tile 18) — walkable ore veins. Painted on grass tiles adjacent
+    // to mountains (tile 17) inside an Ironholt-vicinity bbox so mining is a
+    // local-to-Ironholt activity that reinforces city specialization.
+    {
+      const bbox = { x0: 200, y0: 18, x1: 240, y1: 50 };
+      const wanted = 6;
+      let placed = 0;
+      for (let ty = bbox.y0; ty < bbox.y1 && placed < wanted; ty++) {
+        for (let tx = bbox.x0; tx < bbox.x1 && placed < wanted; tx++) {
+          const idx = ty * MAP_W + tx;
+          if (m[idx] !== 0) continue;
+          // must be adjacent to a mountain
+          const adj = (
+            m[idx-1] === 17 || m[idx+1] === 17 ||
+            m[idx-MAP_W] === 17 || m[idx+MAP_W] === 17
+          );
+          if (!adj) continue;
+          // skip if inside cityD (Ironholt) bounds
+          if (tx >= 210 && tx < 230 && ty >= 28 && ty < 46) continue;
+          // deterministic placement via hash2 to keep nodes stable across loads
+          if (hash2(tx, ty) > 0.55) {
+            m[idx] = 18;
+            placed += 1;
+          }
+        }
+      }
     }
 
 
@@ -2541,6 +2610,7 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const ITEMS = [
+    { id: 'coal',   name: 'Coal',          base: 8,  weight: 2 },  // bulk fuel; mined / sourced at Ironholt
     { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },  // bulk staple - weight 1 so it's a real starter option (was weight 2: too punishing)
     { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },  // light, early-game earner
     { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },  // heavy - only good on specific routes
@@ -2548,6 +2618,7 @@ const NPC_INTERACT_RADIUS = 18;
     { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },  // mid-game tier
     { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy - late-game route
     { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink', sourceCities: ['ironholt','crosshaven'] },  // contraband; only profitable when sourced from ironholt/crosshaven
+    { id: 'gem',    name: 'Gemstones',     base: 80, weight: 1, rare: true },  // rare drop from mining; high value, low weight
   ];
 
   // --- Market model (minimal, deterministic)
@@ -2782,6 +2853,7 @@ const NPC_INTERACT_RADIUS = 18;
           for (let i = 0; i < daysAhead; i++) {
             time.day++;
             populationTick();
+            cityMineTick();
             if (time.day % 7 === 0) cityInvestTick();
           }
           time.frac = ws.frac ?? time.frac;
@@ -2926,10 +2998,10 @@ const NPC_INTERACT_RADIUS = 18;
     // Get the city multiplier from the hardcoded mults table in priceFor.
     // We inline the mults here to keep them consistent.
     const CITY_MULTS = {
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00 },
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
+      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10 },
+      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40 },
+      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70 },
     };
     const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
@@ -2966,6 +3038,8 @@ const NPC_INTERACT_RADIUS = 18;
 
 
   const CONTRACT_ITEMS = ['grain','food','ore','herbs','potion','relic'];
+  // Ironholt-origin contracts can also request coal (weighted) and rare gem hauls.
+  const CONTRACT_ITEMS_IRONHOLT = ['grain','food','ore','herbs','potion','relic','coal','coal','gem'];
 
 
   function rewardForContract(want, qty) {
@@ -2977,7 +3051,7 @@ const NPC_INTERACT_RADIUS = 18;
     // Best single-route margin per unit for this item (approximate — used as reference)
     // Tuned so net contract profit (reward - buy cost) is ~1.5-4.5× free trade margin.
     const bestMarginRef = {
-      grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13,
+      grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13, coal: 4, gem: 22,
     }[want] || 5;
     // Contract pays: buy cost (at cheapest city ≈ base * 0.85) + best margin * 1.2 per unit
     const buyCostRef = Math.round(base * 0.88);
@@ -3001,7 +3075,8 @@ const NPC_INTERACT_RADIUS = 18;
   }
 
   function makeContract(fromId, tier = 0) {
-    const want = randChoice(CONTRACT_ITEMS);
+    const pool = (fromId === 'ironholt') ? CONTRACT_ITEMS_IRONHOLT : CONTRACT_ITEMS;
+    const want = randChoice(pool);
     // Higher tiers tend to request more goods.
     const qty = 1 + (Math.random() * (2 + tier) | 0);
     const allCities = ['valdenmere','ashport','crosshaven','ironholt'];
@@ -3172,10 +3247,10 @@ const NPC_INTERACT_RADIUS = 18;
 
   // City upgrades - multiplicative bonuses unlocked by investment
   const cityBonus = {
-    valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
-    ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
-    crosshaven: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
-    ironholt:   { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0 },
+    valdenmere: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0, mineProduction: 0 },
+    ashport:    { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0, mineProduction: 0 },
+    crosshaven: { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0, mineProduction: 0 },
+    ironholt:   { marketDiscount: 0, roadSpeed: 0, foodSubsidy: 0, popIncentive: 0, guardDiscount: 0, mineProduction: 0 },
   };
 
   // ── City Building Slots ───────────────────────────────────────────────────
@@ -3206,6 +3281,7 @@ const NPC_INTERACT_RADIUS = 18;
       warehouse: { level:0, maxLevel:3, costPerLevel:[80,160,280],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
       market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'west',  playerFunded:0 },
+      mine:      { level:0, maxLevel:3, costPerLevel:[120,240,400], effect:'mineProduction', gain:1.00, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:8,  doorSide:'south', playerFunded:0 },
     },
   };
 
@@ -3234,6 +3310,7 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.ironholt.market.tileX    = 222;    cityBuildings.ironholt.market.tileY    = 34;      // gx+2=222, mktY=34
     cityBuildings.ironholt.granary.tileX   = 210+2;  cityBuildings.ironholt.granary.tileY   = 39;      // west ore yard (yardY+1=39)
     cityBuildings.ironholt.warehouse.tileX = 222;    cityBuildings.ironholt.warehouse.tileY = 39;      // east ore yard (gx+2, yardY+1)
+    cityBuildings.ironholt.mine.tileX      = 210+2;  cityBuildings.ironholt.mine.tileY      = 28+14;   // south wall mine adit (x0+2, y0+14=42)
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -4811,6 +4888,13 @@ function npcDiagPostMove() {
   }
 }
 
+function mineStatusLine() {
+  const m = cityBuildings?.ironholt?.mine;
+  if (!m || !m.built) return 'If only the Charter would fund a proper mine here.';
+  if (m.level >= m.maxLevel) return `Mine running at full Lv${m.level} — cargoes ship daily.`;
+  return `Mine Lv${m.level} pulled good ore today. We could expand if there were funds.`;
+}
+
 function triggerNpcTalk(npc) {
   if (!npc) return false;
   if (npc.talkCooldown && stateTime < npc.talkCooldown) return false;
@@ -4845,7 +4929,11 @@ function triggerNpcTalk(npc) {
 
   const lines = getNpcLines(npc.cityId, npc.id);
   npc.dialogueIdx = (npc.dialogueIdx + 1) % lines.length;
-  const text = lines[npc.dialogueIdx];
+  let text = lines[npc.dialogueIdx];
+  // Miner/foreman in Ironholt occasionally surface live mine status.
+  if (npc.cityId === 'ironholt' && (npc.role === 'miner' || npc.role === 'foreman') && Math.random() < 0.40) {
+    text = mineStatusLine();
+  }
   ui.npcBubble = { npcId: npc.id, text, untilMs: stateTime + 2400 };
   npc.talkCooldown = stateTime + 1200;
   return true;
@@ -5408,6 +5496,7 @@ function drawNpcBubble() {
       foodSubsidy:    'Slower hunger drain',
       popIncentive:   'City grows faster',
       guardDiscount:  'Guards inspect you less',
+      mineProduction: 'Daily ore output to city',
     }[slot.effect] || slot.effect;
 
     ui.buildingDonateOpen = true;
@@ -5570,6 +5659,36 @@ function drawNpcBubble() {
     }
   }
 
+  // Daily output from each city's built mine slot. Sells produce into the city
+  // treasury at the local sell price and nudges global supply pressure down so
+  // the local market reflects the new inflow.
+  function cityMineTick() {
+    for (const cid of Object.keys(cityBuildings)) {
+      const m = cityBuildings[cid]?.mine;
+      if (!m || !m.built || m.level <= 0) continue;
+      const lvl = m.level;
+      const yields = { ore: 2 * lvl, coal: 1 * lvl };
+      if (Math.random() < 0.10 * lvl) yields.gem = 1;
+      let goldGained = 0;
+      for (const [iid, qty] of Object.entries(yields)) {
+        const it = ITEMS.find(x => x.id === iid);
+        if (!it || qty <= 0) continue;
+        const q = quoteFor(cid, it);
+        goldGained += q.sell * qty;
+      }
+      if (goldGained > 0 && cityTreasury[cid]) {
+        cityTreasury[cid].gold += goldGained;
+      }
+      if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
+      ECONOMY.pressure[cid].ore  = Math.max(-0.25, (ECONOMY.pressure[cid].ore  || 0) - 0.010 * lvl);
+      ECONOMY.pressure[cid].coal = Math.max(-0.25, (ECONOMY.pressure[cid].coal || 0) - 0.005 * lvl);
+      if (yields.gem) {
+        ECONOMY.pressure[cid].gem = Math.max(-0.25, (ECONOMY.pressure[cid].gem || 0) - 0.010);
+      }
+      pushCityTreasuryToDb(cid);
+    }
+  }
+
   function advanceDays(days, reason = '') {
     if (!Number.isFinite(days) || days <= 0) return;
     time.frac += days;
@@ -5579,6 +5698,7 @@ function drawNpcBubble() {
       time.day += 1;
       advanced += 1;
       populationTick();
+      cityMineTick();
       // City investment every 7 days
       if (time.day % 7 === 0) cityInvestTick();
       // Daily bank solvency check (catches slow vault drain between invest ticks)
@@ -5610,14 +5730,12 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.45',
+    version: 'v0.4.46',
     whatsNew: [
-      'Multiplayer: all shared world state (time, population, buildings, AI traders) now lives in Supabase.',
-      'Other players visible on map as color-coded dots with name labels (same city/area only).',
-      'World time syncs across clients - advancing days pushes to DB, others catch up silently.',
-      'City population, hunger, treasury, buildings pushed to DB after each simulation tick.',
-      'AI traders push state to DB on arrive/depart so all clients see the same trader world.',
-      'Player saves no longer contain world-shared state (cityPop, cityBuildings, bankVault etc.).',
+      'Mining: Ironholt now has a mine building slot — funded mines produce daily ore/coal (rare gems) into the city treasury.',
+      'New items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
+      'Player-active mining: ore-vein tiles spawn near Ironholt mountains. Tap a vein to mine; uses stamina, 30s vein cooldown.',
+      'Ironholt-origin contracts can now request coal hauls or rare gem deliveries.',
     ],
     whatsNext: [
       'Supabase Realtime channel for instant presence updates (currently 5s poll).',
@@ -6854,6 +6972,12 @@ function drawNpcBubble() {
 
     // Gear slots: tier index (0=default, 1=tier2, 2=tier3)
     gear: { pack: 0, boots: 0, tool: 0 },
+
+    // Mining: per-vein cooldown (tileKey → stateTime when usable again) and
+    // a stamina meter (0..100) consumed by each swing, regens 1/sec.
+    mineCooldown: {},
+    mineStamina: 100,
+    _mineStaminaTickAt: 0,
   };
 
   // --- Save/Load (localStorage)
@@ -6949,7 +7073,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.45',
+      buildVersion: 'v0.4.46',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -6964,6 +7088,8 @@ function drawNpcBubble() {
         intelLedger: player.intelLedger ? [...player.intelLedger] : [],
         intelSells: player.intelSells || 0,
         gear: { ...player.gear },
+        mineCooldown: { ...(player.mineCooldown || {}) },
+        mineStamina: typeof player.mineStamina === 'number' ? player.mineStamina : 100,
       },
       time: { ...time },
       marketDrift: Object.fromEntries(
@@ -7130,6 +7256,10 @@ function drawNpcBubble() {
     // Restore player
     Object.assign(player, state.player);
     if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+    if (!player.mineCooldown || typeof player.mineCooldown !== 'object') player.mineCooldown = {};
+    if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
+    // Ensure new items appear in inv after schema upgrade.
+    for (const it of ITEMS) if (player.inv[it.id] === undefined) player.inv[it.id] = 0;
     applyGearStats();
     // Restore time
     Object.assign(time, state.time);
@@ -7346,6 +7476,60 @@ function drawNpcBubble() {
     return w;
   }
 
+  function nearMineTile() {
+    const tx = Math.floor(player.x / TILE);
+    const ty = Math.floor(player.y / TILE);
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        if (tileAt(tx + ox, ty + oy) === 18) return { tx: tx + ox, ty: ty + oy };
+      }
+    }
+    return null;
+  }
+
+  // Player-active mining: 30s per-vein cooldown, 15 stamina per swing,
+  // drops 2..4 ore + 10% chance +1 coal + 5% chance +1 gem.
+  function playerMineNode(tx, ty) {
+    if (tileAt(tx, ty) !== 18) { toast('Nothing to mine here.', 1.5); return false; }
+    const playerTX = Math.floor(player.x / TILE);
+    const playerTY = Math.floor(player.y / TILE);
+    if (Math.max(Math.abs(tx - playerTX), Math.abs(ty - playerTY)) > 2) {
+      toast('Move closer to the vein.', 1.5);
+      return false;
+    }
+    const key = ty * MAP_W + tx;
+    const cd = player.mineCooldown[key] || 0;
+    if (stateTime < cd) {
+      const left = Math.ceil((cd - stateTime) / 1000);
+      toast(`Vein still recovering (${left}s).`, 1.5);
+      return false;
+    }
+    if ((player.mineStamina || 0) < 15) {
+      toast('Too tired to swing — rest at the inn.', 2);
+      return false;
+    }
+    if (invWeight() + 2 > player.capacity) {
+      toast('Cargo full — drop some load first.', 2);
+      return false;
+    }
+    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
+    const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
+    player.inv.ore = (player.inv.ore || 0) + oreQty;
+    let bonus = '';
+    if (Math.random() < 0.10) {
+      player.inv.coal = (player.inv.coal || 0) + 1;
+      bonus += ' +1 coal';
+    }
+    if (Math.random() < 0.05) {
+      player.inv.gem = (player.inv.gem || 0) + 1;
+      bonus += ' +1 GEM!';
+    }
+    player.mineCooldown[key] = stateTime + 30000;
+    toast(`Mined ${oreQty} ore${bonus}`, 2.5);
+    saveGame(true);
+    return true;
+  }
+
   function priceFor(cityId, item) {
     // Unified with quoteFor: both now use midPriceFor as the single canonical price.
     // priceFor = the mid price (before spread). Used by marketTryTrade for buy/sell.
@@ -7488,6 +7672,9 @@ function drawNpcBubble() {
           } else if (action === 'warehouse') {
             const c = currentOrNearestCity(8);
             if (c) { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
+          } else if (action === 'mine') {
+            const tgt = clickMove._tapTarget;
+            if (tgt && typeof tgt.tx === 'number') playerMineNode(tgt.tx, tgt.ty);
           }
         }
       } else {
@@ -8607,6 +8794,32 @@ function drawNpcBubble() {
       return;
     }
 
+    if (id === 18) { // mine node — walkable rocky outcrop with ore vein
+      const n = hash2(tx, ty);
+      // dark rocky base
+      ctx.fillStyle = '#5a5048';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#6b6258';
+      ctx.fillRect(x+1, y+1, TILE-2, TILE-2);
+      // iron ore glints (stable per-tile via hash2)
+      ctx.fillStyle = '#c0a060';
+      ctx.fillRect(x + 3 + (n*4|0),  y + 4 + ((n*7)%5|0), 2, 2);
+      ctx.fillRect(x + 9 + (n*3|0),  y + 9 + ((n*5)%4|0), 2, 1);
+      // gem hint (rare blue speckle)
+      if (n > 0.85) { ctx.fillStyle = '#7dd3fc'; ctx.fillRect(x + 8, y + 6, 1, 1); }
+      // edge shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(x, y + TILE - 1, TILE, 1);
+      ctx.fillRect(x + TILE - 1, y, 1, TILE);
+      // cooldown overlay if recently mined
+      const cdMap = (typeof player !== 'undefined' && player.mineCooldown) || null;
+      if (cdMap && (cdMap[ty * MAP_W + tx] || 0) > stateTime) {
+        ctx.fillStyle = 'rgba(0,0,0,0.40)';
+        ctx.fillRect(x, y, TILE, TILE);
+      }
+      return;
+    }
+
     if (id === 12) {
       // Contracts board - wooden post with parchment notices
       ctx.fillStyle = '#4a3820';
@@ -9061,6 +9274,7 @@ function drawBuildingLabels() {
     13: { label: 'Bank',       color: '#fbbf24', nearDist: 6 },
     14: { label: 'Inn',        color: '#f97316', nearDist: 6 },
     15: { label: 'Guild Hall', color: '#a78bfa', nearDist: 6 },
+    18: { label: 'Ore Vein',   color: '#cbd5e1', nearDist: 2 },
   };
 
   const px = player.x, py = player.y;
@@ -9961,6 +10175,7 @@ function drawEntities() {
     const atContracts = nearContractsTile();
     const nearNpc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS + 6);
     const nearTrader = findNearestTrader(player.x, player.y);
+    const atMine = nearMineTile();
 
     // Build key to avoid unnecessary DOM thrashing
     const key = [
@@ -9970,6 +10185,7 @@ function drawEntities() {
       nearNpc?.id || '',
       nearTrader?.id || '',
       autoNav.active ? 'nav' : '',
+      atMine ? `mine:${atMine.tx},${atMine.ty}` : '',
     ].join('|');
 
     if (key === _fabLastKey) return;
@@ -10028,6 +10244,9 @@ function drawEntities() {
         ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
         toast('Contracts board opened', 1.8); _fabLastKey = '';
       }]);
+    }
+    if (atMine) {
+      actions.push(['⛏️', 'Mine', () => { playerMineNode(atMine.tx, atMine.ty); _fabLastKey = ''; }]);
     }
     if (autoNav.active) {
       const destName = getCityById(autoNav.destCityId)?.name || '';
@@ -11070,6 +11289,17 @@ function drawEvent() {
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
     tickBanners(dt); // advance banner TTL every frame so they actually auto-dismiss
+
+    // Mining stamina regen: +1/sec, capped at 100. Throttled to once-per-second
+    // via _mineStaminaTickAt so the rate doesn't depend on frame rate.
+    if ((player.mineStamina || 0) < 100) {
+      if (stateTime - (player._mineStaminaTickAt || 0) >= 1000) {
+        player._mineStaminaTickAt = stateTime;
+        player.mineStamina = Math.min(100, (player.mineStamina || 0) + 1);
+      }
+    } else {
+      player._mineStaminaTickAt = stateTime;
+    }
 
     // Player animation timer (kept independent of render)
     {
@@ -12206,7 +12436,42 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(after.player.capacity > 28, `full-save: capacity reflects gear.pack=2 (got ${after.player.capacity})`);
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save');
+      // ── Mining: city-side production + player-active mining ──────────────
+      {
+        // Force-build mine, run cityMineTick, treasury should rise.
+        api.qaForceBuildMine(1);
+        const t0 = (cityTreasury.ironholt?.gold) || 0;
+        api.qaCityMineTick();
+        const t1 = (cityTreasury.ironholt?.gold) || 0;
+        assert(t1 > t0, `mine: cityMineTick should add gold to ironholt treasury (got ${t1 - t0})`);
+        const m = cityBuildings.ironholt.mine;
+        assert(m.built === true && m.level === 1, 'mine: slot built at level 1 after force-build');
+
+        // Find a mine_node tile and verify player-active mining drops ore.
+        const node = api.qaMineNodeAt();
+        assert(node && Number.isFinite(node.tx), 'mine: at least one mine_node (tile 18) exists');
+        api.teleportToTile(node.tx, node.ty);
+        api.qaSetStamina(100);
+        api.setPlayer({ capacity: 999 });
+        const oreBefore = player.inv.ore || 0;
+        const ok = api.qaPlayerMine(node.tx, node.ty);
+        assert(ok === true, 'mine: first swing succeeds');
+        assert((player.inv.ore || 0) >= oreBefore + 2, 'mine: at least +2 ore after one swing');
+        assert(player.mineStamina === 85, `mine: stamina costs 15 per swing (got ${player.mineStamina})`);
+        // Second swing immediately should be blocked by per-vein cooldown.
+        const ok2 = api.qaPlayerMine(node.tx, node.ty);
+        assert(ok2 === false, 'mine: 2nd swing within 30s blocked by cooldown');
+
+        // Save round-trip preserves stamina + cooldown.
+        api.qaSetStamina(42);
+        saveGame(true);
+        api.qaSetStamina(100);
+        loadGame();
+        assert(player.mineStamina === 42, `mine: stamina survives save/load (got ${player.mineStamina})`);
+        assert(typeof player.mineCooldown === 'object', 'mine: mineCooldown survives save/load');
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
