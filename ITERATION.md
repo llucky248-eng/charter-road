@@ -1,5 +1,12 @@
 # Iteration Log — The Charter Road
 
+## v0.4.47 — 2026-05-10 (Ironholt Layout Fix)
+- **Bank + Guild Hall now visible**: removed the two static ore-yard `placeBuilding` calls in `paintCity` for Ironholt that were clipping Bank's and Guild's south wall rows. Both buildings now render at full 4×3 footprint with proper labels.
+- **Mine has its own tile type**: introduced tile id `19` (`mine-floor`) with `INTERACT[19] = 'Mine'`. Built mines no longer mislabel as "Warehouse". Distinct dark-stone interior render with lantern/ore hint.
+- **Slot layout shift**: `cityBuildings.ironholt.granary` and `.warehouse` moved from `y=39` → `y=40` (out from under Bank/Guild's south walls); `.mine` moved from `y=42, h=4, doorSide:south` → `y=43, h=3, doorSide:east` so its east door opens onto the city floor instead of the south wall.
+- **Auto-invest still builds the warehouses**: removing the static placements does not change gameplay — the slot system paints the same tile-8 warehouse once treasury auto-invests (cheapest unbuilt first).
+- **Tap-built mine**: tapping inside a built mine building now toasts mine level + a status reminder.
+
 ## v0.4.46 — 2026-05-09 (Mining System)
 - **Mining hybrid system**: Ironholt now has a mine building slot. Funded mines auto-produce ore/coal and (rarely) gems each day, depositing the proceeds into the city treasury and nudging local supply pressure down.
 - **New items**: Coal (base 8g, weight 2 — bulk fuel, cheap at Ironholt) and Gemstones (base 80g, weight 1, rare drop — best price at Crosshaven).
