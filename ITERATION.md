@@ -1,5 +1,9 @@
 # Iteration Log — The Charter Road
 
+## v0.4.49 — 2026-05-10 (Ironholt Bank / Guild / Inn Visibility)
+- **Bank, Guild and Workers Lodge get 3D sprites**: previously these three buildings only existed as static `placeBuilding` tile paints in `paintCity` for Ironholt. `_drawCityBuildingSprites` only iterates `cityBuildings` slots, so the static buildings rendered as flat 2-tile floors surrounded by walls — much smaller and less visible than the slot-driven Market/Warehouse/Mine. Added `bank`, `guild`, `inn` as pre-built civic slots (`built: true, level: 1, maxLevel: 1, costPerLevel: []`) so the sprite renderer picks them up. Auto-invest leaves them alone (already at max level), tap-to-open still works via the underlying tile ids.
+- **Sprite renderer cases for tile 4 (Barracks), 13 (Bank), 19 (Mine)**: previously these fell through to the gray `default` palette. Each now has its own facade colour set — slate fort, dressed stone + gilded trim, and dark stone + lantern glow respectively.
+
 ## v0.4.48 — 2026-05-10 (Building Rise Overlap)
 - **3D rise capped at one tile**: the building-sprite rise was computed as `slot.tileH * TILE * 0.55` (26 px for a 3-tall, 35 px for a 4-tall building). Vertically-stacked buildings like Ironholt's new Bank/Guild + Granary/Warehouse + Mine column ended up with the southern sprite's 3D top face clipping more than a tile into the building above. Capped to `min(TILE-2, …)` so the rise stays subtle and never reaches the next building's interior.
 

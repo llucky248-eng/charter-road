@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.48'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.49'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3287,6 +3287,11 @@ const NPC_INTERACT_RADIUS = 18;
       granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
       market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'west',  playerFunded:0 },
       mine:      { level:0, maxLevel:3, costPerLevel:[120,240,400], effect:'mineProduction', gain:1.00, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:19, doorSide:'east',  playerFunded:0 },
+      // Pre-built civic buildings: positions mirror the static placeBuilding calls in paintCity.
+      // built:true so auto-invest never touches them and they sprite-render from day 1.
+      bank:      { level:1, maxLevel:1, costPerLevel:[],            effect:'mineProduction', gain:0,    built:true,  tileX:0, tileY:0, tileW:4, tileH:3, tileType:13, doorSide:'west',  playerFunded:0 },
+      guild:     { level:1, maxLevel:1, costPerLevel:[],            effect:'mineProduction', gain:0,    built:true,  tileX:0, tileY:0, tileW:4, tileH:3, tileType:15, doorSide:'east',  playerFunded:0 },
+      inn:       { level:1, maxLevel:1, costPerLevel:[],            effect:'mineProduction', gain:0,    built:true,  tileX:0, tileY:0, tileW:5, tileH:4, tileType:7,  doorSide:'west',  playerFunded:0 },
     },
   };
 
@@ -3316,6 +3321,10 @@ const NPC_INTERACT_RADIUS = 18;
     cityBuildings.ironholt.granary.tileX   = 210+2;  cityBuildings.ironholt.granary.tileY   = 40;      // west yard (1 row south of Guild)
     cityBuildings.ironholt.warehouse.tileX = 222;    cityBuildings.ironholt.warehouse.tileY = 40;      // east yard (1 row south of Bank)
     cityBuildings.ironholt.mine.tileX      = 210+2;  cityBuildings.ironholt.mine.tileY      = 28+15;   // south mine adit (x0+2, y0+15=43)
+    // Pre-built civic buildings — positions mirror their static paintCity placements.
+    cityBuildings.ironholt.inn.tileX       = 220+2;  cityBuildings.ironholt.inn.tileY       = 28+2;    // NE Workers Lodge (gx+2=222, y0+2=30)
+    cityBuildings.ironholt.bank.tileX      = 220+2;  cityBuildings.ironholt.bank.tileY      = 34+3;    // east Bank (gx+2=222, mktY+3=37)
+    cityBuildings.ironholt.guild.tileX     = 210+2;  cityBuildings.ironholt.guild.tileY     = 34+3;    // west Guild (x0+2=212, mktY+3=37)
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -5735,10 +5744,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.48',
+    version: 'v0.4.49',
     whatsNew: [
-      '3D building rises capped to one tile so vertically-stacked buildings (Bank/Guild + Granary/Warehouse + Mine) no longer overlap each other.',
-      'Ironholt layout fix: Bank and Guild Hall now fully visible — static ore yards no longer clip their south walls.',
+      'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
+      'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
+      '3D building rises capped to one tile so vertically-stacked buildings no longer overlap each other.',
       'Mine slot uses its own tile type and labels as "Mine" instead of "Warehouse".',
       'Granary / Warehouse / Mine slots shifted one row south to relieve centre crowding.',
       'Mining: Ironholt mine building slot produces daily ore/coal (rare gems) into the city treasury.',
@@ -7081,7 +7091,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.48',
+      buildVersion: 'v0.4.49',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9073,6 +9083,21 @@ function drawNpcBubble() {
           roofTop   = '#1a2a3a'; roofFace  = '#2a3f5a';
           wallMain  = '#4a6a8a'; wallDark  = '#2a4a6a'; wallLight = '#6a8aaa';
           doorColor = '#0e1820'; windowColor = 'rgba(100,180,255,0.65)';
+          break;
+        case 13: // Bank — pale dressed stone + gilded trim
+          roofTop   = '#3a3328'; roofFace  = '#4a4030';
+          wallMain  = '#cfb98a'; wallDark  = '#8a7a52'; wallLight = '#e6d4a8';
+          doorColor = '#241608'; windowColor = 'rgba(255,200,90,0.72)';
+          break;
+        case 4: // Foreman HQ / Barracks-style — slate fort with iron trim
+          roofTop   = '#1e242c'; roofFace  = '#2a323c';
+          wallMain  = '#646e7a'; wallDark  = '#3e4650'; wallLight = '#828c96';
+          doorColor = '#181c22'; windowColor = 'rgba(251,191,36,0.55)';
+          break;
+        case 19: // Mine — dark stone with warm lantern glow
+          roofTop   = '#1b1612'; roofFace  = '#2a221c';
+          wallMain  = '#4a3e34'; wallDark  = '#2a2218'; wallLight = '#6a5a48';
+          doorColor = '#0e0a06'; windowColor = 'rgba(251,191,36,0.85)';
           break;
         default:
           roofTop   = '#2a2a2a'; roofFace  = '#3a3a3a';
