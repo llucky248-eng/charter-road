@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.47'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.48'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5735,15 +5735,15 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.47',
+    version: 'v0.4.48',
     whatsNew: [
+      '3D building rises capped to one tile so vertically-stacked buildings (Bank/Guild + Granary/Warehouse + Mine) no longer overlap each other.',
       'Ironholt layout fix: Bank and Guild Hall now fully visible — static ore yards no longer clip their south walls.',
       'Mine slot uses its own tile type and labels as "Mine" instead of "Warehouse".',
       'Granary / Warehouse / Mine slots shifted one row south to relieve centre crowding.',
       'Mining: Ironholt mine building slot produces daily ore/coal (rare gems) into the city treasury.',
       'Player-active mining: ore-vein tiles spawn near Ironholt mountains. Tap a vein to mine; uses stamina, 30s vein cooldown.',
       'Items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
-      'Ironholt-origin contracts can now request coal hauls or rare gem deliveries.',
     ],
     whatsNext: [
       'Supabase Realtime channel for instant presence updates (currently 5s poll).',
@@ -7081,7 +7081,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.47',
+      buildVersion: 'v0.4.48',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9042,7 +9042,10 @@ function drawNpcBubble() {
       ctx.save();
 
       // ── 3D raised top face (above the building footprint) ──────────────────
-      const rise = Math.round(slot.tileH * TILE * 0.55); // rise = 55% of building height
+      // Cap rise at TILE-2 so a sprite never reaches into the building one row
+      // above it; otherwise a 3-tall building (26px proportional rise) clips
+      // into the bottom row of any building directly to its north.
+      const rise = Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55));
       let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
 
       switch (type) {
