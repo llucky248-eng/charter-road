@@ -1,5 +1,8 @@
 # Iteration Log — The Charter Road
 
+## v0.4.48 — 2026-05-10 (Building Rise Overlap)
+- **3D rise capped at one tile**: the building-sprite rise was computed as `slot.tileH * TILE * 0.55` (26 px for a 3-tall, 35 px for a 4-tall building). Vertically-stacked buildings like Ironholt's new Bank/Guild + Granary/Warehouse + Mine column ended up with the southern sprite's 3D top face clipping more than a tile into the building above. Capped to `min(TILE-2, …)` so the rise stays subtle and never reaches the next building's interior.
+
 ## v0.4.47 — 2026-05-10 (Ironholt Layout Fix)
 - **Bank + Guild Hall now visible**: removed the two static ore-yard `placeBuilding` calls in `paintCity` for Ironholt that were clipping Bank's and Guild's south wall rows. Both buildings now render at full 4×3 footprint with proper labels.
 - **Mine has its own tile type**: introduced tile id `19` (`mine-floor`) with `INTERACT[19] = 'Mine'`. Built mines no longer mislabel as "Warehouse". Distinct dark-stone interior render with lantern/ore hint.
