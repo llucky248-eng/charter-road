@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.46'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.47'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1466,7 +1466,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // Building tap-to-interact: open immediately if close enough + in city,
     // otherwise walk to the tile first then open on arrival.
-    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant', 18: 'mine' };
+    const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant', 18: 'mine', 19: 'mine_building' };
 
     // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
     // nearest building interior tile so tapping on a building's visible art still works.
@@ -1507,6 +1507,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
         else if (action === 'warehouse') { ui.warehouseOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Warehouse opened.', 2); }
         else if (action === 'vacant') { showBuildingDonateModal(c.id, resolvedTileX, resolvedTileY); }
+        else if (action === 'mine_building') {
+          const m = cityBuildings[c.id]?.mine;
+          if (m && m.built) toast(`Mine Lv${m.level} — daily output flows to the city treasury.`, 2.5);
+        }
       } else {
         // Walk to building interior tile, open on arrival
         clickMove.markerX = sx; clickMove.markerY = sy;
@@ -1609,7 +1613,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid), 18 mine-node (walkable ore vein near Ironholt)
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid), 18 mine-node (walkable ore vein near Ironholt), 19 mine-floor (built mine interior)
   const SOLID = new Set([2, 3, 17]);
 
   // Terrain speed multiplier — forest slows, swamp slows more, road is full speed
@@ -1907,9 +1911,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // ── Guild Hall (west side — east door opens on yard road directly) ──
         placeBuilding(x0+2, mktY+3, 4, 3, 15, 'east');
 
-        // ── Ore yard: north doors open directly onto yard cross road ──
-        placeBuilding(x0+2, yardY+1, 6, 3, 8, 'north');
-        placeBuilding(gx+2, yardY+1, 6, 3, 8, 'north');
+        // Ore yards are now driven by cityBuildings.granary / .warehouse slots
+        // (one row south of where the static yards used to sit) so they no longer
+        // clip Bank/Guild's south walls. Initially shown as vacant lots; auto-invest
+        // builds them into proper warehouses.
 
         // ── Road connectors ──
         carveStreet(x0+7, y0+4, gx-1, y0+4);             // Foreman HQ east door → main road
@@ -3281,7 +3286,7 @@ const NPC_INTERACT_RADIUS = 18;
       warehouse: { level:0, maxLevel:3, costPerLevel:[80,160,280],  effect:'roadSpeed',      gain:0.05, built:false, tileX:0, tileY:0, tileW:6, tileH:3, tileType:8,  doorSide:'north', playerFunded:0 },
       granary:   { level:0, maxLevel:1, costPerLevel:[60],          effect:'foodSubsidy',    gain:0.10, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:8,  doorSide:'south', playerFunded:0 },
       market:    { level:0, maxLevel:1, costPerLevel:[80],          effect:'marketDiscount', gain:0.05, built:false, tileX:0, tileY:0, tileW:4, tileH:3, tileType:6,  doorSide:'west',  playerFunded:0 },
-      mine:      { level:0, maxLevel:3, costPerLevel:[120,240,400], effect:'mineProduction', gain:1.00, built:false, tileX:0, tileY:0, tileW:5, tileH:4, tileType:8,  doorSide:'south', playerFunded:0 },
+      mine:      { level:0, maxLevel:3, costPerLevel:[120,240,400], effect:'mineProduction', gain:1.00, built:false, tileX:0, tileY:0, tileW:5, tileH:3, tileType:19, doorSide:'east',  playerFunded:0 },
     },
   };
 
@@ -3308,9 +3313,9 @@ const NPC_INTERACT_RADIUS = 18;
     // market at gx+2=222 (clear of road paint zone); bank/guild at mktY+3=37
     cityBuildings.ironholt.barracks.tileX  = 210+2;  cityBuildings.ironholt.barracks.tileY  = 28+2;   // Foreman HQ (x0+2, y0+2)
     cityBuildings.ironholt.market.tileX    = 222;    cityBuildings.ironholt.market.tileY    = 34;      // gx+2=222, mktY=34
-    cityBuildings.ironholt.granary.tileX   = 210+2;  cityBuildings.ironholt.granary.tileY   = 39;      // west ore yard (yardY+1=39)
-    cityBuildings.ironholt.warehouse.tileX = 222;    cityBuildings.ironholt.warehouse.tileY = 39;      // east ore yard (gx+2, yardY+1)
-    cityBuildings.ironholt.mine.tileX      = 210+2;  cityBuildings.ironholt.mine.tileY      = 28+14;   // south wall mine adit (x0+2, y0+14=42)
+    cityBuildings.ironholt.granary.tileX   = 210+2;  cityBuildings.ironholt.granary.tileY   = 40;      // west yard (1 row south of Guild)
+    cityBuildings.ironholt.warehouse.tileX = 222;    cityBuildings.ironholt.warehouse.tileY = 40;      // east yard (1 row south of Bank)
+    cityBuildings.ironholt.mine.tileX      = 210+2;  cityBuildings.ironholt.mine.tileY      = 28+15;   // south mine adit (x0+2, y0+15=43)
     // Paint vacant lots (tile 16) for unbuilt slots
     if (!mapData) return;
     for (const slots of Object.values(cityBuildings)) {
@@ -5730,11 +5735,14 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.46',
+    version: 'v0.4.47',
     whatsNew: [
-      'Mining: Ironholt now has a mine building slot — funded mines produce daily ore/coal (rare gems) into the city treasury.',
-      'New items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
+      'Ironholt layout fix: Bank and Guild Hall now fully visible — static ore yards no longer clip their south walls.',
+      'Mine slot uses its own tile type and labels as "Mine" instead of "Warehouse".',
+      'Granary / Warehouse / Mine slots shifted one row south to relieve centre crowding.',
+      'Mining: Ironholt mine building slot produces daily ore/coal (rare gems) into the city treasury.',
       'Player-active mining: ore-vein tiles spawn near Ironholt mountains. Tap a vein to mine; uses stamina, 30s vein cooldown.',
+      'Items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
       'Ironholt-origin contracts can now request coal hauls or rare gem deliveries.',
     ],
     whatsNext: [
@@ -7073,7 +7081,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.46',
+      buildVersion: 'v0.4.47',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8820,6 +8828,24 @@ function drawNpcBubble() {
       return;
     }
 
+    if (id === 19) { // built-mine interior — dark stone floor + lantern + ore cart hint
+      ctx.fillStyle = '#3a322a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#4a4238';
+      ctx.fillRect(x+1, y+1, TILE-2, TILE-2);
+      // floor planking
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(x, y + (TILE>>1), TILE, 1);
+      // ore lump (stable per tile via hash2)
+      const n = hash2(tx, ty);
+      ctx.fillStyle = '#c0a060';
+      ctx.fillRect(x + 4 + (n*4|0), y + 4 + ((n*5)%4|0), 2, 2);
+      // lantern glow on the wall side
+      ctx.fillStyle = 'rgba(251,191,36,0.55)';
+      ctx.fillRect(x + TILE - 4, y + 3, 2, 2);
+      return;
+    }
+
     if (id === 12) {
       // Contracts board - wooden post with parchment notices
       ctx.fillStyle = '#4a3820';
@@ -9275,6 +9301,7 @@ function drawBuildingLabels() {
     14: { label: 'Inn',        color: '#f97316', nearDist: 6 },
     15: { label: 'Guild Hall', color: '#a78bfa', nearDist: 6 },
     18: { label: 'Ore Vein',   color: '#cbd5e1', nearDist: 2 },
+    19: { label: 'Mine',       color: '#94a3b8', nearDist: 6 },
   };
 
   const px = player.x, py = player.y;
