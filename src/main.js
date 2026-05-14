@@ -1930,6 +1930,41 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const gateC = paintCity(cityC);
     const gateD = paintCity(cityD);
 
+    // ── Ashport bay: paint a sea east of the city so the "fishing port"
+    //    description matches the map. Only overwrites grass (tile 0) so city
+    //    walls, roads, and gate areas are preserved.
+    {
+      const bayX0 = cityB.x + cityB.w + 1;          // 209: one tile east of east wall
+      const bayX1 = Math.min(MAP_W - 2, bayX0 + 14); // up to ~223
+      const bayY0 = cityB.y - 2;                     // 108
+      const bayY1 = cityB.y + cityB.h + 2;          // 134
+      for (let yy = bayY0; yy <= bayY1; yy++) {
+        for (let xx = bayX0; xx <= bayX1; xx++) {
+          const idx = yy * MAP_W + xx;
+          if (m[idx] !== 0) continue;
+          // Soft, irregular eastern shoreline so the bay doesn't read as a rectangle
+          const dx = xx - bayX0;
+          const dy = yy - (bayY0 + (bayY1 - bayY0) / 2);
+          const noise = hash2(xx, yy);
+          const reach = (bayX1 - bayX0) - 2 - Math.abs(dy) * 0.35 - noise * 2;
+          if (dx <= reach) m[idx] = 2;
+        }
+      }
+      // Wooden pier: two-tile-wide dock extending east from a small opening in
+      // the east wall (use city-floor tile 4 for the planking; players see it
+      // as a visual extension though the wall itself blocks travel).
+      const pierY = cityB.y + Math.floor(cityB.h * 0.55);
+      for (let dx = 1; dx <= 4; dx++) {
+        const tx = cityB.x + cityB.w + dx;
+        const idx0 = pierY * MAP_W + tx;
+        const idx1 = (pierY + 1) * MAP_W + tx;
+        // Only stamp planking where we just painted water (preserves any
+        // existing road/non-water tile that may already be there).
+        if (m[idx0] === 2) m[idx0] = 4;
+        if (m[idx1] === 2) m[idx1] = 4;
+      }
+    }
+
     // ── ROAD NETWORK ────────────────────────────────────────────────────────
     // Map doubled to 280×180. All junction coords scaled ×2.
     // Valdenmere gate: gateA.gx=31, gateA.gy=38 (city 30×22, gate y=16+22=38)
@@ -9220,7 +9255,12 @@ function drawNpcBubble() {
       }
 
       // ── Hanging sign / banner with building name ──────────────────────
+      // Use the slot key for labels where multiple slots share a tile type
+      // (e.g. granary and warehouse both use tile 8). Falls back to the
+      // tile-type label otherwise so unknown slot keys still render.
       const meta = BUILDING_META[type];
+      const SLOT_KEY_LABEL = { granary: 'Granary', barracks: 'Barracks' };
+      const slotLabel = SLOT_KEY_LABEL[key] || (meta && meta.label);
       if (meta) {
         const signH    = Math.max(10, Math.round(TILE * 0.85));
         const signPadX = Math.round(TILE * 0.35);
@@ -9259,10 +9299,10 @@ function drawNpcBubble() {
 
         // Text shadow
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillText(meta.label, signX + signW / 2 + 1, signY + signH / 2 + 1);
+        ctx.fillText(slotLabel, signX + signW / 2 + 1, signY + signH / 2 + 1);
         // Text
         ctx.fillStyle = meta.accent;
-        ctx.fillText(meta.label, signX + signW / 2, signY + signH / 2);
+        ctx.fillText(slotLabel, signX + signW / 2, signY + signH / 2);
 
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
