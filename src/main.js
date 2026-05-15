@@ -8511,7 +8511,7 @@ function drawNpcBubble() {
     // storybook fantasy palette + subtle variation
     if (id === 0) {
       const n = hash2(tx, ty);
-      const g = n < 0.33 ? '#1f7a3a' : (n < 0.66 ? '#237f3e' : '#1c7436');
+      const g = n < 0.33 ? '#a8dd92' : (n < 0.66 ? '#b5e29a' : '#9cd584');
       ctx.fillStyle = g;
       ctx.fillRect(x, y, TILE, TILE);
       if (n > 0.86) {
@@ -8522,17 +8522,17 @@ function drawNpcBubble() {
 
       // bushes / flowers (non-colliding detail)
       if (n < 0.08) {
-        ctx.fillStyle = 'rgba(16, 80, 40, 0.45)';
+        ctx.fillStyle = 'rgba(80, 140, 90, 0.40)';
         ctx.fillRect(x + 4, y + 8, 8, 5);
-        ctx.fillStyle = 'rgba(34, 197, 94, 0.22)';
+        ctx.fillStyle = 'rgba(127, 191, 131, 0.45)';
         ctx.fillRect(x + 5, y + 9, 6, 3);
       } else if (n > 0.92) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
         ctx.fillRect(x + 7, y + 6, 1, 1);
-        ctx.fillStyle = 'rgba(244, 114, 182, 0.12)';
+        ctx.fillStyle = 'rgba(229, 115, 137, 0.40)';
         ctx.fillRect(x + 9, y + 10, 1, 1);
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fillStyle = 'rgba(0,0,0,0.04)';
       ctx.fillRect(x, y, TILE, 1);
       ctx.fillRect(x, y, 1, TILE);
 
@@ -8544,18 +8544,18 @@ function drawNpcBubble() {
 
     if (id === 1) {
       const rn = hash2(tx, ty);
-      const roadBase = rn < 0.4 ? '#7a5a2f' : (rn < 0.7 ? '#7c5e32' : '#755830');
+      const roadBase = rn < 0.4 ? '#e6c88c' : (rn < 0.7 ? '#e8cb90' : '#e4c388');
       ctx.fillStyle = roadBase;
       ctx.fillRect(x, y, TILE, TILE);
       // Worn center lane (lighter packed earth)
-      ctx.fillStyle = rn < 0.5 ? '#a07840' : '#a07a42';
+      ctx.fillStyle = rn < 0.5 ? '#f0d9a8' : '#f2dcae';
       ctx.fillRect(x + 3, y + 2, TILE - 6, TILE - 4);
       // Subtle rut line
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillStyle = 'rgba(140,100,60,0.18)';
       ctx.fillRect(x + 4, y, 1, TILE);
       ctx.fillRect(x + TILE - 5, y, 1, TILE);
       // Edge shading from adjacent tiles
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillStyle = 'rgba(140,100,60,0.20)';
       if (tileAt(tx, ty-1) !== 1) ctx.fillRect(x, y, TILE, 2);
       if (tileAt(tx, ty+1) !== 1) ctx.fillRect(x, y + TILE - 2, TILE, 2);
       if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 2, TILE);
@@ -8564,17 +8564,17 @@ function drawNpcBubble() {
     }
 
     if (id === 2) {
-      ctx.fillStyle = '#1b5fae';
+      ctx.fillStyle = '#9ad6e8';
       ctx.fillRect(x, y, TILE, TILE);
 
       const nearLand = (tileAt(tx, ty-1) !== 2) || (tileAt(tx, ty+1) !== 2) || (tileAt(tx-1, ty) !== 2) || (tileAt(tx+1, ty) !== 2);
       if (nearLand) {
-        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        ctx.fillStyle = 'rgba(255,255,255,0.40)';
         ctx.fillRect(x+1, y+1, TILE-2, 1);
       }
 
       const phase = (stateTime * 0.004 + (tx*7 + ty*11)) % 6;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
       ctx.fillRect(x, y + Math.floor(phase), TILE, 2);
 
       // active contract (pinned)
