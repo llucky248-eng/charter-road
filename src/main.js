@@ -9032,30 +9032,13 @@ function drawNpcBubble() {
     }
 
     if (id === 16) {
-      // Vacant building lot - rubble / bare dirt
-      const n = hash2(tx, ty);
-      ctx.fillStyle = '#4a3820';
+      // Vacant building lot — cream foundation pad with faint blueprint grid
+      // (mostly covered by the construction-site sprite; this is the fallback)
+      ctx.fillStyle = '#fff5d8';
       ctx.fillRect(x, y, TILE, TILE);
-      // Dirt texture variation
-      ctx.fillStyle = '#3d2f18';
-      if (n > 0.5) ctx.fillRect(x+2, y+3, TILE-4, TILE-6);
-      // Scattered rubble stones
-      ctx.fillStyle = '#6a6058';
-      ctx.fillRect(x+2, y+2, 3, 2);
-      ctx.fillRect(x+TILE-5, y+TILE-5, 4, 3);
-      ctx.fillStyle = '#7a7068';
-      ctx.fillRect(x+TILE-6, y+3, 3, 2);
-      ctx.fillRect(x+3, y+TILE-5, 3, 3);
-      ctx.fillRect(x+6, y+7, 2, 2);
-      // Highlight fleck on stones
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x+2, y+2, 2, 1);
-      ctx.fillRect(x+TILE-5, y+3, 2, 1);
-      // Small construction stake
-      ctx.fillStyle = '#8b5e2a';
-      ctx.fillRect(x+TILE/2-1, y+4, 2, 5);
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(x+TILE/2-2, y+3, 4, 2);
+      ctx.fillStyle = 'rgba(208,136,22,0.22)';
+      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
+      ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
       return;
     }
 
@@ -9073,6 +9056,79 @@ function drawNpcBubble() {
     }
   }
 
+  function _drawConstructionSite(key, slot, bx, by, bw, bh) {
+    ctx.save();
+
+    // Foundation pad — cream paper with a faint honey blueprint grid
+    ctx.fillStyle = '#fff5d8';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = 'rgba(208,136,22,0.32)';
+    ctx.lineWidth = 1;
+    const gridStep = Math.max(6, Math.round(TILE / 2));
+    for (let gx = bx + gridStep; gx < bx + bw; gx += gridStep) {
+      ctx.beginPath(); ctx.moveTo(gx + 0.5, by + 2); ctx.lineTo(gx + 0.5, by + bh - 2); ctx.stroke();
+    }
+    for (let gy = by + gridStep; gy < by + bh; gy += gridStep) {
+      ctx.beginPath(); ctx.moveTo(bx + 2, gy + 0.5); ctx.lineTo(bx + bw - 2, gy + 0.5); ctx.stroke();
+    }
+
+    // Scaffolding poles at the four corners with two crossbeams
+    ctx.fillStyle = '#8a5a2e';
+    const poleH = Math.max(8, Math.round(Math.min(bh, TILE * 1.5)));
+    const poleW = 2;
+    ctx.fillRect(bx + 2,           by + 2,            poleW, poleH);
+    ctx.fillRect(bx + bw - 4,      by + 2,            poleW, poleH);
+    ctx.fillRect(bx + 2,           by + bh - poleH - 2, poleW, poleH);
+    ctx.fillRect(bx + bw - 4,      by + bh - poleH - 2, poleW, poleH);
+    ctx.fillStyle = 'rgba(138,90,46,0.85)';
+    ctx.fillRect(bx + 2, by + 2, bw - 4, 1);
+    ctx.fillRect(bx + 2, by + 2 + Math.round(poleH * 0.55), bw - 4, 1);
+
+    // Pulsing dashed honey border — the build hitbox itself, made obvious
+    const pulse = 0.65 + 0.35 * (Math.sin(stateTime * 0.003 + slot.tileX) * 0.5 + 0.5);
+    ctx.strokeStyle = `rgba(208,136,22,${pulse.toFixed(2)})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([5, 4]);
+    ctx.lineDashOffset = -stateTime * 0.012;
+    ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+
+    // Centered plaque showing the icon of the building that will go here
+    const meta = BUILDING_META[slot.tileType];
+    const icon = SLOT_KEY_ICON[key] || (meta && meta.icon) || '🏗️';
+    const plaqueSize = Math.max(14, Math.min(Math.round(TILE * 1.2), Math.round(Math.min(bw, bh) * 0.6)));
+    const plaqueX = bx + Math.round((bw - plaqueSize) / 2);
+    const plaqueY = by + Math.round((bh - plaqueSize) / 2);
+
+    ctx.fillStyle = 'rgba(59,42,29,0.30)';
+    ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
+    ctx.fillStyle = '#fffaef';
+    ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
+    const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
+    ctx.fillStyle = '#f0a830';
+    ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
+    ctx.strokeStyle = '#3b2a1d';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
+
+    const iconPx = Math.max(9, Math.round(plaqueSize * 0.68));
+    ctx.font = `${iconPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, plaqueX + plaqueSize / 2, plaqueY + ribbonH + (plaqueSize - ribbonH) / 2 + 1);
+
+    // Bobbing hammer above the plaque for an unmistakable "build me" cue
+    const bobY = Math.sin(stateTime * 0.004 + slot.tileX) * 2;
+    const hammerPx = Math.max(11, Math.round(TILE * 0.85));
+    ctx.font = `${hammerPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+    ctx.fillText('🔨', plaqueX + plaqueSize - 2, plaqueY - 4 + bobY);
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
   function _drawCityBuildingSprites(slots, camX, camY) {
     for (const [key, slot] of Object.entries(slots)) {
       if (!slot || slot.tileX <= 0) continue;
@@ -9085,6 +9141,13 @@ function drawNpcBubble() {
 
       // Skip if completely off-screen
       if (bx + bw < 0 || bx > VIEW_W || by + bh < -BUILDING_RISE * 2 || by > VIEW_H) continue;
+
+      // Unbuilt slot → draw a clear construction-site marker instead of a
+      // finished building sprite. Makes the build hitbox findable.
+      if (!slot.built) {
+        _drawConstructionSite(key, slot, bx, by, bw, bh);
+        continue;
+      }
 
       ctx.save();
 
@@ -9365,6 +9428,7 @@ function drawBuildingLabels() {
     13: { icon: '💰', color: '#d18816', nearDist: 6 }, // Bank
     14: { icon: '🛏️', color: '#e57389', nearDist: 6 }, // Inn
     15: { icon: '⚒️', color: '#b07ec3', nearDist: 6 }, // Guild
+    16: { icon: '🔨', color: '#f0a830', nearDist: 8 }, // Construction site (vacant)
     18: { icon: '⛏️', color: '#8a7a52', nearDist: 2 }, // Ore Vein
     19: { icon: '⛏️', color: '#5c5247', nearDist: 6 }, // Mine
   };
