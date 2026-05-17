@@ -8464,17 +8464,19 @@ function drawNpcBubble() {
   // Building tile IDs that get a 3D raised top face drawn above their grid row.
   const BUILDING_TILE_IDS = new Set([6, 7, 8, 12, 14, 15, 16]);
 
-  // Label + accent color for each building type — used for the facade banner sign
+  // Icon + accent color for each building type — used for the facade plaque
   const BUILDING_META = {
-    6:  { label: 'Market',     accent: '#fbbf24', signBg: '#92400e' },
-    7:  { label: 'Tavern',     accent: '#fdba74', signBg: '#7c2d12' },
-    8:  { label: 'Warehouse',  accent: '#c4b5fd', signBg: '#3730a3' },
-    12: { label: 'Contracts',  accent: '#93c5fd', signBg: '#1e3a5f' },
-    13: { label: 'Bank',       accent: '#fde68a', signBg: '#78350f' },
-    14: { label: 'Inn',        accent: '#fca5a5', signBg: '#7f1d1d' },
-    15: { label: 'Guild Hall', accent: '#86efac', signBg: '#14532d' },
-    16: { label: 'Vacant',     accent: '#9ca3af', signBg: '#374151' },
+    6:  { icon: '🛒', accent: '#f0a830', ribbon: '#d18816' }, // Market — honey
+    7:  { icon: '🍺', accent: '#e57389', ribbon: '#a8485e' }, // Tavern — berry
+    8:  { icon: '📦', accent: '#a87a3e', ribbon: '#7d5230' }, // Warehouse — oak
+    12: { icon: '📜', accent: '#7fbf83', ribbon: '#4f9e5b' }, // Contracts — sage
+    13: { icon: '💰', accent: '#d18816', ribbon: '#a8753a' }, // Bank — honey-deep
+    14: { icon: '🛏️', accent: '#e57389', ribbon: '#a8485e' }, // Inn — berry
+    15: { icon: '⚒️', accent: '#b07ec3', ribbon: '#8a5aa3' }, // Guild — plum
+    16: { icon: '🏚️', accent: '#a89e8a', ribbon: '#6b5e4a' }, // Vacant — muted
   };
+  // Slot-key icon overrides (when multiple slots share a tile type)
+  const SLOT_KEY_ICON = { granary: '🌾', barracks: '🛡️' };
 
   // Draw the raised "wall face" above a building tile so buildings look taller
   // than the player. Only called for the top row of a building block (no tile
@@ -8584,21 +8586,21 @@ function drawNpcBubble() {
     }
 
     if (id === 3) {
-      // Stone wall - with battlements on top, beveled blocks
+      // Stone wall — cream dressed stone with chunky ink mortar and battlements
       const n = hash2(tx, ty);
-      const wallBase = n < 0.5 ? '#484e5c' : '#404654';
+      const wallBase = n < 0.5 ? '#e6d4b0' : '#d8c9a2';
       ctx.fillStyle = wallBase;
       ctx.fillRect(x, y, TILE, TILE);
       // Horizontal mortar line
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillStyle = 'rgba(140,100,60,0.32)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
       // Block highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fillRect(x+1, y+1, TILE-2, 2);
       ctx.fillRect(x+1, y+Math.floor(TILE/2)+1, TILE-2, 2);
       // Battlements on top row of walls (decorative notch)
       if (tileAt(tx, ty-1) !== 3) {
-        ctx.fillStyle = '#2e333d';
+        ctx.fillStyle = '#3b2a1d';
         ctx.fillRect(x, y, Math.floor(TILE/3), 3);
         ctx.fillRect(x+Math.floor(TILE*2/3), y, Math.floor(TILE/3)+1, 3);
       }
@@ -8606,39 +8608,39 @@ function drawNpcBubble() {
     }
 
     if (id === 4) {
-      // City floor - cobblestone with mortar lines
+      // City floor - cream cobblestone with soft mortar lines (Plumberry)
       const n = hash2(tx, ty);
-      const base = n < 0.33 ? '#6b5642' : (n < 0.66 ? '#5f4e3c' : '#645446');
+      const base = n < 0.33 ? '#f0e2c4' : (n < 0.66 ? '#e8d8b4' : '#ecdebc');
       ctx.fillStyle = base;
       ctx.fillRect(x, y, TILE, TILE);
       // mortar grid
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillStyle = 'rgba(140,100,60,0.20)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
       ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
       // stone highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillRect(x + 1, y + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
       ctx.fillRect(x + Math.floor(TILE/2) + 1, y + Math.floor(TILE/2) + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
       return;
     }
 
     if (id === 5) {
-      // Gate arch - stone archway with portcullis bars
-      ctx.fillStyle = '#4a3f2e';
+      // Gate arch — cream stone with honey portcullis bars
+      ctx.fillStyle = '#c8b08a';
       ctx.fillRect(x, y, TILE, TILE);
       // arch body
-      ctx.fillStyle = '#8b7355';
+      ctx.fillStyle = '#e6d4b0';
       ctx.fillRect(x+1, y+2, TILE-2, TILE-4);
       // arch opening (dark passage)
-      ctx.fillStyle = '#1a1208';
+      ctx.fillStyle = '#3b2a1d';
       ctx.fillRect(x+4, y+4, TILE-8, TILE-6);
-      // portcullis bars
-      ctx.fillStyle = '#5a4a30';
+      // portcullis bars (honey)
+      ctx.fillStyle = '#d18816';
       for (let bx = x+5; bx < x+TILE-4; bx += 3) {
         ctx.fillRect(bx, y+4, 1, TILE-7);
       }
       // stone highlight top
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fillRect(x+1, y+2, TILE-2, 1);
       return;
     }
@@ -8740,18 +8742,18 @@ function drawNpcBubble() {
     }
 
     if (id === 9) {
-      // Cobblestone plaza / courtyard - premium city floor
+      // Cobblestone plaza / courtyard — cream premium floor (Plumberry)
       const n = hash2(tx, ty);
-      ctx.fillStyle = n < 0.4 ? '#5c4d3c' : '#503f2e';
+      ctx.fillStyle = n < 0.4 ? '#f5e6c8' : '#eedeb8';
       ctx.fillRect(x, y, TILE, TILE);
       // Large cobble pattern
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillStyle = 'rgba(140,100,60,0.22)';
       ctx.fillRect(x,   y + Math.floor(TILE/3),     TILE, 1);
       ctx.fillRect(x,   y + Math.floor(TILE*2/3),   TILE, 1);
       ctx.fillRect(x + Math.floor(TILE/3),   y,     1, TILE);
       ctx.fillRect(x + Math.floor(TILE*2/3), y,     1, TILE);
       // Stone highlights
-      ctx.fillStyle = 'rgba(255,255,255,0.09)';
+      ctx.fillStyle = 'rgba(255,255,255,0.40)';
       ctx.fillRect(x+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
       ctx.fillRect(x+Math.floor(TILE/3)+1, y+Math.floor(TILE/3)+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
       ctx.fillRect(x+Math.floor(TILE*2/3)+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
@@ -9093,51 +9095,52 @@ function drawNpcBubble() {
       const rise = Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55));
       let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
 
+      // Plumberry cottage-core palette — cream walls + colorful roofs per use
       switch (type) {
-        case 7: case 14: // Inn / Tavern
-          roofTop   = '#6b1f0f'; roofFace  = '#8b2a12';
-          wallMain  = '#c9a97a'; wallDark  = '#a07850'; wallLight = '#e0c898';
-          doorColor = '#3d1f0a'; windowColor = 'rgba(251,191,36,0.85)';
+        case 7: case 14: // Inn / Tavern — berry roof
+          roofTop   = '#a8485e'; roofFace  = '#c66479';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.90)';
           break;
-        case 6: // Market
-          roofTop   = '#92400e'; roofFace  = '#b45309';
-          wallMain  = '#d97706'; wallDark  = '#a05706'; wallLight = '#fbbf24';
-          doorColor = '#1c1409'; windowColor = 'rgba(255,220,100,0.7)';
+        case 6: // Market — honey roof
+          roofTop   = '#d18816'; roofFace  = '#f0a830';
+          wallMain  = '#fffaef'; wallDark  = '#e8d5a8'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,100,0.85)';
           break;
-        case 8: // Warehouse / Granary
-          roofTop   = '#2a2420'; roofFace  = '#3a3028';
-          wallMain  = '#5a4e3e'; wallDark  = '#3a3028'; wallLight = '#7a6a56';
-          doorColor = '#1a1208'; windowColor = 'rgba(180,140,80,0.5)';
+        case 8: // Warehouse / Granary — oak roof on cream-tan walls
+          roofTop   = '#7d5230'; roofFace  = '#a87a3e';
+          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(180,140,80,0.65)';
           break;
-        case 15: // Guild
-          roofTop   = '#3b1f00'; roofFace  = '#5a2f00';
-          wallMain  = '#8b5a2a'; wallDark  = '#5a3518'; wallLight = '#b07840';
-          doorColor = '#1e0e00'; windowColor = 'rgba(255,160,60,0.75)';
+        case 15: // Guild — plum roof
+          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(176,126,195,0.75)';
           break;
-        case 12: // Contracts
-          roofTop   = '#1a2a3a'; roofFace  = '#2a3f5a';
-          wallMain  = '#4a6a8a'; wallDark  = '#2a4a6a'; wallLight = '#6a8aaa';
-          doorColor = '#0e1820'; windowColor = 'rgba(100,180,255,0.65)';
+        case 12: // Contracts — sage roof
+          roofTop   = '#4f9e5b'; roofFace  = '#7fbf83';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.75)';
           break;
-        case 13: // Bank — pale dressed stone + gilded trim
-          roofTop   = '#3a3328'; roofFace  = '#4a4030';
-          wallMain  = '#cfb98a'; wallDark  = '#8a7a52'; wallLight = '#e6d4a8';
-          doorColor = '#241608'; windowColor = 'rgba(255,200,90,0.72)';
+        case 13: // Bank — honey-deep roof on creamy stone
+          roofTop   = '#a8753a'; roofFace  = '#d18816';
+          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.85)';
           break;
-        case 4: // Foreman HQ / Barracks-style — slate fort with iron trim
-          roofTop   = '#1e242c'; roofFace  = '#2a323c';
-          wallMain  = '#646e7a'; wallDark  = '#3e4650'; wallLight = '#828c96';
-          doorColor = '#181c22'; windowColor = 'rgba(251,191,36,0.55)';
+        case 4: // Foreman HQ / Barracks — slate roof, cream walls
+          roofTop   = '#5b6b78'; roofFace  = '#7a8a96';
+          wallMain  = '#fffaef'; wallDark  = '#d8d2c4'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.65)';
           break;
-        case 19: // Mine — dark stone with warm lantern glow
-          roofTop   = '#1b1612'; roofFace  = '#2a221c';
-          wallMain  = '#4a3e34'; wallDark  = '#2a2218'; wallLight = '#6a5a48';
-          doorColor = '#0e0a06'; windowColor = 'rgba(251,191,36,0.85)';
+        case 19: // Mine — slate roof, warm tan walls (kept earthier)
+          roofTop   = '#3a322a'; roofFace  = '#5c5247';
+          wallMain  = '#c8a878'; wallDark  = '#9a7a4a'; wallLight = '#e6c898';
+          doorColor = '#2a1f14'; windowColor = 'rgba(240,168,48,0.85)';
           break;
         default:
-          roofTop   = '#2a2a2a'; roofFace  = '#3a3a3a';
-          wallMain  = '#6a6060'; wallDark  = '#4a4040'; wallLight = '#8a8080';
-          doorColor = '#1a1818'; windowColor = 'rgba(200,180,140,0.5)';
+          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,140,0.55)';
       }
 
       // ── Top face (isometric-ish roof on top of rise) ──
@@ -9254,67 +9257,61 @@ function drawNpcBubble() {
         ctx.fillRect(dx + dw - 5, dy + Math.round(dh * 0.55), 3, 3);
       }
 
-      // ── Hanging sign / banner with building name ──────────────────────
-      // Use the slot key for labels where multiple slots share a tile type
-      // (e.g. granary and warehouse both use tile 8). Falls back to the
-      // tile-type label otherwise so unknown slot keys still render.
+      // ── Hanging plaque with building icon ─────────────────────────────
+      // Slot-key icons override tile-type icon when multiple slots share a
+      // tile (e.g. granary and warehouse both use tile 8).
       const meta = BUILDING_META[type];
-      const SLOT_KEY_LABEL = { granary: 'Granary', barracks: 'Barracks' };
-      const slotLabel = SLOT_KEY_LABEL[key] || (meta && meta.label);
-      if (meta) {
-        const signH    = Math.max(10, Math.round(TILE * 0.85));
-        const signPadX = Math.round(TILE * 0.35);
-        const signW    = Math.min(bw - signPadX * 2, bw * 0.82);
-        const signX    = bx + Math.round((bw - signW) / 2);
-        // Hang the sign from the top of the wall face (just below the roof rise)
-        const signY    = by + Math.round(TILE * 0.18);
+      const slotIcon = SLOT_KEY_ICON[key] || (meta && meta.icon);
+      if (meta && slotIcon) {
+        // Square-ish plaque — large enough for a legible emoji
+        const plaqueSize = Math.max(14, Math.round(TILE * 1.05));
+        const plaqueX    = bx + Math.round((bw - plaqueSize) / 2);
+        const plaqueY    = by + Math.round(TILE * 0.18);
 
-        // Hanging rope/chains (two short lines from roof to sign corners)
-        ctx.strokeStyle = 'rgba(100,80,40,0.7)';
-        ctx.lineWidth = 1;
+        // Two short hanging ropes from roof to plaque corners
+        ctx.strokeStyle = '#3b2a1d';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(signX + signW * 0.2, signY);
-        ctx.lineTo(signX + signW * 0.2, signY - 4);
-        ctx.moveTo(signX + signW * 0.8, signY);
-        ctx.lineTo(signX + signW * 0.8, signY - 4);
+        ctx.moveTo(plaqueX + plaqueSize * 0.22, plaqueY);
+        ctx.lineTo(plaqueX + plaqueSize * 0.22, plaqueY - 5);
+        ctx.moveTo(plaqueX + plaqueSize * 0.78, plaqueY);
+        ctx.lineTo(plaqueX + plaqueSize * 0.78, plaqueY - 5);
         ctx.stroke();
 
-        // Sign board background
-        ctx.fillStyle = meta.signBg;
-        ctx.fillRect(signX, signY, signW, signH);
+        // Plaque drop shadow
+        ctx.fillStyle = 'rgba(59,42,29,0.30)';
+        ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
 
-        // Sign board inner bevel (lighter top-left, darker bottom-right)
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.fillRect(signX + 1, signY + 1, signW - 2, 2);
-        ctx.fillRect(signX + 1, signY + 1, 2, signH - 2);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(signX + 1, signY + signH - 2, signW - 2, 1);
-        ctx.fillRect(signX + signW - 2, signY + 1, 1, signH - 2);
+        // Cream paper plaque
+        ctx.fillStyle = '#fffaef';
+        ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
 
-        // Sign text
-        const fontSize = Math.max(7, Math.min(11, Math.round(signH * 0.62)));
-        ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+        // Accent ribbon strip across top of plaque
+        const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
+        ctx.fillStyle = meta.ribbon;
+        ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
+
+        // Ink border (chunky outline)
+        ctx.strokeStyle = '#3b2a1d';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
+
+        // Emoji icon centered in plaque (below ribbon)
+        const iconSize = Math.max(9, Math.round(plaqueSize * 0.72));
+        ctx.font = `${iconSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-
-        // Text shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillText(slotLabel, signX + signW / 2 + 1, signY + signH / 2 + 1);
-        // Text
-        ctx.fillStyle = meta.accent;
-        ctx.fillText(slotLabel, signX + signW / 2, signY + signH / 2);
-
+        ctx.fillText(
+          slotIcon,
+          plaqueX + plaqueSize / 2,
+          plaqueY + ribbonH + (plaqueSize - ribbonH) / 2 + 1
+        );
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
-
-        // Sign border
-        ctx.strokeStyle = 'rgba(180,140,60,0.55)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(signX + 0.5, signY + 0.5, signW - 1, signH - 1);
       }
 
-      // ── Outer wall border ──
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      // ── Outer wall border (chunky ink) ──
+      ctx.strokeStyle = '#3b2a1d';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
 
@@ -9361,15 +9358,15 @@ function drawBuildingLabels() {
   if (!currentCity()) return;
 
   const INTERACT = {
-    6:  { label: 'Market',     color: '#fbbf24', nearDist: 6 },
-    12: { label: 'Contracts',  color: '#60a5fa', nearDist: 6 },
-    7:  { label: 'Tavern',     color: '#f97316', nearDist: 5 },
-    8:  { label: 'Warehouse',  color: '#a78bfa', nearDist: 5 },
-    13: { label: 'Bank',       color: '#fbbf24', nearDist: 6 },
-    14: { label: 'Inn',        color: '#f97316', nearDist: 6 },
-    15: { label: 'Guild Hall', color: '#a78bfa', nearDist: 6 },
-    18: { label: 'Ore Vein',   color: '#cbd5e1', nearDist: 2 },
-    19: { label: 'Mine',       color: '#94a3b8', nearDist: 6 },
+    6:  { icon: '🛒', color: '#f0a830', nearDist: 6 }, // Market
+    12: { icon: '📜', color: '#7fbf83', nearDist: 6 }, // Contracts
+    7:  { icon: '🍺', color: '#e57389', nearDist: 5 }, // Tavern
+    8:  { icon: '📦', color: '#a87a3e', nearDist: 5 }, // Warehouse
+    13: { icon: '💰', color: '#d18816', nearDist: 6 }, // Bank
+    14: { icon: '🛏️', color: '#e57389', nearDist: 6 }, // Inn
+    15: { icon: '⚒️', color: '#b07ec3', nearDist: 6 }, // Guild
+    18: { icon: '⛏️', color: '#8a7a52', nearDist: 2 }, // Ore Vein
+    19: { icon: '⛏️', color: '#5c5247', nearDist: 6 }, // Mine
   };
 
   const px = player.x, py = player.y;
@@ -9476,39 +9473,58 @@ function drawBuildingLabels() {
       ctx.restore();
     }
 
-    // ── Single label above the cluster when close ─────────────────────
+    // ── Icon chip above the cluster when close ────────────────────────
     if (isNear) {
       const labelAlpha = Math.min(1, (info.nearDist + 2 - distTiles) / 2);
       const bobY = Math.sin(stateTime * 0.004 + cTx + cTy) * 1.5;
-      // Place label above the top-most tile of the cluster
+      // Place chip above the top-most tile of the cluster
       const topTileY = Math.min(...tiles.map(t => t.ty));
       const labelScreenY = topTileY * TILE - camY - 4 + bobY;
 
       ctx.save();
-      ctx.globalAlpha = Math.max(0, labelAlpha * 0.92);
-      ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
+      ctx.globalAlpha = Math.max(0, labelAlpha);
+      const chipSize = Math.round(18 * UI_SCALE);
+      const cx2 = clamp(scx, chipSize / 2 + 4, VIEW_W - chipSize / 2 - 4);
+      const cy2 = Math.max(4 + chipSize, labelScreenY) - chipSize;
+      const chipX = cx2 - chipSize / 2;
+      const chipY = cy2;
 
-      const lw = ctx.measureText(info.label).width + Math.round(10 * UI_SCALE);
-      const lh = Math.round(12 * UI_SCALE);
-      const lx = clamp(scx - lw / 2, 4, VIEW_W - lw - 4);
-      const ly = Math.max(4, labelScreenY - lh);
+      // Drop shadow
+      ctx.fillStyle = 'rgba(59,42,29,0.30)';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX + 1, chipY + 2, chipSize, chipSize, 6); ctx.fill(); }
+      else ctx.fillRect(chipX + 1, chipY + 2, chipSize, chipSize);
 
-      ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.22)`;
-      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-      else ctx.fillRect(lx, ly, lw, lh);
-      ctx.fill();
-      ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.55)`;
-      ctx.lineWidth = 1;
-      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-      else ctx.strokeRect(lx, ly, lw, lh);
-      ctx.stroke();
+      // Cream paper chip
+      ctx.fillStyle = '#fffaef';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX, chipY, chipSize, chipSize, 6); ctx.fill(); }
+      else ctx.fillRect(chipX, chipY, chipSize, chipSize);
 
-      ctx.shadowColor = 'rgba(0,0,0,0.9)';
-      ctx.shadowBlur = 3;
+      // Accent ribbon top stripe
+      const ribbonH = Math.max(2, Math.round(chipSize * 0.18));
       ctx.fillStyle = info.color;
-      ctx.fillText(info.label, lx + lw / 2, ly + lh - Math.round(3 * UI_SCALE));
-      ctx.shadowBlur = 0;
+      if (ctx.roundRect) {
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(chipX, chipY, chipSize, chipSize, 6); ctx.clip();
+        ctx.fillRect(chipX, chipY, chipSize, ribbonH);
+        ctx.restore();
+      } else {
+        ctx.fillRect(chipX, chipY, chipSize, ribbonH);
+      }
+
+      // Ink border
+      ctx.strokeStyle = '#3b2a1d';
+      ctx.lineWidth = 1.5;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1, 6); ctx.stroke(); }
+      else ctx.strokeRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1);
+
+      // Emoji icon centered (below ribbon)
+      const iconPx = Math.max(10, Math.round(chipSize * 0.72));
+      ctx.font = `${iconPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(info.icon, cx2, chipY + ribbonH + (chipSize - ribbonH) / 2 + 1);
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
       ctx.restore();
     }
   }
