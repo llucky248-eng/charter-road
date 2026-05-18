@@ -5558,12 +5558,17 @@ function drawNpcBubble() {
   }
 
   // ── Find building slot by map tile position ──────────────────────────────
+  // Returns the unbuilt slot whose footprint contains (tx, ty), or null.
   function findSlotAtTile(cityId, tx, ty) {
     const slots = cityBuildings[cityId];
     if (!slots) return null;
     for (const [key, slot] of Object.entries(slots)) {
       if (slot.built) continue;
-      if (Math.abs(tx - slot.tileX) <= 1 && Math.abs(ty - slot.tileY) <= 1) return { key, slot };
+      if (slot.tileX <= 0 || slot.tileY <= 0) continue;
+      if (tx >= slot.tileX && tx < slot.tileX + slot.tileW &&
+          ty >= slot.tileY && ty < slot.tileY + slot.tileH) {
+        return { key, slot };
+      }
     }
     return null;
   }
