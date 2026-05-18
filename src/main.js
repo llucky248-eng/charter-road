@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.50'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.51'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1335,6 +1335,12 @@ if (IS_MOBILE && !window.__npcGlobalTapListener) {
 function handleMobileHudTap(sx, sy) {
   if (!IS_MOBILE) return false;
   if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen || ui.buildingDonateOpen) return false;
+  // Contract indicator strip — tap navigates to destination
+  const CT = ui._hudContractTap;
+  if (CT && sx >= CT.x && sx <= CT.x + CT.w && sy >= CT.y && sy <= CT.y + CT.h) {
+    startNavTo(CT.toId);
+    return true;
+  }
   const T = ui._hudCityTap;
   if (T && sx >= T.x && sx <= T.x + T.w && sy >= T.y && sy <= T.y + T.h) {
     ui.mobileHudExpanded = !ui.mobileHudExpanded;
@@ -6011,7 +6017,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.50',
+    version: 'v0.4.51',
     whatsNew: [
       'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
       'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
@@ -6048,6 +6054,7 @@ function drawNpcBubble() {
     npcDiag: __NPCDIAG_STATE,
     mobileHudExpanded: false,
     _hudCityTap: null,
+    _hudContractTap: null,
     _hudExpandedText: '',
     _hudExpandedVisible: false,
     _hudTopH: 0,
@@ -7358,7 +7365,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.50',
+      buildVersion: 'v0.4.51',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10614,6 +10621,7 @@ if (IS_MOBILE) {
   ctx.textAlign = 'left';
 
   // Active contract mini-indicator (small dot + destination)
+  ui._hudContractTap = null;
   if (contracts.active) {
     const dest = getCityById(contracts.active.toId);
     if (dest) {
@@ -10623,6 +10631,8 @@ if (IS_MOBILE) {
       ctx.textAlign = 'center';
       ctx.fillText(`📦 → ${dest.name} (${prog})`, VIEW_W / 2, topH - Math.round(4 * UI_SCALE));
       ctx.textAlign = 'left';
+      // tap zone covers the full-width bottom strip of the HUD bar
+      ui._hudContractTap = { x: 0, y: topH - Math.round(16 * UI_SCALE), w: VIEW_W, h: Math.round(16 * UI_SCALE), toId: contracts.active.toId };
     }
   }
 
@@ -11204,6 +11214,19 @@ if (showTabs) {
         // price (right)
         ctx.textAlign = 'right';
         ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 20);
+        // drift indicator (▲/▼) shown when price has moved >5% from base
+        if (!isPermitRow && !notAvailHereCanvas) {
+          const d = (marketDrift[c.id]?.[it.id]) ?? 1;
+          if (d > 1.05) {
+            ctx.fillStyle = '#16a34a';
+            ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
+            ctx.fillText('▲', sheetX + sheetW - 16, cardY + 34);
+          } else if (d < 0.95) {
+            ctx.fillStyle = '#dc2626';
+            ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
+            ctx.fillText('▼', sheetX + sheetW - 16, cardY + 34);
+          }
+        }
         ctx.textAlign = 'left';
 
         // subline

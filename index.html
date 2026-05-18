@@ -763,7 +763,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Patch Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.4.50</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.4.51</div>
     </div>
   </div>
 
@@ -885,7 +885,11 @@
           if (window.__INAPP_IOS) {
             extra = '\n\nPossible cause: iOS in-app browser blocked scripts. Try: Share → Open in Browser (Safari).';
           }
-          fatalEl.textContent = 'The Amber Road failed to start. Please screenshot this:\n\n' + String(msg || 'Unknown error') + extra;
+          var safe = String(msg || 'Unknown error').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+          fatalEl.innerHTML =
+            '<b>The Amber Road failed to start.</b> Please screenshot this:<br><br>' +
+            '<pre style="white-space:pre-wrap;word-break:break-all;margin:0">' + safe + extra + '</pre><br>' +
+            '<button onclick="location.reload(true)" style="margin-top:8px;padding:6px 18px;background:#7f1d1d;border:1px solid #fca5a5;color:#fecaca;border-radius:6px;cursor:pointer;font-size:13px">↺ Reload page</button>';
         } catch(e) {}
       }
       window.addEventListener('error', function(e){
@@ -906,7 +910,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.4.50&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.4.51&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);
