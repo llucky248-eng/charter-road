@@ -5333,68 +5333,251 @@ function isNpcBlocking(px, py) {
   return false;
 }
 
+// ── Chibi character sprite (translated from the Plumberry Trail design) ────
+// Logical design size: 40w × 48h (SVG viewBox 0 0 40 48). The chibi's anchor
+// is the chest/waist at design coord (20, 36) so callers can ctx.translate to
+// the entity's existing world position. Caller is responsible for save/restore.
+//   opts: { skin, hair, shirt, hat }
+//   scale: design pixel → canvas pixel (typically r/12 so total height ≈ 4r)
+//   flip:  true to mirror horizontally (facing left)
+function _drawChibi(opts, scale, flip) {
+  const ink = '#3b2a1d';
+  ctx.scale(scale * (flip ? -1 : 1), scale);
+  ctx.translate(-20, -36);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Drop shadow (under feet)
+  ctx.fillStyle = 'rgba(59,42,29,0.32)';
+  ctx.beginPath();
+  ctx.ellipse(20, 47, 11, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body / shirt
+  ctx.fillStyle = opts.shirt;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(8, 36);
+  ctx.quadraticCurveTo(8, 28, 20, 28);
+  ctx.quadraticCurveTo(32, 28, 32, 36);
+  ctx.lineTo(32, 44);
+  ctx.quadraticCurveTo(32, 46, 30, 46);
+  ctx.lineTo(10, 46);
+  ctx.quadraticCurveTo(8, 46, 8, 44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Arms (skin ellipses)
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.ellipse(7, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(33, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Collar V
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(16, 28); ctx.lineTo(20, 32); ctx.lineTo(24, 28);
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(20, 18, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Hair (front fringe)
+  ctx.fillStyle = opts.hair;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(10, 16);
+  ctx.quadraticCurveTo(10, 6, 20, 6);
+  ctx.quadraticCurveTo(30, 6, 30, 16);
+  ctx.quadraticCurveTo(28, 12, 24, 13);
+  ctx.quadraticCurveTo(22, 9, 18, 12);
+  ctx.quadraticCurveTo(14, 11, 12, 14);
+  ctx.quadraticCurveTo(11, 15, 10, 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  _drawChibiHat(opts.hat || 'none', ink);
+
+  // Cheeks
+  ctx.fillStyle = '#f29ab0';
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath(); ctx.ellipse(13.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(26.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Eyes
+  ctx.fillStyle = ink;
+  ctx.beginPath(); ctx.arc(16, 18, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(24, 18, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(16.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(24.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
+
+  // Smile
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(17, 22.5);
+  ctx.quadraticCurveTo(20, 24.5, 23, 22.5);
+  ctx.stroke();
+}
+
+function _drawChibiHat(kind, ink) {
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.6;
+
+  if (kind === 'straw') {
+    ctx.fillStyle = '#e6c07b';
+    ctx.beginPath(); ctx.ellipse(20, 9, 14, 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f0d28e';
+    ctx.beginPath();
+    ctx.moveTo(13, 9);
+    ctx.quadraticCurveTo(13, 3, 20, 3);
+    ctx.quadraticCurveTo(27, 3, 27, 9);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#a87432';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(13, 8);
+    ctx.quadraticCurveTo(20, 7, 27, 8);
+    ctx.stroke();
+  } else if (kind === 'cap') {
+    ctx.fillStyle = '#5d8fb8';
+    ctx.beginPath();
+    ctx.moveTo(11, 12);
+    ctx.quadraticCurveTo(11, 4, 20, 4);
+    ctx.quadraticCurveTo(29, 4, 29, 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a6a90';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(11, 12);
+    ctx.quadraticCurveTo(15, 14, 20, 14);
+    ctx.quadraticCurveTo(25, 14, 31, 12);
+    ctx.lineTo(31, 14);
+    ctx.quadraticCurveTo(24, 16, 20, 16);
+    ctx.quadraticCurveTo(15, 16, 11, 14);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'flower') {
+    ctx.fillStyle = '#e57389';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(13, 8, 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff3c2';
+    ctx.beginPath(); ctx.arc(13, 8, 0.8, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === 'sailor') {
+    ctx.fillStyle = '#fdfaf0';
+    ctx.beginPath(); ctx.ellipse(20, 10, 11, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(12, 10);
+    ctx.quadraticCurveTo(12, 4, 20, 4);
+    ctx.quadraticCurveTo(28, 4, 28, 10);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#5d8fb8';
+    ctx.fillRect(15, 6, 10, 2);
+  } else if (kind === 'helm') {
+    ctx.fillStyle = '#7a8a96';
+    ctx.beginPath();
+    ctx.moveTo(10, 14);
+    ctx.quadraticCurveTo(10, 4, 20, 4);
+    ctx.quadraticCurveTo(30, 4, 30, 14);
+    ctx.lineTo(28, 14); ctx.lineTo(28, 18); ctx.lineTo(26, 18);
+    ctx.lineTo(26, 15); ctx.lineTo(14, 15); ctx.lineTo(14, 18); ctx.lineTo(12, 18); ctx.lineTo(12, 14);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a6a90';
+    ctx.fillRect(19, 3, 2, 4); // crest
+  } else if (kind === 'hood') {
+    ctx.fillStyle = '#5b5561';
+    ctx.beginPath();
+    ctx.moveTo(8, 22);
+    ctx.quadraticCurveTo(6, 8, 20, 6);
+    ctx.quadraticCurveTo(34, 8, 32, 22);
+    ctx.lineTo(28, 18);
+    ctx.quadraticCurveTo(28, 14, 20, 12);
+    ctx.quadraticCurveTo(12, 14, 12, 18);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'bakerCap') {
+    ctx.fillStyle = '#fdfaf0';
+    ctx.beginPath();
+    ctx.moveTo(12, 12);
+    ctx.quadraticCurveTo(8, 2, 20, 2);
+    ctx.quadraticCurveTo(32, 2, 28, 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(12, 12); ctx.lineTo(28, 12);
+    ctx.stroke();
+  } else if (kind === 'scribeHood') {
+    ctx.fillStyle = '#a87842';
+    ctx.beginPath();
+    ctx.moveTo(8, 20);
+    ctx.quadraticCurveTo(8, 6, 20, 6);
+    ctx.quadraticCurveTo(32, 6, 32, 20);
+    ctx.lineTo(30, 20);
+    ctx.quadraticCurveTo(30, 12, 20, 12);
+    ctx.quadraticCurveTo(10, 12, 10, 20);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'travelhat') {
+    // Wide-brim with crown + feather (player)
+    ctx.fillStyle = '#5a3a1a';
+    ctx.beginPath(); ctx.ellipse(20, 9, 15, 2.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#7a4a26';
+    ctx.beginPath();
+    ctx.moveTo(13, 9);
+    ctx.quadraticCurveTo(13, 1, 20, 1);
+    ctx.quadraticCurveTo(27, 1, 27, 9);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(13, 7); ctx.lineTo(27, 7);
+    ctx.stroke();
+    ctx.strokeStyle = '#e57389';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(26, 3);
+    ctx.quadraticCurveTo(33, -3, 33, 4);
+    ctx.stroke();
+  }
+}
+
+// Per-style palette for NPC chibis. Falls back to a default when unknown.
+const _NPC_STYLE_OPTS = {
+  scribe:   { skin: '#f5d2b8', hair: '#3b2a1d', shirt: '#a87842', hat: 'scribeHood' },
+  baker:    { skin: '#f5d2b8', hair: '#8a5a2e', shirt: '#d9b38c', hat: 'bakerCap' },
+  guard:    { skin: '#e6c08a', hair: '#3b2a1d', shirt: '#7a8a96', hat: 'helm' },
+  fisher:   { skin: '#f5d2b8', hair: '#8a5a2e', shirt: '#7fbf83', hat: 'sailor' },
+  smuggler: { skin: '#d2b88a', hair: '#3b2a1d', shirt: '#5b5561', hat: 'hood' },
+  broker:   { skin: '#e6c08a', hair: '#5a3a1a', shirt: '#b0a38a', hat: 'cap' },
+};
+const _NPC_DEFAULT_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#c7b9a5', hat: 'straw' };
+
 function drawNpcEntity(e) {
   const sx = e.x - camera.x;
   const sy = e.y - camera.y;
-  const r = e.radius;
+  const r = e.radius || 6;
+
+  const opts = _NPC_STYLE_OPTS[e.style] || _NPC_DEFAULT_OPTS;
+  const scale = r / 12;
+  // Idle bob — phase varies per NPC so they don't all bob in sync
+  const phase = (typeof e.id === 'string') ? e.id.charCodeAt(0) * 0.37 : 0;
+  const bob = Math.sin(stateTime * 0.0024 + phase) * (r * 0.10);
+  const flip = (e.facing && typeof e.facing.x === 'number') ? e.facing.x < -0.1 : false;
+
   ctx.save();
-  ctx.translate(sx, sy);
-
-  // base body
-  ctx.fillStyle = 'rgba(220, 210, 190, 0.95)';
-  ctx.beginPath();
-  ctx.arc(0, -r, r * 0.7, 0, Math.PI * 2);
-  ctx.fill();
-
-  if (e.style === 'scribe') {
-    ctx.fillStyle = '#c7a97a'; // robe
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#f1e7c8'; // scroll
-    ctx.fillRect(r * 0.4, r * 0.2, r * 0.9, r * 0.5);
-  } else if (e.style === 'baker') {
-    ctx.fillStyle = '#d9b38c';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#f4f1e8'; // cap
-    ctx.fillRect(-r * 0.8, -r * 1.6, r * 1.6, r * 0.6);
-    ctx.fillStyle = '#e0c4a8'; // apron
-    ctx.fillRect(-r * 0.4, r * 0.4, r * 0.8, r * 1.2);
-  } else if (e.style === 'guard') {
-    ctx.fillStyle = '#9aa3b2';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#6b7280'; // helm
-    ctx.fillRect(-r * 0.9, -r * 1.8, r * 1.8, r * 0.8);
-    ctx.strokeStyle = '#cbd5e1'; // spear
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(r * 1.2, r * 0.1);
-    ctx.lineTo(r * 1.6, r * 1.8);
-    ctx.stroke();
-  } else if (e.style === 'fisher') {
-    ctx.fillStyle = '#9ec5a1';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#6b8f9c'; // hat
-    ctx.fillRect(-r, -r * 1.6, r * 2, r * 0.6);
-    ctx.strokeStyle = '#d1d5db'; // hook
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-r * 1.3, r * 0.2);
-    ctx.lineTo(-r * 1.8, r * 1.4);
-    ctx.stroke();
-  } else if (e.style === 'smuggler') {
-    ctx.fillStyle = '#5b5561';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#3f3a45'; // hood
-    ctx.fillRect(-r, -r * 1.7, r * 2, r * 0.8);
-  } else if (e.style === 'broker') {
-    ctx.fillStyle = '#b0a38a';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#8b7b63'; // ledger
-    ctx.fillRect(-r * 1.4, r * 0.4, r * 0.8, r * 0.7);
-  } else {
-    ctx.fillStyle = '#c7b9a5';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-  }
-
+  ctx.translate(sx, sy + bob);
+  _drawChibi(opts, scale, flip);
   ctx.restore();
 }
 
@@ -10065,157 +10248,28 @@ function drawEntities() {
     }
   }
 
+  // Plum-shirted merchant chibi with a wide-brim travel hat.
+  const _PLAYER_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#b07ec3', hat: 'travelhat' };
+
   function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
 
-    // Draw carriage when on the road (outside city)
+    // Carriage when on the road (outside city)
     if (playerOnRoad()) {
       drawPlayerCarriage(x, y);
       return;
     }
 
-    // shadow
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 8, 10, 5, 0, 0, Math.PI*2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Sprite draw (disabled - sprite sheet is a palette catalog, not animation sheet)
-    if (false && playerSprite && playerSprite.ready) {
-      // Map facing vector -> 8-way direction index in the order:
-      // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW
-      const fx = player.facing?.x ?? 0;
-      const fy = player.facing?.y ?? 1;
-      const ang = Math.atan2(fy, fx); // -pi..pi
-      const step = Math.PI / 4;
-      // Compute E-based index, then rotate to make 0=N.
-      const eBased = ((Math.round(ang / step) % 8) + 8) % 8; // 0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
-      const dir = (eBased + 6) % 8; // rotate so 0=N
-      playerSprite.dir = dir;
-
-      const moving = Math.hypot(player.vx, player.vy) > 0.01;
-      playerSprite.anim = moving ? 'walk' : 'idle';
-
-      const frames = (playerSprite.anim === 'walk') ? playerSprite.walkFrames : playerSprite.idleFrames;
-      const fw = playerSprite.frameW;
-      const fh = playerSprite.frameH;
-      const col = clamp(playerSprite.frame, 0, Math.max(0, frames - 1));
-      const row = clamp((playerSprite.anim === 'walk' ? playerSprite.walkRowBase : playerSprite.idleRowBase) + playerSprite.dir, 0, playerSprite.rows - 1);
-
-      const sx = col * fw;
-      const sy = row * fh;
-
-      // Draw scaled to match old marker size; keep pixel crisp.
-      const scale = (TILE >= 16) ? 1 : 0.75;
-      const dw = Math.round(fw * scale);
-      const dh = Math.round(fh * scale);
-      const dx = Math.round(x - dw / 2);
-      const dy = Math.round(y - dh + 10); // feet near shadow
-
-      const prevSmooth = ctx.imageSmoothingEnabled;
-      ctx.imageSmoothingEnabled = false;
-      try {
-        ctx.drawImage(playerSprite.img, sx, sy, fw, fh, dx, dy, dw, dh);
-      } catch (e) {
-        // If drawImage fails for any reason, fall back to marker.
-        playerSprite.ready = false;
-      }
-      ctx.imageSmoothingEnabled = prevSmooth;
-
-      return;
-    }
-
-    // Player character: top-down merchant figure
-    const facing = player.facing || { x: 0, y: 1 };
-    const moving = Math.hypot(player.vx, player.vy) > 0.01;
-    const legSwing = moving ? Math.sin(stateTime * 0.015) * 2 : 0;
-
-    // Dominant direction for facing
-    const facingDown  = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y >= 0;
-    const facingUp    = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y < 0;
-    const facingRight = !facingDown && !facingUp && facing.x > 0;
-    // (facingLeft is default)
+    const r = player.r || 8;
+    const scale = r / 12;
+    const moving = Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
+    const bob = moving ? Math.sin(stateTime * 0.018) * 1.2 : 0;
+    const flip = (player.facing && typeof player.facing.x === 'number') ? player.facing.x < -0.1 : false;
 
     ctx.save();
-    ctx.translate(x, y);
-
-    // Shadow
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.ellipse(0, 6, 8, 3, 0, 0, Math.PI*2); ctx.fill();
-    ctx.globalAlpha = 1;
-
-    if (facingDown) {
-      // Legs
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-4, 2 + legSwing, 3, 6);
-      ctx.fillRect(1,  2 - legSwing, 3, 6);
-      // Cloak body
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-5, -4, 10, 9);
-      // Belt
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-5, 1, 10, 2);
-      // Head
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
-      // Hat brim
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-6, -11, 12, 2);
-      ctx.fillRect(-4, -15, 8, 5);
-      // Eyes
-      ctx.fillStyle = '#1a0a00';
-      ctx.fillRect(-2, -9, 2, 2);
-      ctx.fillRect(1,  -9, 2, 2);
-    } else if (facingUp) {
-      // Legs
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-4, 2 + legSwing, 3, 6);
-      ctx.fillRect(1,  2 - legSwing, 3, 6);
-      // Cloak body (back view)
-      ctx.fillStyle = '#5b26c9';
-      ctx.fillRect(-5, -4, 10, 9);
-      // Hood/back of hat
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-6, -11, 12, 2);
-      ctx.fillRect(-4, -15, 8, 5);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-4, -15, 8, 5);
-    } else if (facingRight) {
-      // Side profile right
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(2, 2 + legSwing, 3, 6);
-      ctx.fillRect(2, 2 - legSwing, 3, 6);
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-3, -4, 8, 9);
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-3, 1, 8, 2);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(4, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-2, -11, 12, 2);
-      ctx.fillRect(1, -15, 8, 5);
-    } else {
-      // Side profile left
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-5, 2 + legSwing, 3, 6);
-      ctx.fillRect(-5, 2 - legSwing, 3, 6);
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-5, -4, 8, 9);
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-5, 1, 8, 2);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(-4, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-10, -11, 12, 2);
-      ctx.fillRect(-9, -15, 8, 5);
-    }
-
+    ctx.translate(x, y + bob);
+    _drawChibi(_PLAYER_OPTS, scale, flip);
     ctx.restore();
   }
 
