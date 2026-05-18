@@ -16,4 +16,4 @@ jobs:
           node-version: '24'
 
       - name: Run unit and parity tests
-        run: npm test
+        run: npm run test:unit
