@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.49'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.50'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6011,7 +6011,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.49',
+    version: 'v0.4.50',
     whatsNew: [
       'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
       'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
@@ -7358,7 +7358,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.49',
+      buildVersion: 'v0.4.50',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10369,14 +10369,28 @@ function drawEntities() {
       _mmCtx.textAlign = 'left';
       _mmCtx.fillText(c2.name.slice(0,4), cx2 + 4, cy2 + 3);
     }
-    // Active contract destination ring
+    // Active contract destination ring + compass arrow
     if (contracts.active) {
       const dest = getCityById(contracts.active.toId);
       if (dest) {
         const dx = ((dest.x + dest.w/2) / MAP_W) * S;
         const dy = ((dest.y + dest.h/2) / MAP_H) * S;
+        // Destination ring
         _mmCtx.strokeStyle = '#60a5fa'; _mmCtx.lineWidth = 1.5;
         _mmCtx.beginPath(); _mmCtx.arc(dx, dy, 6, 0, Math.PI*2); _mmCtx.stroke();
+        // Compass arrow in top-right corner pointing toward destination
+        const tx = (dest.x + dest.w/2) * TILE;
+        const ty = (dest.y + dest.h/2) * TILE;
+        const ang = Math.atan2(ty - player.y, tx - player.x);
+        const ax = S - 12, ay = 12, r = 8;
+        _mmCtx.save();
+        _mmCtx.translate(ax, ay);
+        _mmCtx.rotate(ang);
+        _mmCtx.fillStyle = 'rgba(0,0,0,0.65)';
+        _mmCtx.beginPath(); _mmCtx.moveTo(r,0); _mmCtx.lineTo(-r*0.65,r*0.65); _mmCtx.lineTo(-r*0.65,-r*0.65); _mmCtx.closePath(); _mmCtx.fill();
+        _mmCtx.fillStyle = '#60a5fa';
+        _mmCtx.beginPath(); _mmCtx.moveTo(r-1,0); _mmCtx.lineTo(-r*0.55,r*0.55); _mmCtx.lineTo(-r*0.55,-r*0.55); _mmCtx.closePath(); _mmCtx.fill();
+        _mmCtx.restore();
       }
     }
     // Auto-nav route line

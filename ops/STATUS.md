@@ -1,20 +1,21 @@
 # Charter Road — STATUS
 
-**Stage:** Implement
+**Stage:** Verify / Ship
 **Current item:** Contracts v2 — compass arrow to destination (mobile-first)
 
 ## Definition of Done (DoD)
 - [ ] Game boots on iPhone (no black screen; devlog not stuck on Loading…)
-- [ ] Active contract shows a compass arrow pointing toward destination city
-- [ ] Arrow is unobtrusive on mobile HUD and doesn’t overlap buttons
-- [ ] Bump version + cache-bust (index loader `main.js?v=...`)
+- [x] Active contract shows a compass arrow pointing toward destination city
+- [x] Arrow is unobtrusive on mobile HUD and doesn’t overlap buttons
+- [x] Bump version + cache-bust (index loader `main.js?v=...`) — v0.4.50
 - [ ] GitHub Pages serves new version and renders
 
 ## Last shipped
-- Version: v0.0.53
-- Commit: b1628fe
+- Version: v0.4.50
+- Commit: (pending push)
 - URL: https://llucky248-eng.github.io/charter-road/
 
 ## Notes
 - If Pages serves stale HTML/JS, use `?v=<n>` and bump loader query.
 - Never ship silent failures: boot/fatal overlay must stay.
+- CI now runs unit+parity tests on every push (.github/workflows/test.yml).
