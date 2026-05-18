@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.51'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.52'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5143,11 +5143,11 @@ const intelUI = {
   tab: 'buy', // 'buy' | 'ledger'
 };
 
-function openIntelUI(npc, cityId) {
+function openIntelUI(npc, cityId, initialTab) {
   intelUI.open = true;
   intelUI.npc = npc;
   intelUI.cityId = cityId;
-  intelUI.tab = 'buy';
+  intelUI.tab = initialTab || (npc ? 'buy' : 'ledger');
   renderIntelModal();
 }
 
@@ -5205,7 +5205,7 @@ function renderIntelModal() {
         <button id="cr-intel-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
-        <button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>
+        ${intelUI.npc ? `<button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>` : ''}
         <button data-tab="ledger" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='ledger'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='ledger'?'#f0d080':'#a09060'}">Ledger (${activeCards.length})</button>
       </div>
       ${intelUI.tab === 'buy' ? `
@@ -6017,7 +6017,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.51',
+    version: 'v0.4.52',
     whatsNew: [
       'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
       'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
@@ -7365,7 +7365,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.51',
+      buildVersion: 'v0.4.52',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8211,6 +8211,7 @@ function drawNpcBubble() {
     travel: 0,
     cooldown: 0,
     dayCarry: 0, // accumulates fractional day progress from movement
+    lastPatrolDay: -99, // tracks last patrol encounter day
   };
 
   // Cache POIs (tile 13) are single-use per save.
@@ -8405,10 +8406,12 @@ function drawNpcBubble() {
     road.travel = 0;
     road.cooldown = 6.0;
 
+    const patrolCooldownOk = Math.floor(time.day) - road.lastPatrolDay >= 3;
     const kind = randChoice([
       'bandits', 'toll', 'storm', 'omen', 'escort',
       'wandering_merchant', 'wounded_soldier', 'plague_cart',
       'lost_cargo', 'wild_animal',
+      ...(patrolCooldownOk ? ['patrol'] : []),
     ]);
 
     if (kind === 'bandits') {
@@ -8646,6 +8649,115 @@ function drawNpcBubble() {
           },
         ],
       });
+    } else if (kind === 'patrol') {
+      road.lastPatrolDay = Math.floor(time.day);
+      // Find nearest city to determine which guard force this is
+      let nearestCity = world.cities[0];
+      let nearestDist = Infinity;
+      for (const city of world.cities) {
+        const cx = (city.x + city.w / 2) * TILE;
+        const cy = (city.y + city.h / 2) * TILE;
+        const d = Math.hypot(player.x - cx, player.y - cy);
+        if (d < nearestDist) { nearestDist = d; nearestCity = city; }
+      }
+      const cid = nearestCity.id;
+      const hasPermit = !!player.permits[cid];
+      const rep = player.rep?.[cid] || 0;
+
+      if (hasPermit) {
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: `A ${nearestCity.name} guard patrol stops you. They check your papers — your city permit is in order.`,
+          choices: [
+            { label: 'Show permit', run: () => {
+                player.rep[cid] = (player.rep[cid] || 0) + 1;
+                toast(`Permit accepted. Rep +1 in ${nearestCity.name}.`, 2.4);
+                closeEvent();
+              }
+            },
+          ],
+        });
+      } else if (rep >= 4) {
+        const fine = 8;
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: `Guards stop you for a spot check. One recognises your face from ${nearestCity.name}.`,
+          choices: [
+            { label: `Pay reduced toll (${fine}g)`, run: () => {
+                const paid = Math.min(player.gold, fine);
+                player.gold -= paid;
+                toast(`Familiar face helps — reduced toll ${paid}g.`, 2.4);
+                closeEvent();
+              }
+            },
+            { label: 'Explain your business', run: () => {
+                if (rand01() < 0.6) {
+                  toast('They let you through. Your reputation precedes you.', 2.8);
+                } else {
+                  const paid = Math.min(player.gold, 15);
+                  player.gold -= paid;
+                  toast(`They're unconvinced. Standard toll ${paid}g.`, 2.8);
+                }
+                closeEvent();
+              }
+            },
+          ],
+        });
+      } else {
+        const fine = 18;
+        const contrabandItems = ITEMS.filter(it => {
+          const cityRules = CITY_RULES[cid];
+          return cityRules && it.contrabandName && cityRules.contraband.includes(it.contrabandName) && (player.inv[it.id] || 0) > 0;
+        });
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: contrabandItems.length > 0
+            ? `Guards stop you and demand a cargo inspection. They eye your pack suspiciously — you're carrying restricted goods.`
+            : `Guards stop you for a routine check. No permit, no exception.`,
+          choices: [
+            { label: `Pay toll (${fine}g)`, run: () => {
+                const paid = Math.min(player.gold, fine);
+                player.gold -= paid;
+                toast(`Paid ${paid}g road toll.`, 2.4);
+                closeEvent();
+              }
+            },
+            ...(contrabandItems.length > 0 ? [
+              { label: 'Bribe to look away (25g)', run: () => {
+                  if (rand01() < 0.65) {
+                    const paid = Math.min(player.gold, 25);
+                    player.gold -= paid;
+                    toast(`Guard pockets the coin and walks away. Paid ${paid}g.`, 3);
+                  } else {
+                    const it = contrabandItems[0];
+                    const seized = Math.min(player.inv[it.id], 2);
+                    player.inv[it.id] -= seized;
+                    const fine2 = Math.min(player.gold, 20);
+                    player.gold -= fine2;
+                    player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 1);
+                    toast(`Bribe refused! Seized ${seized} ${it.name}, fined ${fine2}g, rep -1.`, 3.5);
+                  }
+                  closeEvent();
+                }
+              },
+            ] : []),
+            { label: 'Slip past on foot (risk)', run: () => {
+                if (rand01() < 0.45) {
+                  road.cooldown = 8.0;
+                  toast('You duck off the road and circle around. Lost some time.', 2.8);
+                } else {
+                  const d = dropRandomCargo(2);
+                  const penalty = Math.min(player.gold, 25);
+                  player.gold -= penalty;
+                  player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 2);
+                  toast(`Caught! Dropped ${d} item(s), fined ${penalty}g, rep -2.`, 3.5);
+                }
+                closeEvent();
+              }
+            },
+          ],
+        });
+      }
     }
   }
 
@@ -10476,6 +10588,9 @@ function drawEntities() {
     const nearTrader = findNearestTrader(player.x, player.y);
     const atMine = nearMineTile();
 
+    const today = Math.floor(time.day);
+    const activeIntel = (player.intelLedger || []).filter(ic => !ic.sold && ic.expiryDay >= today);
+
     // Build key to avoid unnecessary DOM thrashing
     const key = [
       c?.id || 'road',
@@ -10485,6 +10600,7 @@ function drawEntities() {
       nearTrader?.id || '',
       autoNav.active ? 'nav' : '',
       atMine ? `mine:${atMine.tx},${atMine.ty}` : '',
+      activeIntel.length,
     ].join('|');
 
     if (key === _fabLastKey) return;
@@ -10555,6 +10671,12 @@ function drawEntities() {
     } else if (!atMarket && !atContracts && !nearNpc && !nearTrader) {
       // Only show Navigate when there's nothing else to do (avoids crowding)
       actions.push(['🗺️', 'Navigate', () => showNavPicker()]);
+    }
+    if (activeIntel.length > 0) {
+      actions.push(['📒', `Ledger (${activeIntel.length})`, () => {
+        openIntelUI(null, c?.id || null, 'ledger');
+        _fabLastKey = '';
+      }]);
     }
     if (!c && !IS_MOBILE) {
       // Desktop save button; mobile uses autosave so no need to show
