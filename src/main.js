@@ -1468,10 +1468,54 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // otherwise walk to the tile first then open on arrival.
     const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant', 18: 'mine', 19: 'mine_building' };
 
+    // Sprite-space hit test FIRST: the 3D building sprite extends visually
+    // above the footprint by `rise` pixels, and construction sites have a
+    // floating hammer cue above the plaque. Tile-based hit testing misses
+    // both. Walk every city building slot and check the sprite bounds in
+    // world coords; if we hit one, redirect the tap to a tile inside its
+    // footprint so the rest of the existing dispatch logic just works.
+    let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
+    let spriteHitFootprint = null, spriteHitRise = null;
+    for (const city of world.cities) {
+      const slots = cityBuildings[city.id];
+      if (!slots) continue;
+      for (const slot of Object.values(slots)) {
+        if (!slot || slot.tileX <= 0) continue;
+        const slotTapTile = slot.built ? slot.tileType : 16;
+        if (TAP_BUILDING_ACTIONS[slotTapTile] === undefined) continue;
+        const fx0 = slot.tileX * TILE;
+        const fx1 = (slot.tileX + slot.tileW) * TILE;
+        const fy0 = slot.tileY * TILE;
+        const fy1 = (slot.tileY + slot.tileH) * TILE;
+        if (worldX < fx0 || worldX >= fx1) continue;
+        const cx = slot.tileX + (slot.tileW >> 1);
+        const cy = slot.tileY + (slot.tileH >> 1);
+        // Direct footprint hit — strongest match.
+        if (worldY >= fy0 && worldY < fy1) {
+          spriteHitFootprint = { tile: slotTapTile, tx: cx, ty: cy };
+          break;
+        }
+        // Above-footprint hit (roof rise + floating cues). Use a generous
+        // margin: full rise for built buildings, plus an extra 10px for the
+        // construction-site bobbing hammer.
+        const rise = slot.built ? Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55)) : 0;
+        const riseTop = fy0 - rise - 10;
+        if (worldY >= riseTop && worldY < fy0 && !spriteHitRise) {
+          spriteHitRise = { tile: slotTapTile, tx: cx, ty: cy };
+        }
+      }
+      if (spriteHitFootprint) break;
+    }
+    const spriteHit = spriteHitFootprint || spriteHitRise;
+    if (spriteHit) {
+      tapTile = spriteHit.tile;
+      resolvedTileX = spriteHit.tx;
+      resolvedTileY = spriteHit.ty;
+    }
+
     // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
     // nearest building interior tile so tapping on a building's visible art still works.
-    let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
-    if (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined) {
+    if (!spriteHit && (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined)) {
       let bestDist = 9999, bestTile = null;
       for (let dy = -4; dy <= 4; dy++) {
         for (let dx = -4; dx <= 4; dx++) {
