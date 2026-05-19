@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.52'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.53'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -476,6 +476,7 @@ ${line4}`;
                 showBanner(title, text);
 
                 contracts.active = null;
+                checkGuildMilestone();
                 scheduleAutoSave();
               }
             }
@@ -2215,7 +2216,21 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Expose map array for dynamic building placement
     mapData = m;
 
-    return { m, cities: [cityA, cityB, cityC, cityD] };
+    // Collect road POI positions for minimap markers (tiles 8=camp, 9=ruins, 13=cache)
+    const pois = [];
+    for (let iy = 0; iy < MAP_H; iy++) {
+      for (let ix = 0; ix < MAP_W; ix++) {
+        const t = m[iy * MAP_W + ix];
+        if (t === 8 || t === 9 || t === 13) {
+          // Only include POIs outside city bounds
+          const inAnyCity = [cityA, cityB, cityC, cityD].some(c =>
+            ix >= c.x && ix < c.x + c.w && iy >= c.y && iy < c.y + c.h);
+          if (!inAnyCity) pois.push({ x: ix, y: iy, type: t });
+        }
+      }
+    }
+
+    return { m, cities: [cityA, cityB, cityC, cityD], pois };
   }
 
   const world = makeMap();
@@ -2348,6 +2363,27 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const boots = currentGear('boots');
     player.capacity = pack.capacity;
     player.speed    = boots.speed;
+  }
+
+  function checkGuildMilestone() {
+    if (player.guildMember) return;
+    const cityIds = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+    const allRep = cityIds.every(id => (player.rep?.[id] || 0) >= 5);
+    const hasCargo = (player.gear?.pack ?? 0) >= 3; // Cargo Wagon or better
+    if (!allRep || !hasCargo) return;
+    player.guildMember = true;
+    scheduleAutoSave();
+    openEvent({
+      title: '⚜️ Merchant Guild Member',
+      text: 'Your reputation has spread across all four cities, and your cart is the envy of the road. The Merchants Guild formally recognises you as a member.',
+      choices: [
+        { label: 'Accept the honour', run: () => {
+            toast('⚜️ Merchant Guild Member — you\'ve earned it.', 4);
+            closeEvent();
+          }
+        },
+      ],
+    });
   }
 
   const CITY_RULES = {
@@ -6017,7 +6053,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.52',
+    version: 'v0.4.53',
     whatsNew: [
       'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
       'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
@@ -6566,6 +6602,7 @@ function drawNpcBubble() {
         player.gold -= g.cost;
         player.gear[slot] = tier;
         applyGearStats();
+        checkGuildMilestone();
         scheduleAutoSave();
         showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped - ${g.desc}`);
         toast(`${g.icon} ${g.name} equipped!`, 2.5);
@@ -7270,6 +7307,8 @@ function drawNpcBubble() {
     mineCooldown: {},
     mineStamina: 100,
     _mineStaminaTickAt: 0,
+
+    guildMember: false, // true once Merchant Guild milestone is achieved
   };
 
   // --- Save/Load (localStorage)
@@ -7365,7 +7404,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.52',
+      buildVersion: 'v0.4.53',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7379,6 +7418,7 @@ function drawNpcBubble() {
         facing: { ...player.facing },
         intelLedger: player.intelLedger ? [...player.intelLedger] : [],
         intelSells: player.intelSells || 0,
+        guildMember: player.guildMember || false,
         gear: { ...player.gear },
         mineCooldown: { ...(player.mineCooldown || {}) },
         mineStamina: typeof player.mineStamina === 'number' ? player.mineStamina : 100,
@@ -7555,9 +7595,25 @@ function drawNpcBubble() {
     applyGearStats();
     // Restore time
     Object.assign(time, state.time);
-    // Restore market drift
+    // Restore market drift — normalise 50% toward 1.0 on load so stale
+    // extremes correct themselves after a real-world break.
     for (const cid of Object.keys(marketDrift)) {
-      if (state.marketDrift?.[cid]) Object.assign(marketDrift[cid], state.marketDrift[cid]);
+      const saved = state.marketDrift?.[cid];
+      if (!saved) continue;
+      for (const itemId of Object.keys(marketDrift[cid])) {
+        if (saved[itemId] !== undefined) {
+          marketDrift[cid][itemId] = 1 + (saved[itemId] - 1) * 0.5;
+        }
+      }
+    }
+    if (typeof player.guildMember !== 'boolean') player.guildMember = false;
+    // Re-check milestone silently on load (no event, just ensures flag is set for saves
+    // that predate this feature where conditions may already be met)
+    if (!player.guildMember) {
+      const cityIds = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+      if (cityIds.every(id => (player.rep?.[id] || 0) >= 5) && (player.gear?.pack ?? 0) >= 3) {
+        player.guildMember = true;
+      }
     }
     // Restore contracts
     contracts.active = state.contracts?.active || null;
@@ -8411,6 +8467,7 @@ function drawNpcBubble() {
       'bandits', 'toll', 'storm', 'omen', 'escort',
       'wandering_merchant', 'wounded_soldier', 'plague_cart',
       'lost_cargo', 'wild_animal',
+      'hermit', 'waystone',
       ...(patrolCooldownOk ? ['patrol'] : []),
     ]);
 
@@ -8649,6 +8706,81 @@ function drawNpcBubble() {
           },
         ],
       });
+    } else if (kind === 'hermit') {
+      openEvent({
+        title: 'Roadside Hermit',
+        text: 'An old figure sits beside a smoking fire, wrapped in a patchwork cloak. They look up with bright eyes.',
+        choices: [
+          { label: 'Share a meal (1 food)', run: () => {
+              if ((player.inv['food'] || 0) >= 1) {
+                player.inv['food'] -= 1;
+                // Hermit shares a trade secret — free intel card
+                const npcProxy = { id: 'hermit_npc' };
+                const nearCity = world.cities.reduce((best, c2) => {
+                  const d = Math.hypot(player.x - (c2.x+c2.w/2)*TILE, player.y - (c2.y+c2.h/2)*TILE);
+                  return !best || d < best.d ? { c: c2, d } : best;
+                }, null)?.c;
+                if (nearCity && player.intelLedger.filter(ic => !ic.sold).length < 6) {
+                  const card = generateIntel(npcProxy, nearCity.id);
+                  player.intelLedger.push(card);
+                  toast(`The hermit shares a tip: ${card.itemName} is ${card.direction} in ${card.cityName}.`, 4);
+                } else {
+                  player.mineStamina = Math.min(100, player.mineStamina + 30);
+                  toast('They share a tonic. Stamina restored.', 2.8);
+                }
+              } else {
+                toast('You have no food to share. They wave you on.', 2.4);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Ask for road news (free)', run: () => {
+              const tips = [
+                'Patrol activity is heavy near the capital lately.',
+                'A merchant told me the river market has fine herbs this season.',
+                'Bandits have been spotted on the northern stretch.',
+                'The mining town pays well for food this time of year.',
+                'Safe travels. The road gives back what you put in.',
+              ];
+              toast(tips[Math.floor(rand01() * tips.length)], 4);
+              closeEvent();
+            }
+          },
+          { label: 'Move on', run: closeEvent },
+        ],
+      });
+
+    } else if (kind === 'waystone') {
+      openEvent({
+        title: 'Ancient Waystone',
+        text: 'A moss-covered stone pillar stands at a crossroads, carved with old trade-route symbols.',
+        choices: [
+          { label: 'Study the markings', run: () => {
+              const nearCity = world.cities.reduce((best, c2) => {
+                const d = Math.hypot(player.x - (c2.x+c2.w/2)*TILE, player.y - (c2.y+c2.h/2)*TILE);
+                return !best || d < best.d ? { c: c2, d } : best;
+              }, null)?.c;
+              const dist = nearCity ? Math.round(Math.hypot(player.x - (nearCity.x+nearCity.w/2)*TILE, player.y - (nearCity.y+nearCity.h/2)*TILE) / TILE) : '?';
+              toast(`Waystone: ${nearCity?.name || 'Unknown'} is ~${dist} tiles away. The symbol suggests it is a trading hub.`, 4.5);
+              closeEvent();
+            }
+          },
+          { label: 'Leave an offering (3g)', run: () => {
+              if (player.gold >= 3) {
+                player.gold -= 3;
+                // Small road speed boost for next journey
+                road.cooldown = Math.max(0, road.cooldown - 3);
+                toast('You leave a coin. The road feels lighter under your feet.', 3);
+              } else {
+                toast('Not enough gold. You move on.', 2);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Pass by', run: closeEvent },
+        ],
+      });
+
     } else if (kind === 'patrol') {
       road.lastPatrolDay = Math.floor(time.day);
       // Find nearest city to determine which guard force this is
@@ -10530,6 +10662,16 @@ function drawEntities() {
       _mmCtx.stroke();
       _mmCtx.setLineDash([]);
     }
+    // Road POI markers (camps=🏕, ruins=🏛, caches=💰)
+    if (world.pois) {
+      const poiColor = { 8: 'rgba(229,115,57,0.75)', 9: 'rgba(140,120,90,0.75)', 13: 'rgba(209,136,22,0.9)' };
+      for (const poi of world.pois) {
+        const px2 = (poi.x / MAP_W) * S;
+        const py2 = (poi.y / MAP_H) * S;
+        _mmCtx.fillStyle = poiColor[poi.type] || 'rgba(180,160,100,0.7)';
+        _mmCtx.beginPath(); _mmCtx.arc(px2, py2, poi.type === 13 ? 2.5 : 1.5, 0, Math.PI*2); _mmCtx.fill();
+      }
+    }
     // Player dot (on top of everything)
     const px = (player.x / (MAP_W * TILE)) * S;
     const py = (player.y / (MAP_H * TILE)) * S;
@@ -10718,8 +10860,9 @@ if (IS_MOBILE) {
   ctx.lineTo(VIEW_W, topH + 0.5);
   ctx.stroke();
 
-  // Left: location name
-  const title = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '...'}` : 'Road');
+  // Left: location name (+ guild badge if earned)
+  const titleBase = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '...'}` : 'Road');
+  const title = player.guildMember ? `⚜️ ${titleBase}` : titleBase;
   ctx.fillStyle = c ? '#e8edf2' : '#94a3b8';
   ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
   const maxTitleW = Math.round(VIEW_W * 0.45);
