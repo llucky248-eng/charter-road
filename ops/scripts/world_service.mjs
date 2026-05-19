@@ -96,6 +96,40 @@ function tickMarketDrift() {
   if (toDay > fromDay) console.log(`[DRIFT] Ticked day ${fromDay}→${toDay}`);
 }
 
+// Tick each city's bank vault: collapse when reserve can't cover 30% of total deposits,
+// reopen after BANK_BANKRUPTCY_REOPEN_DAYS. Mirrors client checkBankSolvency at main.js:3392.
+// Also funnels 20% of treasury gold into the vault every 7 game-days (cityInvestTick parity).
+function tickBankSolvency() {
+  const day = Math.floor(WORLD_STATE.day);
+  for (const cityId of CITIES) {
+    const t = CITY_TREASURY[cityId];
+    if (!t) continue;
+    // Treasury → vault: 20% of treasury gold every 7 days (mirrors client cityInvestTick)
+    if (day > 0 && day % 7 === 0 && (t._lastVaultFundingDay !== day)) {
+      const share = Math.floor((t.gold || 0) * 0.20);
+      if (share > 0) {
+        t.gold         -= share;
+        t.bank_reserve += share;
+        t._lastVaultFundingDay = day;
+        console.log(`[BANK][${cityId}] Treasury funded vault +${share}g (reserve=${t.bank_reserve})`);
+      }
+    }
+    // Reopen check
+    if (t.bankrupt_day !== null && day >= t.bankrupt_day + BANK_BANKRUPTCY_REOPEN_DAYS) {
+      console.log(`[BANK][${cityId}] Reopening after bankruptcy (day ${t.bankrupt_day} → ${day})`);
+      t.bankrupt_day = null;
+      t.bank_reserve = Math.max(t.bank_reserve, 20); // re-seed with small reserve
+    }
+    // Solvency check
+    if (t.bankrupt_day === null && t.total_deposits > 0 && t.bank_reserve < t.total_deposits * 0.30) {
+      console.log(`[BANK][${cityId}] BANKRUPT — reserve=${t.bank_reserve} owed=${t.total_deposits}`);
+      t.bankrupt_day   = day;
+      t.total_deposits = 0;        // depositors get whatever they can scrape; client handles per-uid cleanup
+      t.bank_reserve   = 0;
+    }
+  }
+}
+
 // Tick city hunger once per game-day elapsed (mirrors populationTick() in main.js).
 // Hunger rises from foodDemand * (pop / basePop) * subsidyReduction each day.
 // Clamped [0, 1]. Written to city_treasury.hunger so all clients read the same value.
@@ -696,11 +730,13 @@ function blankBuildings(cityId) {
 }
 
 const CITY_TREASURY = {
-  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
-  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
-  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
-  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
+  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, hunger:0, bank_reserve:120, total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
+  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, hunger:0, bank_reserve:80,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
+  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, hunger:0, bank_reserve:40,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
+  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, hunger:0, bank_reserve:60,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
 };
+
+const BANK_BANKRUPTCY_REOPEN_DAYS = 5; // mirrors client constant
 
 function addTaxRevenue(cityId, amount, type = 'tax') {
   const t = CITY_TREASURY[cityId];
@@ -765,7 +801,10 @@ async function fetchTreasuries() {
       t.spent            = row.spent || 0;
       t.invest_log       = row.invest_log || [];
       if (row.population) t.population = row.population;
-      if (Number.isFinite(row.hunger)) t.hunger = row.hunger;
+      if (Number.isFinite(row.hunger))         t.hunger         = row.hunger;
+      if (Number.isFinite(row.bank_reserve))   t.bank_reserve   = row.bank_reserve;
+      if (Number.isFinite(row.total_deposits)) t.total_deposits = row.total_deposits;
+      t.bankrupt_day = Number.isFinite(row.bankrupt_day) ? row.bankrupt_day : null;
       // Restore city_bonus from DB
       if (row.city_bonus && typeof row.city_bonus === 'object') {
         Object.assign(t.city_bonus, row.city_bonus);
@@ -794,6 +833,9 @@ async function upsertTreasuries() {
     invest_log:       t.invest_log,
     population:       t.population,
     hunger:           Math.max(0, Math.min(1, t.hunger || 0)),
+    bank_reserve:     Math.max(0, t.bank_reserve || 0),
+    total_deposits:   Math.max(0, t.total_deposits || 0),
+    bankrupt_day:     t.bankrupt_day ?? null,
     city_bonus:       t.city_bonus || {},
     buildings:        Object.fromEntries(
       Object.entries(t.buildings || {}).map(([k, s]) => [k, {
@@ -1034,9 +1076,10 @@ async function main() {
 
   await callAggregateEconomy();
 
-  // Tick world state: drift, hunger, events — then save all back
+  // Tick world state: drift, hunger, bank solvency, events — then save all back
   tickMarketDrift();
   tickHunger();
+  tickBankSolvency();
   generateWorldEvents();
   try {
     await sbFetch('/rest/v1/world_state?id=eq.main', {
@@ -1085,6 +1128,8 @@ export {
   initMarketDrift,
   CITY_FOOD_RULES,
   tickHunger,
+  tickBankSolvency,
+  BANK_BANKRUPTCY_REOPEN_DAYS,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

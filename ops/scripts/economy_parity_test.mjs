@@ -19,6 +19,8 @@ import {
   decideRoute,
   tickHunger,
   initMarketDrift,
+  tickBankSolvency,
+  BANK_BANKRUPTCY_REOPEN_DAYS,
 } from './world_service.mjs';
 
 let passed = 0;
@@ -227,6 +229,53 @@ test('hunger subsidy reduction reduces tick delta', () => {
   const withSubsidy = rule.foodDemand * 1.0 * (1 - 0.20); // 20% food subsidy
   assert(withSubsidy < noSubsidy, 'subsidy should reduce hunger increment');
   assert(Math.abs(withSubsidy - 0.0008) < 1e-9, `expected 0.0008, got ${withSubsidy}`);
+});
+
+// ── Bank solvency parity ──────────────────────────────────────────────────
+
+console.log('\n=== bank solvency parity ===');
+
+test('tickBankSolvency leaves a healthy bank alone', () => {
+  const t = CITY_TREASURY['valdenmere'];
+  t.bank_reserve   = 200;
+  t.total_deposits = 100; // reserve > 30% of deposits
+  t.bankrupt_day   = null;
+  WORLD_STATE.day  = 10;
+  tickBankSolvency();
+  assert(t.bankrupt_day === null, `healthy bank should not go bankrupt, got bankrupt_day=${t.bankrupt_day}`);
+});
+
+test('tickBankSolvency bankrupts vault when reserve < 30% of deposits', () => {
+  const t = CITY_TREASURY['ashport'];
+  t.bank_reserve   = 10;
+  t.total_deposits = 100; // reserve is 10% of deposits — bankrupt
+  t.bankrupt_day   = null;
+  WORLD_STATE.day  = 20;
+  tickBankSolvency();
+  assert(t.bankrupt_day === 20, `bank should bankrupt on day 20, got ${t.bankrupt_day}`);
+  assert(t.total_deposits === 0, `deposits should zero on bankruptcy, got ${t.total_deposits}`);
+  assert(t.bank_reserve === 0, `reserve should zero on bankruptcy, got ${t.bank_reserve}`);
+});
+
+test('tickBankSolvency reopens bank after BANK_BANKRUPTCY_REOPEN_DAYS', () => {
+  const t = CITY_TREASURY['crosshaven'];
+  t.bank_reserve   = 0;
+  t.total_deposits = 0;
+  t.bankrupt_day   = 5;
+  WORLD_STATE.day  = 5 + BANK_BANKRUPTCY_REOPEN_DAYS;
+  tickBankSolvency();
+  assert(t.bankrupt_day === null, `bank should reopen after ${BANK_BANKRUPTCY_REOPEN_DAYS} days, got bankrupt_day=${t.bankrupt_day}`);
+  assert(t.bank_reserve >= 20, `reopened bank should reseed reserve, got ${t.bank_reserve}`);
+});
+
+test('tickBankSolvency stays bankrupt before reopen window elapses', () => {
+  const t = CITY_TREASURY['ironholt'];
+  t.bank_reserve   = 0;
+  t.total_deposits = 0;
+  t.bankrupt_day   = 10;
+  WORLD_STATE.day  = 10 + BANK_BANKRUPTCY_REOPEN_DAYS - 1; // one day shy
+  tickBankSolvency();
+  assert(t.bankrupt_day === 10, `bank should still be bankrupt, got bankrupt_day=${t.bankrupt_day}`);
 });
 
 console.log(`\n${'─'.repeat(40)}`);

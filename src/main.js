@@ -3046,7 +3046,7 @@ const NPC_INTERACT_RADIUS = 18;
 
       // ── 2. City state from city_treasury ──
       const rows = await fetch(
-        `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings`,
+        `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings,bank_reserve,total_deposits,bankrupt_day`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []);
 
@@ -3061,6 +3061,19 @@ const NPC_INTERACT_RADIUS = 18;
         if (cityPop[cid]) {
           if (row.population) cityPop[cid].pop = row.population;
           if (row.hunger != null) cityPop[cid].hunger = row.hunger;
+        }
+        // Bank vault (shared across all players)
+        if (bankVault[cid]) {
+          if (Number.isFinite(row.bank_reserve)) bankVault[cid].reserve = row.bank_reserve;
+          bankVault[cid].bankruptDay = row.bankrupt_day ?? null;
+          // If the server marked this bank bankrupt while we have a local deposit,
+          // clear it — the player took the haircut already (vault collapsed for all).
+          if (row.bankrupt_day !== null && playerBank.deposits[cid]) {
+            delete playerBank.deposits[cid];
+            delete playerBank.loans[cid];
+            const cityObj = getCityById(cid);
+            toast(`🏦 Bank of ${cityObj?.name || cid} collapsed — deposit lost.`, 5);
+          }
         }
         // City bonuses
         if (row.city_bonus && typeof row.city_bonus === 'object' && cityBonus[cid]) {
@@ -5995,12 +6008,8 @@ function drawNpcBubble() {
 
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
-      // ── Treasury → Bank funding (20% of treasury flows to bank vault each cycle) ──
-      const vaultShare = Math.floor(treasury.gold * 0.20);
-      if (vaultShare > 0 && bankVault[cid]) {
-        treasury.gold -= vaultShare;
-        bankVault[cid].reserve += vaultShare;
-      }
+      // Treasury → Bank funding (20% each invest cycle) is now done server-side
+      // in world_service.mjs tickBankSolvency() so it applies to the shared vault.
 
       // ── If treasury is critically low, bank vault bleeds (no new investment) ──
       if (treasury.gold < 20 && bankVault[cid]) {
@@ -6009,7 +6018,7 @@ function drawNpcBubble() {
 
       // ── City investment: spend treasury on building slots ──
       const slots = cityBuildings[cid];
-      if (!slots) { checkBankSolvency(cid); continue; }
+      if (!slots) continue;
 
       // Find affordable next-level slots, cheapest first
       const candidates = Object.entries(slots)
@@ -6052,8 +6061,7 @@ function drawNpcBubble() {
         }
       }
 
-      // ── Check bank solvency after funding changes ──
-      checkBankSolvency(cid);
+      // Bank solvency check moved to server (tickBankSolvency in world_service.mjs)
 
       // ── Push full treasury + buildings to DB so other players see the world ──
       pushCityTreasuryToDb(cid);
@@ -6102,8 +6110,8 @@ function drawNpcBubble() {
       cityMineTick();
       // City investment every 7 days
       if (time.day % 7 === 0) cityInvestTick();
-      // Daily bank solvency check (catches slow vault drain between invest ticks)
-      for (const cid of Object.keys(bankVault)) checkBankSolvency(cid);
+      // Bank solvency is now ticked server-side (world_service.mjs tickBankSolvency).
+      // Local clients receive bankrupt_day via syncWorldState() and react accordingly.
       // Contract boards refresh every CONTRACT_REGEN_DAYS days (silent background regen)
       for (const cid of Object.keys(contracts.byCity)) {
         const last = contracts.lastRegenDay[cid] || 1;
@@ -6939,10 +6947,18 @@ function drawNpcBubble() {
       uiRoot.querySelectorAll('[data-bank-tab]').forEach(el => el.addEventListener('click', () => { ui.bankTab = el.getAttribute('data-bank-tab'); dom.key = ''; domRender(); }));
 
       if (!isBankrupt) {
+        const bankRPC = (op, body) => {
+          if (__QA.enabled || !ECONOMY.enabled) return Promise.resolve({ ok: true });
+          return fetch(`${ECONOMY.url}/rest/v1/rpc/${op}`, {
+            method: 'POST',
+            headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+            body: JSON.stringify(body),
+          }).then(r => r.ok ? r.json() : r.text().then(t => ({ ok: false, error: t })));
+        };
         const bankDeposit = (amt) => {
           if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
+          // Optimistic local update
           player.gold -= amt;
-          // Deposit goes into vault reserve
           if (bankVault[cid]) bankVault[cid].reserve += amt;
           if (!playerBank.deposits[cid]) {
             playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
@@ -6953,6 +6969,23 @@ function drawNpcBubble() {
             d.depositDay = Math.floor(time.day);
           }
           toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          // Atomic shared-vault update
+          bankRPC('bank_deposit', { p_city_id: cid, p_amount: amt }).then(res => {
+            if (!res?.ok) {
+              // Revert optimistic local change
+              player.gold += amt;
+              if (bankVault[cid]) bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - amt);
+              const d = playerBank.deposits[cid];
+              if (d) {
+                d.amount -= amt;
+                if (d.amount <= 0) delete playerBank.deposits[cid];
+              }
+              toast(`Deposit failed: ${res?.error || 'server error'}`, 3);
+              dom.key = ''; domRender();
+            } else if (Number.isFinite(res.bank_reserve) && bankVault[cid]) {
+              bankVault[cid].reserve = res.bank_reserve; // reconcile from server
+            }
+          });
         };
         uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
         uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
@@ -6963,36 +6996,43 @@ function drawNpcBubble() {
           const d = playerBank.deposits[cid];
           const days = Math.max(0, Math.floor(time.day) - d.depositDay);
           const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
-          const vault = bankVault[cid];
-          if (vault && vault.reserve < total) {
-            toast(`⚠️ Vault only has ${vault.reserve}g - partial withdrawal only.`, 3);
-            const partial = vault.reserve;
-            player.gold += partial;
-            vault.reserve = 0;
+          // Atomic withdraw — server returns actual amount paid (partial if insolvent)
+          bankRPC('bank_withdraw', { p_city_id: cid, p_amount: total }).then(res => {
+            if (!res?.ok) {
+              toast(`Withdraw failed: ${res?.error || 'server error'}`, 3);
+              return;
+            }
+            const paid = Number.isFinite(res.paid) ? res.paid : total;
+            player.gold += paid;
+            if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
             delete playerBank.deposits[cid];
-            checkBankSolvency(cid);
+            if (paid < total) toast(`⚠️ Vault paid ${paid}g of ${total}g owed.`, 3);
+            else toast(`Withdrew ${paid}g (incl. interest).`, 2);
             scheduleAutoSave(); dom.key = ''; domRender();
-            return;
-          }
-          player.gold += total;
-          if (vault) vault.reserve = Math.max(0, vault.reserve - total);
-          delete playerBank.deposits[cid];
-          toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          });
         });
 
         const maxLoan = Math.min(200, Math.floor((bankVault[cid]?.reserve || 0) * 0.6));
 
         const takeLoan = (amt) => {
           if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
-          const v = bankVault[cid];
-          if (!v || v.reserve < amt) { toast(`Vault can only lend ${v?.reserve || 0}g right now.`, 2); return; }
-          const feeAmt = Math.round(amt * BANK_LOAN_RATE);
-          const repayAmt = amt + feeAmt;
-          // Store principal separately so overdue penalty compounds on original borrowed amount, not inflated repay total
-          playerBank.loans[cid] = { principal: amt, amount: repayAmt, fee: feeAmt, dueDay: Math.floor(time.day) + 7 };
-          player.gold += amt;
-          v.reserve -= amt; // loan comes out of vault
-          toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+          // Atomic loan — server checks reserve and deducts; client only commits on success
+          bankRPC('bank_loan', { p_city_id: cid, p_amount: amt }).then(res => {
+            if (!res?.ok) {
+              const reserve = res?.bank_reserve ?? 0;
+              toast(res?.error === 'insufficient reserve'
+                ? `Vault can only lend ${reserve}g right now.`
+                : `Loan failed: ${res?.error || 'server error'}`, 3);
+              return;
+            }
+            const feeAmt = Math.round(amt * BANK_LOAN_RATE);
+            const repayAmt = amt + feeAmt;
+            playerBank.loans[cid] = { principal: amt, amount: repayAmt, fee: feeAmt, dueDay: Math.floor(time.day) + 7 };
+            player.gold += amt;
+            if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
+            toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3);
+            scheduleAutoSave(); dom.key = ''; domRender();
+          });
         };
         uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
         uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
@@ -7002,15 +7042,27 @@ function drawNpcBubble() {
           const l = playerBank.loans[cid];
           if (!l) { toast('No loan here.', 2); return; }
           const overdue = Math.max(0, Math.floor(time.day) - l.dueDay);
-          // Penalty on original principal only, not on the already-interest-inflated repay amount
-          const basePrincipal = l.principal ?? l.amount; // fallback for legacy saves
+          const basePrincipal = l.principal ?? l.amount;
           const penalty = overdue > 0 ? Math.round(basePrincipal * 0.05 * overdue) : 0;
           const total = l.amount + penalty;
           if (player.gold < total) { toast(`Need ${total}g to repay${penalty > 0 ? ` (incl. ${penalty}g overdue penalty)` : ''}.`, 2); return; }
+          // Optimistic local update
           player.gold -= total;
-          if (bankVault[cid]) bankVault[cid].reserve += total; // repayment flows back to vault
           delete playerBank.loans[cid];
-          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2);
+          scheduleAutoSave(); dom.key = ''; domRender();
+          // Return funds to shared vault
+          bankRPC('bank_repay', { p_city_id: cid, p_amount: total }).then(res => {
+            if (!res?.ok) {
+              // RPC failed — revert (rare; player loses sync but no money disappears)
+              player.gold += total;
+              playerBank.loans[cid] = l;
+              toast(`Repay sync failed: ${res?.error || 'server error'}`, 3);
+              dom.key = ''; domRender();
+            } else if (bankVault[cid] && Number.isFinite(res.bank_reserve)) {
+              bankVault[cid].reserve = res.bank_reserve;
+            }
+          });
         });
       }
       return;

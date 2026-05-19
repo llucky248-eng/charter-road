@@ -243,3 +243,128 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION mine_ore_vein(TEXT, TEXT) TO anon;
+
+-- 10. Shared bank vault (per-city reserve + aggregate deposits + solvency)
+ALTER TABLE city_treasury ADD COLUMN IF NOT EXISTS bank_reserve   INT NOT NULL DEFAULT 100;
+ALTER TABLE city_treasury ADD COLUMN IF NOT EXISTS total_deposits INT NOT NULL DEFAULT 0;
+ALTER TABLE city_treasury ADD COLUMN IF NOT EXISTS bankrupt_day   INT;
+
+-- Seed initial reserves to match client defaults
+UPDATE city_treasury SET bank_reserve = 120 WHERE city_id='valdenmere' AND bank_reserve <= 100;
+UPDATE city_treasury SET bank_reserve = 80  WHERE city_id='ashport'    AND bank_reserve <= 100;
+UPDATE city_treasury SET bank_reserve = 40  WHERE city_id='crosshaven' AND bank_reserve <= 100;
+UPDATE city_treasury SET bank_reserve = 60  WHERE city_id='ironholt'   AND bank_reserve <= 100;
+
+-- bank_deposit: atomically add to shared vault + aggregate deposits.
+-- The per-player deposit amount stays in player_saves (each player's own ledger).
+CREATE OR REPLACE FUNCTION bank_deposit(p_city_id TEXT, p_amount INT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_bankrupt INT;
+  v_reserve  INT;
+  v_total    INT;
+BEGIN
+  IF p_amount <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'invalid amount');
+  END IF;
+  SELECT bank_reserve, total_deposits, bankrupt_day
+    INTO v_reserve, v_total, v_bankrupt
+    FROM city_treasury WHERE city_id = p_city_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'city not found');
+  END IF;
+  IF v_bankrupt IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bank closed');
+  END IF;
+  UPDATE city_treasury
+    SET bank_reserve   = bank_reserve   + p_amount,
+        total_deposits = total_deposits + p_amount,
+        updated_at     = NOW()
+    WHERE city_id = p_city_id;
+  RETURN jsonb_build_object('ok', true, 'bank_reserve', v_reserve + p_amount);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION bank_deposit(TEXT, INT) TO anon;
+
+-- bank_withdraw: pays out from vault; partial if insolvent. Caller passes the
+-- amount they expect (their owed amount); RPC returns what it could actually pay.
+CREATE OR REPLACE FUNCTION bank_withdraw(p_city_id TEXT, p_amount INT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_reserve INT;
+  v_paid    INT;
+BEGIN
+  IF p_amount <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'invalid amount');
+  END IF;
+  SELECT bank_reserve INTO v_reserve
+    FROM city_treasury WHERE city_id = p_city_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'city not found');
+  END IF;
+  v_paid := LEAST(p_amount, GREATEST(0, v_reserve));
+  UPDATE city_treasury
+    SET bank_reserve   = bank_reserve - v_paid,
+        total_deposits = GREATEST(0, total_deposits - p_amount),
+        updated_at     = NOW()
+    WHERE city_id = p_city_id;
+  RETURN jsonb_build_object('ok', true, 'paid', v_paid, 'bank_reserve', v_reserve - v_paid);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION bank_withdraw(TEXT, INT) TO anon;
+
+-- bank_loan: lends from vault if it has enough; tracked per-player in playerBank locally.
+CREATE OR REPLACE FUNCTION bank_loan(p_city_id TEXT, p_amount INT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_reserve  INT;
+  v_bankrupt INT;
+BEGIN
+  IF p_amount <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'invalid amount');
+  END IF;
+  SELECT bank_reserve, bankrupt_day INTO v_reserve, v_bankrupt
+    FROM city_treasury WHERE city_id = p_city_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'city not found');
+  END IF;
+  IF v_bankrupt IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bank closed');
+  END IF;
+  IF v_reserve < p_amount THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'insufficient reserve', 'bank_reserve', v_reserve);
+  END IF;
+  UPDATE city_treasury
+    SET bank_reserve = bank_reserve - p_amount,
+        updated_at   = NOW()
+    WHERE city_id = p_city_id;
+  RETURN jsonb_build_object('ok', true, 'bank_reserve', v_reserve - p_amount);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION bank_loan(TEXT, INT) TO anon;
+
+-- bank_repay: returns loan principal+fee to the vault.
+CREATE OR REPLACE FUNCTION bank_repay(p_city_id TEXT, p_amount INT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_reserve INT;
+BEGIN
+  IF p_amount <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'invalid amount');
+  END IF;
+  UPDATE city_treasury
+    SET bank_reserve = bank_reserve + p_amount,
+        updated_at   = NOW()
+    WHERE city_id = p_city_id
+    RETURNING bank_reserve INTO v_reserve;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'city not found');
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'bank_reserve', v_reserve);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION bank_repay(TEXT, INT) TO anon;
