@@ -19,6 +19,8 @@ const TRADER_DEFS = [
   { id: 'mira_silvertong', name: 'Mira Silvertongue', personality: 'opportunist', color: '#a78bfa', startGold: 100 },
   { id: 'cargo_dom',       name: 'Cargo Dom',         personality: 'cautious',    color: '#f59e0b', startGold: 120 },
   { id: 'wren_the_swift',  name: 'Wren the Swift',    personality: 'aggressive',  color: '#34d399', startGold: 140 },
+  { id: 'pilgrim_bex',     name: 'Bex the Pilgrim',   personality: 'opportunist', color: '#86efac', startGold: 90  },
+  { id: 'iron_marek',      name: 'Iron Marek',        personality: 'aggressive',  color: '#fb923c', startGold: 110 },
 ];
 
 const ITEMS = [
@@ -32,6 +34,25 @@ const ITEMS = [
 ];
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+
+// ── World Events ──────────────────────────────────────────────────────────
+// Schema migration required (run once):
+//   ALTER TABLE world_state ADD COLUMN IF NOT EXISTS active_events JSONB DEFAULT '[]';
+//   ALTER TABLE world_state ADD COLUMN IF NOT EXISTS next_event_day INT DEFAULT 0;
+
+const WORLD_EVENT_TEMPLATES = [
+  { id: 'harvest',      name: 'Bumper Harvest',    cities: ['crosshaven'],           items: ['grain','food'],   effect: 0.75, minDur: 5, maxDur: 8 },
+  { id: 'drought',      name: 'Summer Drought',    cities: null,                     items: ['grain'],          effect: 1.45, minDur: 4, maxDur: 6 },
+  { id: 'trade_fair',   name: 'Ashport Trade Fair',cities: ['ashport'],              items: null,               effect: 1.20, minDur: 3, maxDur: 5 },
+  { id: 'mining_boom',  name: 'Iron Rush',         cities: ['ironholt'],             items: ['ore','coal'],     effect: 0.80, minDur: 5, maxDur: 7 },
+  { id: 'pirate_raid',  name: 'Pirate Raids',      cities: ['ashport'],              items: ['relic','ink'],    effect: 1.55, minDur: 3, maxDur: 5 },
+  { id: 'plague_scare', name: 'Plague Rumours',    cities: null,                     items: ['potion','herbs'], effect: 1.65, minDur: 3, maxDur: 5 },
+  { id: 'gem_rush',     name: 'Gem Discovery',     cities: ['ironholt'],             items: ['relic'],          effect: 0.70, minDur: 4, maxDur: 6 },
+  { id: 'herb_bloom',   name: 'Herb Bloom',        cities: ['crosshaven','ashport'], items: ['herbs','potion'], effect: 0.80, minDur: 4, maxDur: 7 },
+];
+
+// Active world events; loaded from DB at tick start, saved back at end
+const WORLD_EVENTS = [];
 
 // Travel durations in seconds (at 5-min ticks, progress advances each tick)
 const ROUTE_DURATION = {
@@ -168,11 +189,59 @@ function dayWobble(cityId, item) {
   return 0.97 + u * 0.06;
 }
 
+function eventModifier(cityId, itemId) {
+  let mult = 1.0;
+  for (const ev of WORLD_EVENTS) {
+    if (ev.cities && !ev.cities.includes(cityId)) continue;
+    if (ev.items  && !ev.items.includes(itemId))  continue;
+    mult *= ev.effect;
+  }
+  return mult;
+}
+
 function midPriceFor(cityId, item) {
-  const mult = CITY_MULTS[cityId]?.[item.id] ?? 1;
-  const wob = dayWobble(cityId, item);
-  const econ = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
-  return Math.max(1, Math.round(item.base * mult * wob * econ));
+  const mult  = CITY_MULTS[cityId]?.[item.id] ?? 1;
+  const wob   = dayWobble(cityId, item);
+  const econ  = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
+  const evMod = eventModifier(cityId, item.id);
+  return Math.max(1, Math.round(item.base * mult * wob * econ * evMod));
+}
+
+function generateWorldEvents() {
+  const day = WORLD_STATE.day;
+  if (day < (WORLD_STATE.next_event_day || 0)) return false;
+
+  // Expire old events
+  for (let i = WORLD_EVENTS.length - 1; i >= 0; i--) {
+    if (WORLD_EVENTS[i].endDay <= day) {
+      console.log(`[WORLD_EVENT] "${WORLD_EVENTS[i].name}" expired on day ${day}`);
+      WORLD_EVENTS.splice(i, 1);
+    }
+  }
+
+  // Cap at 2 simultaneous events; 50% roll for new event
+  if (WORLD_EVENTS.length >= 2) return false;
+  if (Math.random() > 0.5) return false;
+
+  const activeIds = new Set(WORLD_EVENTS.map(e => e.templateId));
+  const available = WORLD_EVENT_TEMPLATES.filter(t => !activeIds.has(t.id));
+  if (!available.length) return false;
+
+  const tmpl = available[Math.floor(Math.random() * available.length)];
+  const dur  = tmpl.minDur + Math.floor(Math.random() * (tmpl.maxDur - tmpl.minDur + 1));
+  WORLD_EVENTS.push({
+    templateId: tmpl.id,
+    name:       tmpl.name,
+    cities:     tmpl.cities ? [...tmpl.cities] : null,
+    items:      tmpl.items  ? [...tmpl.items]  : null,
+    effect:     tmpl.effect,
+    startDay:   day,
+    endDay:     day + dur,
+  });
+  WORLD_STATE.next_event_day = day + 7 + Math.floor(Math.random() * 7);
+  const ev = WORLD_EVENTS[WORLD_EVENTS.length - 1];
+  console.log(`[WORLD_EVENT] "${ev.name}" started day ${ev.startDay}–${ev.endDay} ×${ev.effect}`);
+  return true;
 }
 
 // Live market pressure snapshot loaded at tick start — keyed as "cityId:itemId"
@@ -180,12 +249,18 @@ const PRESSURE_MAP = {};
 
 async function loadWorldState() {
   try {
-    const rows = await sbFetch('/rest/v1/world_state?id=eq.main&select=day,frac,seed') || [];
+    const rows = await sbFetch('/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day') || [];
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (row && typeof row === 'object') {
-      WORLD_STATE.day = Number.isFinite(row.day) ? row.day : WORLD_STATE.day;
+      WORLD_STATE.day  = Number.isFinite(row.day)  ? row.day  : WORLD_STATE.day;
       WORLD_STATE.frac = Number.isFinite(row.frac) ? row.frac : WORLD_STATE.frac;
       WORLD_STATE.seed = Number.isFinite(row.seed) ? row.seed : WORLD_STATE.seed;
+      WORLD_STATE.next_event_day = Number.isFinite(row.next_event_day) ? row.next_event_day : 0;
+      if (Array.isArray(row.active_events)) {
+        WORLD_EVENTS.length = 0;
+        for (const ev of row.active_events) WORLD_EVENTS.push(ev);
+        console.log(`[WORLD_EVENT] Loaded ${WORLD_EVENTS.length} active event(s)`);
+      }
     }
   } catch (e) {
     console.warn('[WORLD_STATE] Failed to load (non-fatal):', e.message);
@@ -876,6 +951,23 @@ async function main() {
   await upsertTreasuries();
 
   await callAggregateEconomy();
+
+  // Generate and expire world events, then save back to DB
+  generateWorldEvents();
+  try {
+    await sbFetch('/rest/v1/world_state?id=eq.main', {
+      method: 'PATCH',
+      headers: { ...HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        active_events:   WORLD_EVENTS,
+        next_event_day:  WORLD_STATE.next_event_day,
+      }),
+    });
+    console.log(`[WORLD_EVENT] Saved ${WORLD_EVENTS.length} active event(s)`);
+  } catch (e) {
+    console.warn('[WORLD_EVENT] Failed to save events (non-fatal):', e.message);
+  }
+
   console.log('[WORLD SIM] Tick complete');
 }
 
@@ -887,6 +979,8 @@ export {
   SPREAD,
   PRESSURE_EFFECT,
   WORLD_STATE,
+  WORLD_EVENTS,
+  WORLD_EVENT_TEMPLATES,
   PRESSURE_MAP,
   CITY_TREASURY,
   seeded01,
@@ -898,6 +992,8 @@ export {
   netSellPrice,
   decideRoute,
   traderCapacity,
+  eventModifier,
+  generateWorldEvents,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

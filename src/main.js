@@ -2849,6 +2849,19 @@ const NPC_INTERACT_RADIUS = 18;
     return 1 + p;
   }
 
+  // Active world events synced from server (active_events column in world_state)
+  const worldEvents = []; // { templateId, name, cities, items, effect, startDay, endDay }
+
+  function worldEventModifier(cityId, itemId) {
+    let mult = 1.0;
+    for (const ev of worldEvents) {
+      if (ev.cities && !ev.cities.includes(cityId)) continue;
+      if (ev.items  && !ev.items.includes(itemId))  continue;
+      mult *= (ev.effect || 1.0);
+    }
+    return mult;
+  }
+
   // Trigger economy aggregation on server (called hourly via stateTime)
   let _lastEconomyAggregate = 0;
   function maybeAggregateEconomy() {
@@ -2992,11 +3005,22 @@ const NPC_INTERACT_RADIUS = 18;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
-        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed`,
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []).catch(() => []);
       if (wsRows.length > 0) {
         const ws = wsRows[0];
+        // Sync active world events
+        if (Array.isArray(ws.active_events)) {
+          const prevCount = worldEvents.length;
+          worldEvents.length = 0;
+          for (const ev of ws.active_events) worldEvents.push(ev);
+          // Toast new events that just appeared
+          if (worldEvents.length > prevCount) {
+            const newest = worldEvents[worldEvents.length - 1];
+            if (newest) toast(`World event: ${newest.name}`, 4);
+          }
+        }
         if (typeof ws.day === 'number' && ws.day > time.day) {
           // Server (or another player) advanced time - catch up.
           // Cap at 30 days to avoid runaway on first load after long server-only run.
@@ -3154,11 +3178,12 @@ const NPC_INTERACT_RADIUS = 18;
       crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40 },
       ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70 },
     };
-    const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
+    const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
-    const wob = dayWobble(cityId, item);
-    const econ = economyModifier(cityId, item.id);
-    return Math.max(1, Math.round(item.base * mult * drift * wob * econ));
+    const wob   = dayWobble(cityId, item);
+    const econ  = economyModifier(cityId, item.id);
+    const evMod = worldEventModifier(cityId, item.id);
+    return Math.max(1, Math.round(item.base * mult * drift * wob * econ * evMod));
   }
 
   function quoteFor(cityId, item) {
@@ -3657,10 +3682,12 @@ let activeNpcCityId = null;
 const AI_TRADERS = [];
 
 const TRADER_DEFS = [
-  { id: 'olt_the_bold',    name: 'Olt the Bold',    style: 'guard',    personality: 'aggressive',  color: '#ef4444', speed: 75 },
-  { id: 'mira_silvertong', name: 'Mira Silvertongue',style: 'scribe',   personality: 'opportunist', color: '#a78bfa', speed: 60 },
-  { id: 'cargo_dom',       name: 'Cargo Dom',       style: 'broker',   personality: 'cautious',    color: '#f59e0b', speed: 50 },
-  { id: 'wren_the_swift',  name: 'Wren the Swift',  style: 'smuggler', personality: 'aggressive',  color: '#34d399', speed: 85 },
+  { id: 'olt_the_bold',    name: 'Olt the Bold',      style: 'guard',    personality: 'aggressive',  color: '#ef4444', speed: 75 },
+  { id: 'mira_silvertong', name: 'Mira Silvertongue', style: 'scribe',   personality: 'opportunist', color: '#a78bfa', speed: 60 },
+  { id: 'cargo_dom',       name: 'Cargo Dom',         style: 'broker',   personality: 'cautious',    color: '#f59e0b', speed: 50 },
+  { id: 'wren_the_swift',  name: 'Wren the Swift',    style: 'smuggler', personality: 'aggressive',  color: '#34d399', speed: 85 },
+  { id: 'pilgrim_bex',     name: 'Bex the Pilgrim',   style: 'scribe',   personality: 'opportunist', color: '#86efac', speed: 55 },
+  { id: 'iron_marek',      name: 'Iron Marek',        style: 'guard',    personality: 'aggressive',  color: '#fb923c', speed: 80 },
 ];
 
 // Road waypoint paths between cities (pixel coords)

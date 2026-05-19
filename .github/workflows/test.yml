@@ -15,5 +15,8 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Lint (syntax check)
+        run: node --check src/main.js
+
       - name: Run unit and parity tests
         run: npm run test:unit
