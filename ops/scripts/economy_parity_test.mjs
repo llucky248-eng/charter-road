@@ -21,6 +21,12 @@ import {
   initMarketDrift,
   tickBankSolvency,
   BANK_BANKRUPTCY_REOPEN_DAYS,
+  rewardForContract,
+  makeContract,
+  regenerateContracts,
+  CONTRACT_BOARDS,
+  CONTRACT_REGEN_DAY,
+  CONTRACT_REGEN_DAYS,
 } from './world_service.mjs';
 
 let passed = 0;
@@ -276,6 +282,62 @@ test('tickBankSolvency stays bankrupt before reopen window elapses', () => {
   WORLD_STATE.day  = 10 + BANK_BANKRUPTCY_REOPEN_DAYS - 1; // one day shy
   tickBankSolvency();
   assert(t.bankrupt_day === 10, `bank should still be bankrupt, got bankrupt_day=${t.bankrupt_day}`);
+});
+
+// ── Contract board parity ─────────────────────────────────────────────────
+
+console.log('\n=== contract parity ===');
+
+test('rewardForContract matches client formula for representative items', () => {
+  // Values asserted against client formula at src/main.js:3239 rewardForContract.
+  // Pulled from existing unit_tests.mjs "rewardForContract" suite.
+  assert(rewardForContract('relic',  1) === 75,  `relic qty=1 expected 75g, got ${rewardForContract('relic', 1)}`);
+  assert(rewardForContract('ink',    1) === 82,  `ink qty=1 expected 82g, got ${rewardForContract('ink', 1)}`);
+  // Floor: grain qty=1 → 17 clamped to 18
+  assert(rewardForContract('grain',  1) === 18,  `grain qty=1 should clamp to floor 18g, got ${rewardForContract('grain', 1)}`);
+});
+
+test('rewardForContract clamps to [18, 280]', () => {
+  // Every output, regardless of item/qty, must land in the [18, 280] window.
+  for (const want of ['grain', 'food', 'ore', 'herbs', 'potion', 'relic', 'ink', 'coal', 'gem']) {
+    for (const qty of [1, 2, 3]) {
+      const r = rewardForContract(want, qty);
+      assert(r >= 18 && r <= 280, `${want} qty=${qty} must be in [18,280], got ${r}`);
+    }
+  }
+});
+
+test('makeContract returns deterministic output for same inputs', () => {
+  const a = makeContract('valdenmere', 1, 100, 0);
+  const b = makeContract('valdenmere', 1, 100, 0);
+  assert(a.want   === b.want,   'want should be deterministic');
+  assert(a.qty    === b.qty,    'qty should be deterministic');
+  assert(a.toId   === b.toId,   'toId should be deterministic');
+  assert(a.reward === b.reward, 'reward should be deterministic');
+  assert(a.fromId === 'valdenmere', 'fromId echoes input');
+  assert(a.toId   !== 'valdenmere', 'toId never equals fromId');
+});
+
+test('regenerateContracts populates all 4 boards with 4 contracts each on a fresh day', () => {
+  for (const cid of Object.keys(CONTRACT_BOARDS)) delete CONTRACT_BOARDS[cid];
+  for (const cid of Object.keys(CONTRACT_REGEN_DAY)) delete CONTRACT_REGEN_DAY[cid];
+  WORLD_STATE.day = 100;
+  regenerateContracts();
+  for (const cid of ['valdenmere', 'ashport', 'crosshaven', 'ironholt']) {
+    assert(Array.isArray(CONTRACT_BOARDS[cid]), `${cid} board should be an array`);
+    assert(CONTRACT_BOARDS[cid].length === 4, `${cid} board should have 4 contracts, got ${CONTRACT_BOARDS[cid]?.length}`);
+    assert(CONTRACT_REGEN_DAY[cid] === 100, `${cid} regen day should be 100`);
+  }
+});
+
+test('regenerateContracts is a no-op within CONTRACT_REGEN_DAYS window', () => {
+  WORLD_STATE.day = 100;
+  regenerateContracts();
+  const initialBoard = JSON.stringify(CONTRACT_BOARDS['valdenmere']);
+  WORLD_STATE.day = 100 + CONTRACT_REGEN_DAYS - 1;
+  regenerateContracts();
+  const sameBoard = JSON.stringify(CONTRACT_BOARDS['valdenmere']);
+  assert(initialBoard === sameBoard, 'board should not change within regen window');
 });
 
 console.log(`\n${'─'.repeat(40)}`);

@@ -368,3 +368,7 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION bank_repay(TEXT, INT) TO anon;
+
+-- 11. Shared contract boards (per-city contract listings, server-regenerated)
+ALTER TABLE world_state ADD COLUMN IF NOT EXISTS contract_boards JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE world_state ADD COLUMN IF NOT EXISTS contract_regen  JSONB NOT NULL DEFAULT '{}';

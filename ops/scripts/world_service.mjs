@@ -353,7 +353,7 @@ const PRESSURE_MAP = {};
 async function loadWorldState() {
   try {
     const rows = await sbFetch(
-      '/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day,market_drift,market_drift_day'
+      '/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day,market_drift,market_drift_day,contract_boards,contract_regen'
     ) || [];
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (row && typeof row === 'object') {
@@ -375,6 +375,18 @@ async function loadWorldState() {
         }
       }
       initMarketDrift(); // fill any cities/items missing from stored blob
+
+      // Restore contract boards + regen tracking
+      if (row.contract_boards && typeof row.contract_boards === 'object') {
+        for (const [cid, board] of Object.entries(row.contract_boards)) {
+          if (Array.isArray(board)) CONTRACT_BOARDS[cid] = board;
+        }
+      }
+      if (row.contract_regen && typeof row.contract_regen === 'object') {
+        for (const [cid, lastDay] of Object.entries(row.contract_regen)) {
+          if (Number.isFinite(lastDay)) CONTRACT_REGEN_DAY[cid] = lastDay;
+        }
+      }
     }
   } catch (e) {
     console.warn('[WORLD_STATE] Failed to load (non-fatal):', e.message);
@@ -738,6 +750,60 @@ const CITY_TREASURY = {
 
 const BANK_BANKRUPTCY_REOPEN_DAYS = 5; // mirrors client constant
 
+// ── Contract boards (shared listings per city) ─────────────────────────────
+const CONTRACT_REGEN_DAYS = 3;
+const CONTRACT_ITEMS          = ['grain','food','ore','herbs','potion','relic'];
+const CONTRACT_ITEMS_IRONHOLT = ['grain','food','ore','herbs','potion','relic','coal','coal','gem'];
+const CONTRACT_BOARDS    = {}; // { cityId: [contracts] }
+const CONTRACT_REGEN_DAY = {}; // { cityId: lastRegenDay }
+
+// Mirrors rewardForContract() in src/main.js — both must stay in sync (asserted by tests)
+function rewardForContract(want, qty) {
+  const it = ITEMS.find(x => x.id === want);
+  const base = it ? it.base : 20;
+  const bestMarginRef = {
+    grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13, coal: 4, gem: 22,
+  }[want] || 5;
+  const buyCostRef       = Math.round(base * 0.88);
+  const deliveryPremium  = Math.round(bestMarginRef * 1.2);
+  const perUnit          = buyCostRef + deliveryPremium;
+  const qtyMult          = qty === 1 ? 1.0 : qty === 2 ? 1.75 : 2.35;
+  const r = Math.round(perUnit * qtyMult);
+  return Math.max(18, Math.min(280, r));
+}
+
+function makeContract(fromId, tier, daySeed, slotIdx) {
+  const pool = (fromId === 'ironholt') ? CONTRACT_ITEMS_IRONHOLT : CONTRACT_ITEMS;
+  // Deterministic per (city, day, slot)
+  const seedA = citySeed(fromId);
+  const wIdx  = Math.floor(seeded01(seedA, daySeed, slotIdx * 13 + tier) * pool.length);
+  const want  = pool[Math.min(wIdx, pool.length - 1)];
+  const qty   = 1 + Math.floor(seeded01(seedA, daySeed + 7919, slotIdx * 19 + tier) * (2 + tier));
+  const others = CITIES.filter(id => id !== fromId);
+  const toIdx = Math.floor(seeded01(seedA, daySeed + 1009, slotIdx * 31 + tier) * others.length);
+  const toId  = others[Math.min(toIdx, others.length - 1)];
+  return { fromId, toId, want, qty, reward: rewardForContract(want, qty), tier };
+}
+
+function regenerateContracts() {
+  const day = Math.floor(WORLD_STATE.day);
+  let regenerated = 0;
+  for (const cityId of CITIES) {
+    const lastRegen = CONTRACT_REGEN_DAY[cityId] || 0;
+    if (day > 0 && day - lastRegen >= CONTRACT_REGEN_DAYS) {
+      CONTRACT_BOARDS[cityId] = [
+        makeContract(cityId, 0, day, 0),
+        makeContract(cityId, 0, day, 1),
+        makeContract(cityId, 1, day, 2),
+        makeContract(cityId, 2, day, 3),
+      ];
+      CONTRACT_REGEN_DAY[cityId] = day;
+      regenerated++;
+    }
+  }
+  if (regenerated > 0) console.log(`[CONTRACTS] Regenerated ${regenerated} board(s) on day ${day}`);
+}
+
 function addTaxRevenue(cityId, amount, type = 'tax') {
   const t = CITY_TREASURY[cityId];
   if (!t) return;
@@ -1076,11 +1142,12 @@ async function main() {
 
   await callAggregateEconomy();
 
-  // Tick world state: drift, hunger, bank solvency, events — then save all back
+  // Tick world state: drift, hunger, bank solvency, events, contracts — then save all back
   tickMarketDrift();
   tickHunger();
   tickBankSolvency();
   generateWorldEvents();
+  regenerateContracts();
   try {
     await sbFetch('/rest/v1/world_state?id=eq.main', {
       method: 'PATCH',
@@ -1090,9 +1157,11 @@ async function main() {
         next_event_day:   WORLD_STATE.next_event_day,
         market_drift:     MARKET_DRIFT,
         market_drift_day: MARKET_DRIFT_DAY,
+        contract_boards:  CONTRACT_BOARDS,
+        contract_regen:   CONTRACT_REGEN_DAY,
       }),
     });
-    console.log(`[WORLD_STATE] Saved drift (day ${MARKET_DRIFT_DAY}), ${WORLD_EVENTS.length} event(s)`);
+    console.log(`[WORLD_STATE] Saved drift (day ${MARKET_DRIFT_DAY}), ${WORLD_EVENTS.length} event(s), ${Object.keys(CONTRACT_BOARDS).length} contract board(s)`);
   } catch (e) {
     console.warn('[WORLD_STATE] Failed to save world state (non-fatal):', e.message);
   }
@@ -1130,6 +1199,14 @@ export {
   tickHunger,
   tickBankSolvency,
   BANK_BANKRUPTCY_REOPEN_DAYS,
+  CONTRACT_BOARDS,
+  CONTRACT_REGEN_DAY,
+  CONTRACT_REGEN_DAYS,
+  CONTRACT_ITEMS,
+  CONTRACT_ITEMS_IRONHOLT,
+  rewardForContract,
+  makeContract,
+  regenerateContracts,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

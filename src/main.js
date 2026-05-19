@@ -3005,7 +3005,7 @@ const NPC_INTERACT_RADIUS = 18;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
-        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift`,
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift,contract_boards`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []).catch(() => []);
       if (wsRows.length > 0) {
@@ -3024,6 +3024,15 @@ const NPC_INTERACT_RADIUS = 18;
         if (ws.market_drift && typeof ws.market_drift === 'object') {
           for (const cid of Object.keys(marketDrift)) {
             if (ws.market_drift[cid]) Object.assign(marketDrift[cid], ws.market_drift[cid]);
+          }
+        }
+        // Sync contract boards — server-regenerated every 3 game-days; all players see the same board
+        if (ws.contract_boards && typeof ws.contract_boards === 'object') {
+          for (const [cid, board] of Object.entries(ws.contract_boards)) {
+            if (Array.isArray(board) && board.length > 0 && contracts.byCity[cid] !== undefined) {
+              contracts.byCity[cid] = board;
+              contracts.lastRegenDay[cid] = Math.floor(time.day);
+            }
           }
         }
         if (typeof ws.day === 'number' && ws.day > time.day) {
@@ -6112,14 +6121,9 @@ function drawNpcBubble() {
       if (time.day % 7 === 0) cityInvestTick();
       // Bank solvency is now ticked server-side (world_service.mjs tickBankSolvency).
       // Local clients receive bankrupt_day via syncWorldState() and react accordingly.
-      // Contract boards refresh every CONTRACT_REGEN_DAYS days (silent background regen)
-      for (const cid of Object.keys(contracts.byCity)) {
-        const last = contracts.lastRegenDay[cid] || 1;
-        if (time.day - last >= CONTRACT_REGEN_DAYS) {
-          contracts.byCity[cid] = regenContractsForCity(cid);
-          contracts.lastRegenDay[cid] = time.day;
-        }
-      }
+      // Contract boards now regenerate server-side (world_service.mjs regenerateContracts)
+      // and arrive via syncWorldState() → world_state.contract_boards JSONB.
+      // Local regen kept as a fallback if the server is unreachable on first load.
       // Market drift is now server-authoritative (world_service.mjs tickMarketDrift).
       // Clients receive it via syncWorldState() → market_drift column.
       // Local ticking removed to prevent per-player price divergence.
