@@ -35,6 +35,14 @@ const ITEMS = [
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
 
+// City food demand + base population (mirrors CITY_RULES in main.js)
+const CITY_FOOD_RULES = {
+  valdenmere: { foodDemand: 0.0010, population: 8000,  taxRate: 0.08 },
+  ashport:    { foodDemand: 0.0007, population: 4000,  taxRate: 0.05 },
+  crosshaven: { foodDemand: 0.0005, population: 1500,  taxRate: 0.03 },
+  ironholt:   { foodDemand: 0.0008, population: 2500,  taxRate: 0.10 },
+};
+
 // ── World Events ──────────────────────────────────────────────────────────
 // Schema migration required (run once):
 //   ALTER TABLE world_state ADD COLUMN IF NOT EXISTS active_events JSONB DEFAULT '[]';
@@ -86,6 +94,32 @@ function tickMarketDrift() {
   }
   MARKET_DRIFT_DAY = toDay;
   if (toDay > fromDay) console.log(`[DRIFT] Ticked day ${fromDay}→${toDay}`);
+}
+
+// Tick city hunger once per game-day elapsed (mirrors populationTick() in main.js).
+// Hunger rises from foodDemand * (pop / basePop) * subsidyReduction each day.
+// Clamped [0, 1]. Written to city_treasury.hunger so all clients read the same value.
+function tickHunger() {
+  const toDay   = Math.floor(WORLD_STATE.day);
+  const fromDay = MARKET_DRIFT_DAY; // hunger advances on the same cadence as drift
+  if (fromDay >= toDay) return;
+  const days = toDay - fromDay;
+  for (const cityId of CITIES) {
+    const t    = CITY_TREASURY[cityId];
+    const rule = CITY_FOOD_RULES[cityId];
+    if (!t || !rule) continue;
+    const subsidyReduction = 1 - (t.city_bonus?.foodSubsidy || 0);
+    for (let i = 0; i < days; i++) {
+      t.hunger = Math.min(1, (t.hunger || 0) + rule.foodDemand * (t.population / rule.population) * subsidyReduction);
+    }
+    // Population growth/decline driven by hunger (same thresholds as client)
+    if (t.hunger < 0.2) {
+      t.population = Math.min(t.population * 1.002, rule.population * 1.5);
+    } else if (t.hunger > 0.7) {
+      t.population = Math.max(t.population * 0.998, rule.population * 0.5);
+    }
+    if (days > 0) console.log(`[HUNGER][${cityId}] day ${fromDay}→${toDay} hunger=${t.hunger.toFixed(3)}`);
+  }
 }
 
 // Travel durations in seconds (at 5-min ticks, progress advances each tick)
@@ -662,10 +696,10 @@ function blankBuildings(cityId) {
 }
 
 const CITY_TREASURY = {
-  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
-  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
-  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
-  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
+  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
+  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
+  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
+  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, hunger:0, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
 };
 
 function addTaxRevenue(cityId, amount, type = 'tax') {
@@ -731,6 +765,7 @@ async function fetchTreasuries() {
       t.spent            = row.spent || 0;
       t.invest_log       = row.invest_log || [];
       if (row.population) t.population = row.population;
+      if (Number.isFinite(row.hunger)) t.hunger = row.hunger;
       // Restore city_bonus from DB
       if (row.city_bonus && typeof row.city_bonus === 'object') {
         Object.assign(t.city_bonus, row.city_bonus);
@@ -758,6 +793,7 @@ async function upsertTreasuries() {
     spent:            t.spent,
     invest_log:       t.invest_log,
     population:       t.population,
+    hunger:           Math.max(0, Math.min(1, t.hunger || 0)),
     city_bonus:       t.city_bonus || {},
     buildings:        Object.fromEntries(
       Object.entries(t.buildings || {}).map(([k, s]) => [k, {
@@ -998,8 +1034,9 @@ async function main() {
 
   await callAggregateEconomy();
 
-  // Tick market drift + generate/expire world events, then save all world state back
+  // Tick world state: drift, hunger, events — then save all back
   tickMarketDrift();
+  tickHunger();
   generateWorldEvents();
   try {
     await sbFetch('/rest/v1/world_state?id=eq.main', {
@@ -1046,6 +1083,8 @@ export {
   MARKET_DRIFT,
   tickMarketDrift,
   initMarketDrift,
+  CITY_FOOD_RULES,
+  tickHunger,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

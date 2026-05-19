@@ -160,3 +160,86 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION donate_to_building(TEXT, TEXT, TEXT, INT, INT) TO anon;
+
+-- 8. World caches: first-come-first-served loot (tile 13)
+CREATE TABLE IF NOT EXISTS world_caches (
+  tile_key      TEXT PRIMARY KEY,          -- "tx,ty"
+  opened_by_uid TEXT NOT NULL,
+  opened_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE world_caches ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='world_caches' AND policyname='public read world_caches')
+  THEN CREATE POLICY "public read world_caches" ON world_caches FOR SELECT USING (true); END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='world_caches' AND policyname='public insert world_caches')
+  THEN CREATE POLICY "public insert world_caches" ON world_caches FOR INSERT WITH CHECK (true); END IF;
+END $$;
+
+-- RPC: attempt to claim a cache; returns ok=true only for the first claimer
+CREATE OR REPLACE FUNCTION open_cache(p_uid TEXT, p_tile_key TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO world_caches (tile_key, opened_by_uid)
+  VALUES (p_tile_key, p_uid)
+  ON CONFLICT (tile_key) DO NOTHING;
+
+  IF FOUND THEN
+    RETURN jsonb_build_object('ok', true);
+  ELSE
+    RETURN jsonb_build_object('ok', false, 'reason', 'already_looted');
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION open_cache(TEXT, TEXT) TO anon;
+
+-- 9. Ore veins: global 30-second cooldown per vein tile
+CREATE TABLE IF NOT EXISTS ore_veins (
+  tile_key        TEXT PRIMARY KEY,         -- ty * MAP_W + tx (as text)
+  last_mined_uid  TEXT,
+  cooldown_until  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE ore_veins ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='ore_veins' AND policyname='public read ore_veins')
+  THEN CREATE POLICY "public read ore_veins" ON ore_veins FOR SELECT USING (true); END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='ore_veins' AND policyname='public upsert ore_veins')
+  THEN CREATE POLICY "public upsert ore_veins" ON ore_veins FOR ALL USING (true); END IF;
+END $$;
+
+-- RPC: atomically claim a mine swing; denied if within 30-second cooldown
+CREATE OR REPLACE FUNCTION mine_ore_vein(p_uid TEXT, p_tile_key TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_until TIMESTAMPTZ;
+BEGIN
+  -- Lock the row (or insert a fresh one) atomically
+  INSERT INTO ore_veins (tile_key, last_mined_uid, cooldown_until)
+  VALUES (p_tile_key, p_uid, NOW() + INTERVAL '30 seconds')
+  ON CONFLICT (tile_key) DO UPDATE
+    SET last_mined_uid = p_uid,
+        cooldown_until = NOW() + INTERVAL '30 seconds'
+    WHERE ore_veins.cooldown_until <= NOW()
+  RETURNING cooldown_until INTO v_until;
+
+  IF FOUND THEN
+    RETURN jsonb_build_object('ok', true);
+  ELSE
+    SELECT cooldown_until INTO v_until FROM ore_veins WHERE tile_key = p_tile_key;
+    RETURN jsonb_build_object(
+      'ok', false,
+      'cooldown_remaining_ms', EXTRACT(EPOCH FROM (v_until - NOW())) * 1000
+    );
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION mine_ore_vein(TEXT, TEXT) TO anon;

@@ -5766,8 +5766,8 @@ function drawNpcBubble() {
     for (const [cid, rule] of Object.entries(CITY_RULES)) {
       const state = cityPop[cid];
       if (!state) continue;
-      const subsidyReduction = 1 - (cityBonus[cid]?.foodSubsidy || 0);
-      state.hunger = Math.min(1, state.hunger + rule.foodDemand * (state.pop / rule.population) * subsidyReduction);
+      // hunger is now ticked server-side (world_service.mjs tickHunger) and
+      // loaded via syncWorldState() → city_treasury.hunger. Read-only here.
       const pressureBoost = state.hunger * 0.4;
       if (pressureBoost > 0.02) {
         if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
@@ -7920,6 +7920,7 @@ function drawNpcBubble() {
       return false;
     }
     const key = ty * MAP_W + tx;
+    // Local debounce: prevent spam-tap before the RPC responds
     const cd = player.mineCooldown[key] || 0;
     if (stateTime < cd) {
       const left = Math.ceil((cd - stateTime) / 1000);
@@ -7934,21 +7935,45 @@ function drawNpcBubble() {
       toast('Cargo full — drop some load first.', 2);
       return false;
     }
-    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
-    const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
-    player.inv.ore = (player.inv.ore || 0) + oreQty;
-    let bonus = '';
-    if (Math.random() < 0.10) {
-      player.inv.coal = (player.inv.coal || 0) + 1;
-      bonus += ' +1 coal';
-    }
-    if (Math.random() < 0.05) {
-      player.inv.gem = (player.inv.gem || 0) + 1;
-      bonus += ' +1 GEM!';
-    }
+    // Optimistic local cooldown so the player can't tap twice before RPC responds
     player.mineCooldown[key] = stateTime + 30000;
-    toast(`Mined ${oreQty} ore${bonus}`, 2.5);
-    saveGame(true);
+    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
+
+    function _doMineYield() {
+      const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
+      player.inv.ore = (player.inv.ore || 0) + oreQty;
+      let bonus = '';
+      if (Math.random() < 0.10) { player.inv.coal = (player.inv.coal || 0) + 1; bonus += ' +1 coal'; }
+      if (Math.random() < 0.05) { player.inv.gem  = (player.inv.gem  || 0) + 1; bonus += ' +1 GEM!'; }
+      toast(`Mined ${oreQty} ore${bonus}`, 2.5);
+      saveGame(true);
+    }
+
+    if (!__QA.enabled && ECONOMY.enabled) {
+      fetch(`${ECONOMY.url}/rest/v1/rpc/mine_ore_vein`, {
+        method: 'POST',
+        headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+        body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: String(key) }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(result => {
+          if (result?.ok) {
+            _doMineYield();
+          } else {
+            // Another player mined this vein; roll back stamina + cooldown
+            player.mineStamina = Math.min(100, (player.mineStamina || 0) + 15);
+            const msLeft = result?.cooldown_remaining_ms || 30000;
+            player.mineCooldown[key] = stateTime + msLeft;
+            toast(`Another miner just worked this vein — try again in ${Math.ceil(msLeft / 1000)}s.`, 2.5);
+          }
+        })
+        .catch(() => {
+          // Network failure: apply yield optimistically
+          _doMineYield();
+        });
+    } else {
+      _doMineYield();
+    }
     return true;
   }
 
@@ -8419,28 +8444,55 @@ function drawNpcBubble() {
         text: 'A half-buried stash sits beneath loose stones. Open it?',
         choices: [
           { label: 'Open it', run: () => {
-              openedCaches.add(key);
-
-              // Deterministic reward via rand01 (seeded), so QA is stable.
-              const r = rand01();
-              if (r < 0.55) {
-                const g = 6 + Math.floor(rand01() * 15);
-                player.gold += g;
-                toast(`Cache: +${g}g`, 2.2);
-              } else if (r < 0.85) {
-                const pool = ['food','ore','herbs'];
-                const itId = pool[Math.floor(rand01() * pool.length)];
-                const n = 1 + (rand01() < 0.35 ? 1 : 0);
-                player.inv[itId] = (player.inv[itId] || 0) + n;
-                const it = ITEMS.find(x => x.id === itId);
-                toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
-              } else {
-                // Light risk/cost: lose a day (and upkeep will apply elsewhere as normal)
-                advanceDays(1, 'cache');
-                toast('Trap! You waste a day dealing with it.', 2.6);
+              // Compute loot before the RPC so it's ready to apply on success
+              const _r = rand01();
+              function _applyLoot() {
+                if (_r < 0.55) {
+                  const g = 6 + Math.floor(rand01() * 15);
+                  player.gold += g;
+                  toast(`Cache: +${g}g`, 2.2);
+                } else if (_r < 0.85) {
+                  const pool = ['food','ore','herbs'];
+                  const itId = pool[Math.floor(rand01() * pool.length)];
+                  const n = 1 + (rand01() < 0.35 ? 1 : 0);
+                  player.inv[itId] = (player.inv[itId] || 0) + n;
+                  const it = ITEMS.find(x => x.id === itId);
+                  toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
+                } else {
+                  advanceDays(1, 'cache');
+                  toast('Trap! You waste a day dealing with it.', 2.6);
+                }
               }
-
-              scheduleAutoSave();
+              // Claim cache globally (first-come-first-served via DB lock)
+              if (!__QA.enabled && ECONOMY.enabled) {
+                fetch(`${ECONOMY.url}/rest/v1/rpc/open_cache`, {
+                  method: 'POST',
+                  headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+                  body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: key }),
+                })
+                  .then(r => r.ok ? r.json() : null)
+                  .then(result => {
+                    if (result?.ok) {
+                      openedCaches.add(key);
+                      _applyLoot();
+                    } else {
+                      openedCaches.add(key); // don't prompt again locally
+                      toast('Already looted — empty crate.', 2.2);
+                    }
+                    scheduleAutoSave();
+                  })
+                  .catch(() => {
+                    // Network failure: apply loot optimistically, cache locally
+                    openedCaches.add(key);
+                    _applyLoot();
+                    scheduleAutoSave();
+                  });
+              } else {
+                // QA / offline: local-only
+                openedCaches.add(key);
+                _applyLoot();
+                scheduleAutoSave();
+              }
               closeEvent();
             }
           },
