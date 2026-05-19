@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.53'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.4.54'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1258,6 +1258,23 @@ ${line4}`;
     }
     return false;
   }
+
+  function handleEventChoiceTap(sx, sy) {
+    if (!ui.eventOpen) return false;
+    const E = ui._eventList;
+    if (!E || sx < E.x || sx > E.x + E.w || sy < E.y || sy > E.y + E.h) return false;
+    const vi = Math.floor((sy - E.y) / E.rowH);
+    const i = ui.eventScroll + vi;
+    if (i < 0 || i >= ui.eventChoices.length) return false;
+    if (ui.eventSel === i) {
+      const ch = ui.eventChoices[i];
+      if (ch && typeof ch.run === 'function') ch.run();
+    } else {
+      ui.eventSel = i;
+    }
+    return true;
+  }
+
 // Touch UI -> virtual keys
 
 // Mobile HUD tap: global capture (Safari reliability)
@@ -1425,6 +1442,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // ── Modal scroll (market/event/contracts) ──────────────────────────
     if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) {
       if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
+      if (handleEventChoiceTap(sx, sy)) { e.preventDefault(); return; }
       const kind = ui.marketOpen ? 'market' : 'event';
       const L2 = kind === 'market' ? ui._marketList : ui._eventList;
       if (L2 && sx >= L2.x && sx <= L2.x + L2.w && sy >= L2.y && sy <= L2.y + L2.h) {
@@ -1673,7 +1691,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const ty = Math.floor(py / TILE);
     const t = tileAt(tx, ty);
     if (t === 10) return 0.45;  // forest: 45% speed
-    if (t === 11) return 0.55;  // swamp: 55% speed
+    if (t === 11) return 0.28;  // swamp: 28% speed (slowest terrain)
     return 1.0;
   }
 
@@ -2107,12 +2125,17 @@ function handleGlobalHudTap(clientX, clientY, e) {
     paintPatch(50, 155, 14, 10, 0.72);   // SW forest
     paintPatch(200, 90, 14, 10, 0.70);   // Mid-east forest (near detour)
     paintPatch(70, 50, 10, 10, 0.68);    // NW pocket forest
+    paintPatch(240, 135, 14, 10, 0.72);  // Far-east forest
+    paintPatch(115, 160, 12, 10, 0.68);  // South forest
+    paintPatch(30, 75, 10, 10, 0.65);    // Far-west forest
 
     // Swamps (tile 11)
     paintPatch(180, 72, 16, 11, 0.75);   // NE swamp
     paintPatch(88, 140, 12, 11, 0.80);   // S swamp near Crosshaven
     paintPatch(40, 165, 10, 11, 0.70);   // SW wetlands
     paintPatch(142, 108, 8, 11, 0.65);   // Central lowland bog
+    paintPatch(50, 110, 12, 11, 0.75);   // West swamp
+    paintPatch(200, 150, 10, 11, 0.68);  // SE swamp
 
     // scatter a few rocks for flavor
     for (let i = 0; i < 2600; i++) {
@@ -2264,6 +2287,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (id === 7) { r=167; g=139; b=250; } // shrine
         else if (id === 8) { r=217; g=119; b=6; }   // camp
         else if (id === 9) { r=156; g=163; b=175; } // ruins
+        else if (id === 10) { r=18;  g=68;  b=38;  } // forest (dark green)
+        else if (id === 11) { r=40;  g=62;  b=54;  } // swamp (dark teal-grey)
         else if (id === 13) { r=246; g=196; b=74; } // cache
         else if (id === 16) { r=100; g=70;  b=30;  } // vacant lot
         const i = (y * mini.w + x) * 4;
@@ -6053,7 +6078,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.53',
+    version: 'v0.4.54',
     whatsNew: [
       'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
       'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
@@ -7309,6 +7334,7 @@ function drawNpcBubble() {
     _mineStaminaTickAt: 0,
 
     guildMember: false, // true once Merchant Guild milestone is achieved
+    _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
   // --- Save/Load (localStorage)
@@ -7404,7 +7430,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.53',
+      buildVersion: 'v0.4.54',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -11353,7 +11379,7 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       const showTabs = buyHasItems && sellHasItems;
       if (buyHasItems && !sellHasItems) ui.mode = 'buy';
       if (sellHasItems && !buyHasItems) ui.mode = 'sell';
-      const headerH = showTabs ? 94 : 64;
+      const headerH = showTabs ? 120 : 100;
       const innerX = sheetX + 16;
       const innerW = sheetW - 32;
 
@@ -11366,11 +11392,11 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.fillText(rules.vibe, innerX, sheetTop + Math.round(50 * UI_SCALE));
 
 
-      // close button (tap)
-      const closeW = Math.round(72 * UI_SCALE);
-      const closeH = Math.round(30 * UI_SCALE);
+      // close button (tap) — ≥44 CSS px tap target on typical phones
+      const closeW = Math.round(80 * UI_SCALE);
+      const closeH = Math.round(36 * UI_SCALE);
       const closeX = sheetX + sheetW - closeW - Math.round(10 * UI_SCALE);
-      const closeY = sheetTop + Math.round(14 * UI_SCALE);
+      const closeY = sheetTop + Math.round(12 * UI_SCALE);
       ui._marketClose = { x: closeX, y: closeY, w: closeW, h: closeH };
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.strokeStyle = 'rgba(120, 92, 60, 0.55)';
@@ -11382,7 +11408,9 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.stroke();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('CLOSE', closeX + Math.round(12*T_SCALE), closeY + Math.round(20*T_SCALE));
+      ctx.textAlign = 'center';
+      ctx.fillText('CLOSE', closeX + closeW / 2, closeY + Math.round(24 * T_SCALE));
+      ctx.textAlign = 'left';
 // BUY/SELL tabs (auto-switch/hide empty)
 if (showTabs) {
   const tabY = sheetTop + 58;
@@ -11422,8 +11450,8 @@ if (showTabs) {
       const listTop = sheetTop + headerH;
       const listBottom = sheetTop + sheetH - 12 - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = 90; // card height
-      const visibleN = Math.max(2, Math.floor(listH / rowH));
+      const rowH = 120; // card height — larger for mobile tap targets
+      const visibleN = Math.max(1, Math.floor(listH / rowH));
 
       const totalN = ITEMS.length + 1; // +1 permit row
       const scrollMax = Math.max(0, totalN - visibleN);
@@ -11432,8 +11460,8 @@ if (showTabs) {
       // expose list rect for touch scrolling
       const cardPad = 8;
       const cardH = rowH - cardPad * 2;
-      const btnH = Math.round(26 * UI_SCALE);
-      const btnPad = 6;
+      const btnH = Math.round(36 * UI_SCALE);
+      const btnPad = 8;
       const btnInset = Math.round(24 * UI_SCALE);
       ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax, cols: 1, cardPad, cardH, btnH, btnPad, btnInset };
 
@@ -11474,22 +11502,21 @@ if (showTabs) {
         // name
         ctx.fillStyle = notAvailHereCanvas ? '#888' : '#2a1f14';
         ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 20);
+        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 22);
 
-        // price (right)
+        // price + drift indicator (right-aligned on same line)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 20);
-        // drift indicator (▲/▼) shown when price has moved >5% from base
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 22);
         if (!isPermitRow && !notAvailHereCanvas) {
           const d = (marketDrift[c.id]?.[it.id]) ?? 1;
           if (d > 1.05) {
             ctx.fillStyle = '#16a34a';
             ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
-            ctx.fillText('▲', sheetX + sheetW - 16, cardY + 34);
+            ctx.fillText(' ▲', sheetX + sheetW - 16, cardY + 38);
           } else if (d < 0.95) {
             ctx.fillStyle = '#dc2626';
             ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
-            ctx.fillText('▼', sheetX + sheetW - 16, cardY + 34);
+            ctx.fillText(' ▼', sheetX + sheetW - 16, cardY + 38);
           }
         }
         ctx.textAlign = 'left';
@@ -11497,7 +11524,7 @@ if (showTabs) {
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : (notAvailHereCanvas ? 'Not stocked here · Sell only' : `You have: ${have} · Weight: ${it.weight}`), innerX, cardY + 42);
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : (notAvailHereCanvas ? 'Not stocked here · Sell only' : `You have: ${have} · Weight: ${it.weight}`), innerX, cardY + 38);
 
 // action button
 const btnY = cardY + cardH - btnH - btnPad;
@@ -11515,7 +11542,7 @@ ctx.fillStyle = btnDisabled ? '#888' : (ui.mode === 'buy' ? '#166534' : '#1d4ed8
 ctx.font = `900 ${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
 const actLabel = btnDisabled ? 'N/A' : (ui.mode === 'buy' ? 'BUY' : 'SELL');
 const actW = ctx.measureText(actLabel).width;
-ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE));
+ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(22 * UI_SCALE));
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
@@ -11813,15 +11840,15 @@ function drawEvent() {
 
     // choices start after body text (with padding)
     const startY = Math.max(by + Math.round(140 * UI_SCALE), yy + Math.round(12 * UI_SCALE));
-    const choiceRowH = Math.round(30 * UI_SCALE);
+    const choiceRowH = Math.round(40 * UI_SCALE);
     const footerPad = Math.round(34 * UI_SCALE);
     const listH = (by + boxH - footerPad) - startY;
     const visibleN = Math.max(1, Math.floor(listH / choiceRowH));
     const maxScroll = Math.max(0, ui.eventChoices.length - visibleN);
     ui.eventScroll = clamp(ui.eventScroll, 0, maxScroll);
 
-    // expose choice rect for touch scrolling
-    ui._eventList = { x: bx + 12, y: startY - Math.round(18 * UI_SCALE), w: boxW - 24, h: visibleN * choiceRowH, rowH: choiceRowH, scrollMax: maxScroll };
+    // expose choice rect for touch scrolling + tap-to-select
+    ui._eventList = { x: bx + 12, y: startY - Math.round(22 * UI_SCALE), w: boxW - 24, h: visibleN * choiceRowH, rowH: choiceRowH, scrollMax: maxScroll };
 
 
     for (let vi = 0; vi < visibleN; vi++) {
@@ -11829,9 +11856,16 @@ function drawEvent() {
       if (i >= ui.eventChoices.length) break;
       const y = startY + vi * choiceRowH;
       const selected = i === ui.eventSel;
+      // highlight spans the full row for clear tap feedback
+      ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.20)' : 'rgba(120, 92, 60, 0.04)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx + 12, y - Math.round(22 * UI_SCALE), boxW - 24, Math.round(38 * UI_SCALE), 8);
+      else ctx.rect(bx + 12, y - Math.round(22 * UI_SCALE), boxW - 24, Math.round(38 * UI_SCALE));
+      ctx.fill();
       if (selected) {
-        ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
-        ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(26 * UI_SCALE));
+        ctx.strokeStyle = 'rgba(120, 92, 60, 0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
       ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
       ctx.font = selected ? `600 ${Math.round(14*T_SCALE)}px system-ui` : `${Math.round(14*T_SCALE)}px system-ui`;
@@ -11981,6 +12015,16 @@ function drawEvent() {
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
+    // Biome entry notification — once per tile-type transition
+    {
+      const _nt = tileAt(Math.floor(player.x / TILE), Math.floor(player.y / TILE));
+      if (_nt !== player._lastTile) {
+        player._lastTile = _nt;
+        if (_nt === 10) toast('Entering forest — slower going', 2);
+        else if (_nt === 11) toast('Entering swamp — treacherous ground', 2.5);
+      }
+    }
+
     // Push own presence + fetch other players every frame (rate-limited internally)
     pushPlayerPresence();
     syncOtherPlayers();
