@@ -3005,7 +3005,7 @@ const NPC_INTERACT_RADIUS = 18;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
-        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events`,
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []).catch(() => []);
       if (wsRows.length > 0) {
@@ -3015,10 +3015,15 @@ const NPC_INTERACT_RADIUS = 18;
           const prevCount = worldEvents.length;
           worldEvents.length = 0;
           for (const ev of ws.active_events) worldEvents.push(ev);
-          // Toast new events that just appeared
           if (worldEvents.length > prevCount) {
             const newest = worldEvents[worldEvents.length - 1];
             if (newest) toast(`World event: ${newest.name}`, 4);
+          }
+        }
+        // Sync market drift — server is authoritative; overrides local random drift
+        if (ws.market_drift && typeof ws.market_drift === 'object') {
+          for (const cid of Object.keys(marketDrift)) {
+            if (ws.market_drift[cid]) Object.assign(marketDrift[cid], ws.market_drift[cid]);
           }
         }
         if (typeof ws.day === 'number' && ws.day > time.day) {
@@ -5911,31 +5916,52 @@ function drawNpcBubble() {
         if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
       }
     }
-    // Write buildings + city_bonus to DB (multiplayer - other players see donation/build)
+    // Atomic RPC: locks the city_treasury row, increments playerFunded, upgrades if complete,
+    // and logs the donation — all in one transaction (no concurrent-write races).
     if (!__QA.enabled) {
-      const buildingsPayload = {};
-      for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
-        buildingsPayload[k] = { level: s.level, built: s.built, playerFunded: s.playerFunded };
-      }
-      // Upsert so it works even if the city_treasury row doesn't exist yet
-      fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+      fetch(`${ECONOMY.url}/rest/v1/rpc/donate_to_building`, {
         method: 'POST',
-        headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({
-          city_id: cityId,
-          buildings: buildingsPayload,
-          city_bonus: { ...(cityBonus[cityId] || {}) }, // write bonus so other players see it immediately
+          p_uid:       player.uid || '0',
+          p_city_id:   cityId,
+          p_slot_key:  key,
+          p_amount:    amount,
+          p_next_cost: nextCost,
         }),
-      }).catch((e) => {
-        console.warn('[donateToSlot] DB write failed:', e);
-        // Refund if donation was recorded locally but DB failed (conservative)
-        // Note: only refund playerFunded - don't reverse a build that already happened
-        if (slot.playerFunded > 0 && !slot.built) {
-          player.gold += amount;
-          slot.playerFunded = Math.max(0, slot.playerFunded - amount);
-          toast('Network error - donation refunded.', 3);
-        }
-      });
+      })
+        .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
+        .then(result => {
+          if (!result.ok) {
+            player.gold += amount;
+            slot.playerFunded = Math.max(0, (slot.playerFunded || 0) - amount);
+            toast(`Donation failed: ${result.error || 'server error'}`, 3);
+            return;
+          }
+          // Merge authoritative buildings state back (captures concurrent donations from other players)
+          if (result.buildings && typeof result.buildings === 'object') {
+            for (const [k, saved] of Object.entries(result.buildings)) {
+              if (!cityBuildings[cityId]?.[k]) continue;
+              const s = cityBuildings[cityId][k];
+              if (saved.level > s.level) {
+                s.level = saved.level;
+                s.built = saved.built ?? s.built;
+                s.playerFunded = saved.playerFunded ?? 0;
+                if (s.built) buildSlotOnMap(cityId, k, s);
+              } else {
+                s.playerFunded = saved.playerFunded ?? s.playerFunded;
+              }
+            }
+          }
+        })
+        .catch(e => {
+          console.warn('[donateToSlot] RPC failed:', e);
+          if (slot.playerFunded > 0 && !slot.built) {
+            player.gold += amount;
+            slot.playerFunded = Math.max(0, slot.playerFunded - amount);
+            toast('Network error — donation refunded.', 3);
+          }
+        });
     }
     ui.buildingDonateOpen = false;
     dom.key = '';
@@ -6086,14 +6112,9 @@ function drawNpcBubble() {
           contracts.lastRegenDay[cid] = time.day;
         }
       }
-      // tiny drift; mean ~0 over time; clamp to keep prices sane
-      for (const cityId of Object.keys(marketDrift)) {
-        for (const it of ITEMS) {
-          const r = rand01();
-          const delta = (r - 0.5) * 0.04; // +/-2% per day
-          marketDrift[cityId][it.id] = clamp(marketDrift[cityId][it.id] * (1 + delta), 0.85, 1.20);
-        }
-      }
+      // Market drift is now server-authoritative (world_service.mjs tickMarketDrift).
+      // Clients receive it via syncWorldState() → market_drift column.
+      // Local ticking removed to prevent per-player price divergence.
     }
 
     if (advanced > 0) {

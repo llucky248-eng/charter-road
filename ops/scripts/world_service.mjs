@@ -54,6 +54,40 @@ const WORLD_EVENT_TEMPLATES = [
 // Active world events; loaded from DB at tick start, saved back at end
 const WORLD_EVENTS = [];
 
+// Market drift: world-authoritative ±20% daily price drift, ticked by cron
+// Mirrors client marketDrift — clients load this instead of running their own RNG
+const MARKET_DRIFT     = {};
+let   MARKET_DRIFT_DAY = 0;
+
+function initMarketDrift() {
+  for (const cityId of CITIES) {
+    if (!MARKET_DRIFT[cityId]) MARKET_DRIFT[cityId] = {};
+    for (const item of ITEMS) {
+      if (!Number.isFinite(MARKET_DRIFT[cityId][item.id])) MARKET_DRIFT[cityId][item.id] = 1.0;
+    }
+  }
+}
+
+function tickMarketDrift() {
+  const fromDay = MARKET_DRIFT_DAY;
+  const toDay   = Math.floor(WORLD_STATE.day);
+  if (fromDay >= toDay) return;
+  for (let d = fromDay + 1; d <= toDay; d++) {
+    for (const cityId of CITIES) {
+      if (!MARKET_DRIFT[cityId]) MARKET_DRIFT[cityId] = {};
+      for (const item of ITEMS) {
+        const cs    = citySeed(cityId);
+        const u     = seeded01(cs ^ (d * 7919), item.id.charCodeAt(0), d);
+        const delta = (u - 0.5) * 0.04; // ±2% per day
+        const cur   = MARKET_DRIFT[cityId][item.id] ?? 1.0;
+        MARKET_DRIFT[cityId][item.id] = Math.max(0.85, Math.min(1.20, cur * (1 + delta)));
+      }
+    }
+  }
+  MARKET_DRIFT_DAY = toDay;
+  if (toDay > fromDay) console.log(`[DRIFT] Ticked day ${fromDay}→${toDay}`);
+}
+
 // Travel durations in seconds (at 5-min ticks, progress advances each tick)
 const ROUTE_DURATION = {
   'valdenmere→ashport': 300, 'ashport→valdenmere': 300,
@@ -201,10 +235,11 @@ function eventModifier(cityId, itemId) {
 
 function midPriceFor(cityId, item) {
   const mult  = CITY_MULTS[cityId]?.[item.id] ?? 1;
+  const drift = MARKET_DRIFT[cityId]?.[item.id] ?? 1;
   const wob   = dayWobble(cityId, item);
   const econ  = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
   const evMod = eventModifier(cityId, item.id);
-  return Math.max(1, Math.round(item.base * mult * wob * econ * evMod));
+  return Math.max(1, Math.round(item.base * mult * drift * wob * econ * evMod));
 }
 
 function generateWorldEvents() {
@@ -249,18 +284,29 @@ const PRESSURE_MAP = {};
 
 async function loadWorldState() {
   try {
-    const rows = await sbFetch('/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day') || [];
+    const rows = await sbFetch(
+      '/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day,market_drift,market_drift_day'
+    ) || [];
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (row && typeof row === 'object') {
-      WORLD_STATE.day  = Number.isFinite(row.day)  ? row.day  : WORLD_STATE.day;
-      WORLD_STATE.frac = Number.isFinite(row.frac) ? row.frac : WORLD_STATE.frac;
-      WORLD_STATE.seed = Number.isFinite(row.seed) ? row.seed : WORLD_STATE.seed;
+      WORLD_STATE.day            = Number.isFinite(row.day)            ? row.day            : WORLD_STATE.day;
+      WORLD_STATE.frac           = Number.isFinite(row.frac)           ? row.frac           : WORLD_STATE.frac;
+      WORLD_STATE.seed           = Number.isFinite(row.seed)           ? row.seed           : WORLD_STATE.seed;
       WORLD_STATE.next_event_day = Number.isFinite(row.next_event_day) ? row.next_event_day : 0;
+      // Restore active events
       if (Array.isArray(row.active_events)) {
         WORLD_EVENTS.length = 0;
         for (const ev of row.active_events) WORLD_EVENTS.push(ev);
         console.log(`[WORLD_EVENT] Loaded ${WORLD_EVENTS.length} active event(s)`);
       }
+      // Restore market drift
+      MARKET_DRIFT_DAY = Number.isFinite(row.market_drift_day) ? row.market_drift_day : 0;
+      if (row.market_drift && typeof row.market_drift === 'object') {
+        for (const [cid, items] of Object.entries(row.market_drift)) {
+          MARKET_DRIFT[cid] = { ...items };
+        }
+      }
+      initMarketDrift(); // fill any cities/items missing from stored blob
     }
   } catch (e) {
     console.warn('[WORLD_STATE] Failed to load (non-fatal):', e.message);
@@ -952,20 +998,23 @@ async function main() {
 
   await callAggregateEconomy();
 
-  // Generate and expire world events, then save back to DB
+  // Tick market drift + generate/expire world events, then save all world state back
+  tickMarketDrift();
   generateWorldEvents();
   try {
     await sbFetch('/rest/v1/world_state?id=eq.main', {
       method: 'PATCH',
       headers: { ...HEADERS, Prefer: 'return=minimal' },
       body: JSON.stringify({
-        active_events:   WORLD_EVENTS,
-        next_event_day:  WORLD_STATE.next_event_day,
+        active_events:    WORLD_EVENTS,
+        next_event_day:   WORLD_STATE.next_event_day,
+        market_drift:     MARKET_DRIFT,
+        market_drift_day: MARKET_DRIFT_DAY,
       }),
     });
-    console.log(`[WORLD_EVENT] Saved ${WORLD_EVENTS.length} active event(s)`);
+    console.log(`[WORLD_STATE] Saved drift (day ${MARKET_DRIFT_DAY}), ${WORLD_EVENTS.length} event(s)`);
   } catch (e) {
-    console.warn('[WORLD_EVENT] Failed to save events (non-fatal):', e.message);
+    console.warn('[WORLD_STATE] Failed to save world state (non-fatal):', e.message);
   }
 
   console.log('[WORLD SIM] Tick complete');
@@ -994,6 +1043,9 @@ export {
   traderCapacity,
   eventModifier,
   generateWorldEvents,
+  MARKET_DRIFT,
+  tickMarketDrift,
+  initMarketDrift,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
