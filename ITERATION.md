@@ -1,5 +1,11 @@
 # Iteration Log — The Charter Road
 
+## v0.5.1 — 2026-05-20 (Building Persistence Fix)
+- **Fix: built buildings reverted to vacant lots on refresh.** `pushCityTreasuryToDb` was serialising every in-memory slot (including default `built:false` ones) and pushing them to `city_treasury.buildings`, clobbering valid `built:true` rows stored by a previous `donate_to_building` RPC. The corrupted DB row was then loaded back on the next refresh, showing the slot as a vacant lot.
+- **New `upsert_city_treasury` RPC** uses `buildings || EXCLUDED.buildings` (JSONB merge) instead of replacing the column. Only touched slots overwrite their DB entries; untouched slots from other players survive every write.
+- **`pushCityTreasuryToDb` filters slots to only those that are built or partially funded** — default-state entries are never pushed at all, so they can't race with the authoritative donation RPC.
+- **`syncWorldState` now fetches `city_treasury` before the world-time day-catchup loop**, so `cityInvestTick` / `cityMineTick` (called during catchup) run against authoritative building state instead of zeroed in-memory defaults.
+
 ## v0.5.0 — 2026-05-20 (Multiplayer World State)
 - **Shared market drift**: price drift is now ticked server-side every 5 minutes by `world_service.mjs` and stored in `world_state.market_drift`. All players see identical prices.
 - **World events**: 8 event templates (harvest glut, drought, pirate raid, trade boom, plague, cold snap, merchant fair, border tax) fire every 7–14 game-days, shift prices city-wide, and expire automatically. Stored in `world_state.active_events`.

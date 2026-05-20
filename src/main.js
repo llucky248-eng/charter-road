@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.0'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.1'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6147,16 +6147,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.0',
+    version: 'v0.5.1',
     whatsNew: [
-      'Multiplayer world: market prices, hunger, ore veins, caches, bank reserves and contract boards are now shared state — all players see the same world.',
-      'World events: harvest gluts, droughts, pirate raids and more fire every 7–14 game-days, shifting prices city-wide for everyone.',
-      '2 new NPC traders: Bex the Pilgrim (opportunist scribe) and Iron Marek (aggressive guard).',
-      'Atomic building donations: player donations to building slots are now serialised server-side — no more lost contributions from concurrent players.',
-      'Shared bank vault: deposits from all players pool into the same city reserve; bank solvency ticked server-side.',
-      'Global ore vein cooldowns: the same vein cannot be mined by two players within 30 seconds.',
-      'Global cache loot: a cache tile can only be opened once — first player wins, others see "Already looted".',
-      'Shared contract boards: all players at the same city see the same listing, regenerated every 3 game-days by the world service.',
+      'Fix: built buildings now survive a page refresh — pushCityTreasuryToDb was overwriting valid built:true slots in the DB with zeroed local state on early game-loop ticks.',
+      'New upsert_city_treasury RPC merges the buildings JSONB column instead of replacing it, so untouched slots from other players survive every write.',
+      'syncWorldState now fetches city_treasury before the day-catchup loop so cityInvestTick/cityMineTick run against authoritative building state.',
     ],
     whatsNext: [
       'World news feed: log notable world events (building built, city grew, famine).',
@@ -7543,7 +7538,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.0',
+      buildVersion: 'v0.5.1',
       savedAt: Date.now(),
       player: {
         x: player.x,
