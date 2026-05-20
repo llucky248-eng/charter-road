@@ -2814,7 +2814,10 @@ const NPC_INTERACT_RADIUS = 18;
     const entry = { t: Date.now() - BUILD_DEBUG.bootT, tag, msg, data };
     BUILD_DEBUG.log.push(entry);
     if (BUILD_DEBUG.log.length > 100) BUILD_DEBUG.log.shift();
-    try { console.log(`[BD ${(entry.t/1000).toFixed(1)}s][${tag}] ${msg}`, data ?? ''); } catch(_) {}
+    // Only print to console when the overlay is enabled OR for error tags. Otherwise stay quiet.
+    if (BUILD_DEBUG.enabled || tag.startsWith('ERR')) {
+      try { console.log(`[BD ${(entry.t/1000).toFixed(1)}s][${tag}] ${msg}`, data ?? ''); } catch(_) {}
+    }
     if (BUILD_DEBUG.enabled && BUILD_DEBUG.overlay) bdRender();
   }
   function bdSnapshotCity(cid) {
