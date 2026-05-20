@@ -2902,22 +2902,27 @@ const NPC_INTERACT_RADIUS = 18;
     }).catch(() => {});
   }
 
-  // Push full city treasury (gold, invest_log, city_bonus, buildings) after invest tick
+  // Push full city treasury (gold, invest_log, city_bonus, buildings) after invest tick.
+  // Only slots that have been touched (built or partially funded) are pushed so that
+  // default-state entries never overwrite a valid built:true row in the DB.
   function pushCityTreasuryToDb(cid) {
     if (__QA.enabled || !ECONOMY.enabled) return;
     const t = cityTreasury[cid]; if (!t) return;
-    fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+    const touchedBuildings = Object.fromEntries(
+      Object.entries(cityBuildings[cid] || {})
+        .filter(([, s]) => s.built || (s.playerFunded || 0) > 0)
+        .map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }])
+    );
+    fetch(`${ECONOMY.url}/rest/v1/rpc/upsert_city_treasury`, {
       method: 'POST',
-      headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      headers: { ...economyHeaders() },
       body: JSON.stringify({
-        city_id: cid,
-        gold: t.gold,
-        invest_log: t.investLog,
-        city_bonus: { ...(cityBonus[cid] || {}) },
-        buildings: Object.fromEntries(
-          Object.entries(cityBuildings[cid] || {}).map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }])
-        ),
-        updated_at: new Date().toISOString(),
+        p_city_id:    cid,
+        p_gold:       t.gold,
+        p_invest_log: t.investLog,
+        p_city_bonus: { ...(cityBonus[cid] || {}) },
+        p_buildings:  touchedBuildings,
+        p_updated_at: new Date().toISOString(),
       }),
     }).catch(() => {});
   }

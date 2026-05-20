@@ -372,3 +372,31 @@ GRANT EXECUTE ON FUNCTION bank_repay(TEXT, INT) TO anon;
 -- 11. Shared contract boards (per-city contract listings, server-regenerated)
 ALTER TABLE world_state ADD COLUMN IF NOT EXISTS contract_boards JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE world_state ADD COLUMN IF NOT EXISTS contract_regen  JSONB NOT NULL DEFAULT '{}';
+
+-- 12. Safe city treasury upsert — merges buildings via JSONB || so only touched
+--     slots are written. This prevents stale in-memory slots (built:false) from
+--     overwriting DB rows that were set to built:true by a previous donation RPC.
+CREATE OR REPLACE FUNCTION upsert_city_treasury(
+  p_city_id    TEXT,
+  p_gold       INT,
+  p_invest_log JSONB,
+  p_city_bonus JSONB,
+  p_buildings  JSONB,   -- only touched (built or funded) slots; merged into existing
+  p_updated_at TIMESTAMPTZ
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO city_treasury (city_id, gold, invest_log, city_bonus, buildings, updated_at)
+  VALUES (p_city_id, p_gold, p_invest_log, p_city_bonus, p_buildings, p_updated_at)
+  ON CONFLICT (city_id) DO UPDATE SET
+    gold        = EXCLUDED.gold,
+    invest_log  = EXCLUDED.invest_log,
+    city_bonus  = EXCLUDED.city_bonus,
+    -- merge: existing keys survive; touched slots are updated / added
+    buildings   = city_treasury.buildings || EXCLUDED.buildings,
+    updated_at  = EXCLUDED.updated_at;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION upsert_city_treasury(TEXT, INT, JSONB, JSONB, JSONB, TIMESTAMPTZ) TO anon;
