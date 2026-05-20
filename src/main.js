@@ -3079,7 +3079,7 @@ const NPC_INTERACT_RADIUS = 18;
 
   async function syncWorldState() {
     if (__QA.enabled) return;
-    bdLog('SYNC-START', 'syncWorldState() begin', null);
+    let _syncHadChange = false;
     try {
       // ── 1. City state from city_treasury ──
       // Fetched FIRST so cityBuildings is populated before the day-catchup loop
@@ -3089,7 +3089,6 @@ const NPC_INTERACT_RADIUS = 18;
         `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings,bank_reserve,total_deposits,bankrupt_day`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []);
-      bdLog('SYNC-CT-FETCH', `Got ${rows.length} city_treasury rows`, rows.map(r => ({ cid: r.city_id, buildings: r.buildings })));
 
       for (const row of rows) {
         const cid = row.city_id;
@@ -3132,16 +3131,11 @@ const NPC_INTERACT_RADIUS = 18;
               slot.playerFunded = saved.playerFunded ?? 0;
             }
             if (slot.built && !wasBuilt) {
-              bdLog('SYNC-BUILD-MAP', `${cid}.${key} → calling buildSlotOnMap (DB had built:true, mem was built:false)`, null);
+              _syncHadChange = true;
+              bdLog('SYNC-BUILD-MAP', `${cid}.${key} → buildSlotOnMap (DB built:true, mem was built:false)`, null);
               buildSlotOnMap(cid, key, slot);
-            } else if (slot.built && wasBuilt) {
-              bdLog('SYNC-ALREADY-BUILT', `${cid}.${key} already built in mem (DB also built), skipping paint`, null);
-            } else if (!slot.built) {
-              bdLog('SYNC-NOT-BUILT', `${cid}.${key} DB says built=${saved.built} level=${saved.level}`, null);
             }
           }
-        } else if (cityBuildings[cid]) {
-          bdLog('SYNC-NO-BUILDINGS', `${cid} DB row had empty/missing buildings column`, row.buildings);
         }
       }
 
@@ -3182,6 +3176,7 @@ const NPC_INTERACT_RADIUS = 18;
           // cityBuildings is now populated from step 1, so cityInvestTick is safe.
           // Cap at 30 days to avoid runaway on first load after long server-only run.
           const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 30);
+          _syncHadChange = true;
           bdLog('SYNC-CATCHUP', `Server day ${ws.day} > local ${time.day}; advancing ${daysAhead} days`, null);
           for (let i = 0; i < daysAhead; i++) {
             time.day++;
@@ -3196,7 +3191,9 @@ const NPC_INTERACT_RADIUS = 18;
           pushWorldTimeToDb();
         }
       }
-      bdLog('SYNC-END', 'syncWorldState() complete', null);
+      // Only log a sync event if it actually changed something visible (avoids
+      // spamming on every Realtime push when nothing notable changed).
+      if (_syncHadChange) bdLog('SYNC-END', 'syncWorldState() applied changes', null);
     } catch (e) {
       bdLog('ERR-SYNC', `Exception: ${String(e).slice(0,200)}`, null);
     }
