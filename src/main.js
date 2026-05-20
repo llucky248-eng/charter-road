@@ -3024,16 +3024,29 @@ const NPC_INTERACT_RADIUS = 18;
   const otherPlayers = {};
   let _lastPresencePush = 0;
   let _lastPresenceFetch = 0;
+  let _lastPresenceHash = '';
   let _realtimeClient = null;
   let _realtimeConnected = false;
   let _realtimeFallbackTimer = null;
+  // Throttle for action-triggered world syncs (avoids double-sync when trading multiple items)
+  let _lastWorldSyncT = 0;
+  function syncWorldStateOnAction() {
+    const now = Date.now();
+    if (now - _lastWorldSyncT < 5000) return;
+    _lastWorldSyncT = now;
+    syncWorldState();
+  }
 
   function pushPlayerPresence() {
     if (__QA.enabled || !ECONOMY.enabled) return;
     const now = Date.now();
     if (now - _lastPresencePush < 2000) return;
-    _lastPresencePush = now;
     const city = typeof currentCity === 'function' ? currentCity() : null;
+    // Only push when state changed; fall back to a 25s heartbeat to keep presence alive for other clients
+    const hash = `${Math.round(player.x)},${Math.round(player.y)},${city?.id||''},${player.facing?.x??0},${player.facing?.y??1},${player.gear?.pack??0},${player.gear?.boots??0}`;
+    if (hash === _lastPresenceHash && now - _lastPresencePush < 25_000) return;
+    _lastPresencePush = now;
+    _lastPresenceHash = hash;
     fetch(`${ECONOMY.url}/rest/v1/player_presence`, {
       method: 'POST',
       headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
@@ -3204,21 +3217,19 @@ const NPC_INTERACT_RADIUS = 18;
 
   function initRealtimeSubscriptions() {
     if (!ECONOMY.enabled || __QA.enabled) return;
+    // World state is now synced only on player actions (city entry, trades) to reduce traffic.
+    // Realtime is used only to push AI-trader visual updates.
     if (typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function') {
-      console.warn('[REALTIME] supabase-js not loaded — falling back to 60s polling');
-      setInterval(syncWorldState, 60_000);
-      setInterval(syncTradersFromServer, 60_000);
+      console.warn('[REALTIME] supabase-js not loaded — trader sync will rely on city-entry refresh');
       return;
     }
     const { createClient } = window.supabase;
     _realtimeClient = createClient(ECONOMY.url, ECONOMY.key);
 
-    // Fallback: if realtime doesn't connect within 10s, poll every 60s
+    // Fallback: if realtime doesn't connect within 10s, no polling (action-only sync)
     _realtimeFallbackTimer = setTimeout(() => {
       if (!_realtimeConnected) {
-        console.warn('[REALTIME] Connection timeout — falling back to 60s polling');
-        setInterval(syncWorldState, 60_000);
-        setInterval(syncTradersFromServer, 60_000);
+        console.warn('[REALTIME] Connection timeout — trader updates paused until city entry');
       }
     }, 10_000);
 
@@ -3226,16 +3237,12 @@ const NPC_INTERACT_RADIUS = 18;
       .channel('world-sync')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_traders' },
           () => syncTradersFromServer())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_state' },
-          () => syncWorldState())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'city_treasury' },
-          () => syncWorldState())
       .subscribe((status) => {
         console.log('[REALTIME] status:', status);
         if (status === 'SUBSCRIBED') {
           _realtimeConnected = true;
           clearTimeout(_realtimeFallbackTimer);
-          console.log('[REALTIME] Connected — polling disabled');
+          console.log('[REALTIME] Connected — world_traders live; world state syncs on player actions');
         }
       });
   }
@@ -6400,6 +6407,7 @@ function drawNpcBubble() {
       player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
       economyPostTrade(c.id, it.id, 'buy', buyN);
+      syncWorldStateOnAction();
       scheduleAutoSave();
 
       return;
@@ -6425,6 +6433,7 @@ function drawNpcBubble() {
     if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
+    syncWorldStateOnAction();
     // City treasury receives the tax portion
     const taxCollected = Math.round(sellN * p * CITY_RULES[c.id].taxRate);
     if (taxCollected > 0 && cityTreasury[c.id]) {
@@ -12267,7 +12276,7 @@ function drawEvent() {
         }
       }
       // Sync global economy on city entry
-      if (nowId) { economySync(); syncWorldState(); } // on city entry: refresh world state
+      if (nowId) { economySync(); syncWorldState(); _lastWorldSyncT = Date.now(); } // on city entry: refresh world state
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
