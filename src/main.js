@@ -3003,57 +3003,10 @@ const NPC_INTERACT_RADIUS = 18;
   async function syncWorldState() {
     if (__QA.enabled) return;
     try {
-      // ── 1. World time from world_state ──
-      const wsRows = await fetch(
-        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift,contract_boards`,
-        { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
-      ).then(r => r.ok ? r.json() : []).catch(() => []);
-      if (wsRows.length > 0) {
-        const ws = wsRows[0];
-        // Sync active world events
-        if (Array.isArray(ws.active_events)) {
-          const prevCount = worldEvents.length;
-          worldEvents.length = 0;
-          for (const ev of ws.active_events) worldEvents.push(ev);
-          if (worldEvents.length > prevCount) {
-            const newest = worldEvents[worldEvents.length - 1];
-            if (newest) toast(`World event: ${newest.name}`, 4);
-          }
-        }
-        // Sync market drift — server is authoritative; overrides local random drift
-        if (ws.market_drift && typeof ws.market_drift === 'object') {
-          for (const cid of Object.keys(marketDrift)) {
-            if (ws.market_drift[cid]) Object.assign(marketDrift[cid], ws.market_drift[cid]);
-          }
-        }
-        // Sync contract boards — server-regenerated every 3 game-days; all players see the same board
-        if (ws.contract_boards && typeof ws.contract_boards === 'object') {
-          for (const [cid, board] of Object.entries(ws.contract_boards)) {
-            if (Array.isArray(board) && board.length > 0 && contracts.byCity[cid] !== undefined) {
-              contracts.byCity[cid] = board;
-              contracts.lastRegenDay[cid] = Math.floor(time.day);
-            }
-          }
-        }
-        if (typeof ws.day === 'number' && ws.day > time.day) {
-          // Server (or another player) advanced time - catch up.
-          // Cap at 30 days to avoid runaway on first load after long server-only run.
-          const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 30);
-          for (let i = 0; i < daysAhead; i++) {
-            time.day++;
-            populationTick();
-            cityMineTick();
-            if (time.day % 7 === 0) cityInvestTick();
-          }
-          time.frac = ws.frac ?? time.frac;
-          if (ws.seed) time.seed = ws.seed;
-        } else if (typeof ws.day === 'number' && ws.day < 1) {
-          // DB never seeded - push our local time up
-          pushWorldTimeToDb();
-        }
-      }
-
-      // ── 2. City state from city_treasury ──
+      // ── 1. City state from city_treasury ──
+      // Fetched FIRST so cityBuildings is populated before the day-catchup loop
+      // runs cityInvestTick → pushCityTreasuryToDb, which would otherwise overwrite
+      // built slots with zeroed in-memory state.
       const rows = await fetch(
         `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings,bank_reserve,total_deposits,bankrupt_day`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
@@ -3101,6 +3054,57 @@ const NPC_INTERACT_RADIUS = 18;
             }
             if (slot.built && !wasBuilt) buildSlotOnMap(cid, key, slot);
           }
+        }
+      }
+
+      // ── 2. World time + events from world_state ──
+      const wsRows = await fetch(
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift,contract_boards`,
+        { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
+      ).then(r => r.ok ? r.json() : []).catch(() => []);
+      if (wsRows.length > 0) {
+        const ws = wsRows[0];
+        // Sync active world events
+        if (Array.isArray(ws.active_events)) {
+          const prevCount = worldEvents.length;
+          worldEvents.length = 0;
+          for (const ev of ws.active_events) worldEvents.push(ev);
+          if (worldEvents.length > prevCount) {
+            const newest = worldEvents[worldEvents.length - 1];
+            if (newest) toast(`World event: ${newest.name}`, 4);
+          }
+        }
+        // Sync market drift — server is authoritative; overrides local random drift
+        if (ws.market_drift && typeof ws.market_drift === 'object') {
+          for (const cid of Object.keys(marketDrift)) {
+            if (ws.market_drift[cid]) Object.assign(marketDrift[cid], ws.market_drift[cid]);
+          }
+        }
+        // Sync contract boards — server-regenerated every 3 game-days; all players see the same board
+        if (ws.contract_boards && typeof ws.contract_boards === 'object') {
+          for (const [cid, board] of Object.entries(ws.contract_boards)) {
+            if (Array.isArray(board) && board.length > 0 && contracts.byCity[cid] !== undefined) {
+              contracts.byCity[cid] = board;
+              contracts.lastRegenDay[cid] = Math.floor(time.day);
+            }
+          }
+        }
+        if (typeof ws.day === 'number' && ws.day > time.day) {
+          // Server (or another player) advanced time - catch up.
+          // cityBuildings is now populated from step 1, so cityInvestTick is safe.
+          // Cap at 30 days to avoid runaway on first load after long server-only run.
+          const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 30);
+          for (let i = 0; i < daysAhead; i++) {
+            time.day++;
+            populationTick();
+            cityMineTick();
+            if (time.day % 7 === 0) cityInvestTick();
+          }
+          time.frac = ws.frac ?? time.frac;
+          if (ws.seed) time.seed = ws.seed;
+        } else if (typeof ws.day === 'number' && ws.day < 1) {
+          // DB never seeded - push our local time up
+          pushWorldTimeToDb();
         }
       }
     } catch (_) { /* non-fatal - runs on degraded local state */ }
