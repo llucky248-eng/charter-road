@@ -1,5 +1,11 @@
 # Iteration Log — The Charter Road
 
+## v0.5.2 — 2026-05-20 (Building Persistence Debug Overlay)
+- **Debug overlay** (toggle with backtick or `?debug=1`): live in-memory cityBuildings state for all 4 cities + ring buffer of the last 25 building-lifecycle events.
+- **Tagged event logging** at every step of the build flow: `DONATE-START`, `DONATE-RPC-CALL`, `DONATE-RPC-STATUS`, `DONATE-RPC-RESPONSE`, `DONATE-MERGE-DONE`, `SYNC-START`, `SYNC-CT-FETCH`, `SYNC-BUILD-MAP`, `SYNC-ALREADY-BUILT`, `SYNC-NO-BUILDINGS`, `SYNC-CATCHUP`, `SYNC-END`, `PUSH-CT`, `PUSH-CT-OK`, `PAINT`, plus error variants (`ERR-DONATE-RPC`, `ERR-PUSH-CT`, `ERR-PUSH-CT-BODY`, `ERR-PAINT`, `ERR-SYNC`).
+- Every event also goes to `console.log` so devtools captures the same timeline.
+- `window.__BD.log` exposes the ring buffer for inspection from the devtools console.
+
 ## v0.5.1 — 2026-05-20 (Building Persistence Fix)
 - **Fix: built buildings reverted to vacant lots on refresh.** `pushCityTreasuryToDb` was serialising every in-memory slot (including default `built:false` ones) and pushing them to `city_treasury.buildings`, clobbering valid `built:true` rows stored by a previous `donate_to_building` RPC. The corrupted DB row was then loaded back on the next refresh, showing the slot as a vacant lot.
 - **New `upsert_city_treasury` RPC** uses `buildings || EXCLUDED.buildings` (JSONB merge) instead of replacing the column. Only touched slots overwrite their DB entries; untouched slots from other players survive every write.

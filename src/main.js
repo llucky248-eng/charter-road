@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.1'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.2'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2803,6 +2803,71 @@ const NPC_INTERACT_RADIUS = 18;
     };
   }
 
+  // ── BUILDING DEBUG: ring buffer + overlay (toggle with ?debug=1 or backtick key) ──
+  const BUILD_DEBUG = {
+    enabled: new URLSearchParams(location.search).get('debug') === '1',
+    log: [], // ring buffer of { t, tag, msg, data }
+    bootT: Date.now(),
+    overlay: null,
+  };
+  function bdLog(tag, msg, data) {
+    const entry = { t: Date.now() - BUILD_DEBUG.bootT, tag, msg, data };
+    BUILD_DEBUG.log.push(entry);
+    if (BUILD_DEBUG.log.length > 100) BUILD_DEBUG.log.shift();
+    try { console.log(`[BD ${(entry.t/1000).toFixed(1)}s][${tag}] ${msg}`, data ?? ''); } catch(_) {}
+    if (BUILD_DEBUG.enabled && BUILD_DEBUG.overlay) bdRender();
+  }
+  function bdSnapshotCity(cid) {
+    const slots = (typeof cityBuildings !== 'undefined' && cityBuildings[cid]) || {};
+    const out = {};
+    for (const [k, s] of Object.entries(slots)) {
+      out[k] = { built: s.built, level: s.level, playerFunded: s.playerFunded };
+    }
+    return out;
+  }
+  function bdInitOverlay() {
+    if (!BUILD_DEBUG.enabled || BUILD_DEBUG.overlay) return;
+    const el = document.createElement('div');
+    el.id = 'build-debug';
+    el.style.cssText = 'position:fixed;top:8px;right:8px;width:520px;max-height:80vh;overflow:auto;background:rgba(0,0,0,0.85);color:#9fe;font:11px ui-monospace,Menlo,Consolas,monospace;padding:8px 10px;border:1px solid #2af;border-radius:6px;z-index:99999;white-space:pre-wrap;line-height:1.35;';
+    document.body.appendChild(el);
+    BUILD_DEBUG.overlay = el;
+    bdRender();
+  }
+  function bdRender() {
+    if (!BUILD_DEBUG.overlay) return;
+    const cids = (typeof cityBuildings !== 'undefined') ? Object.keys(cityBuildings) : [];
+    let html = '<b style="color:#fff">BUILDING DEBUG</b>  press backtick to hide\n';
+    html += '<b style="color:#fc6">— In-memory cityBuildings —</b>\n';
+    for (const cid of cids) {
+      const snap = bdSnapshotCity(cid);
+      const built = Object.entries(snap).filter(([, v]) => v.built).map(([k, v]) => `${k}L${v.level}`).join(',') || '(none)';
+      const funded = Object.entries(snap).filter(([, v]) => !v.built && v.playerFunded > 0).map(([k, v]) => `${k}=${v.playerFunded}g`).join(',') || '';
+      html += `  <span style="color:#9f9">${cid}</span>: built=${built}${funded ? ' funded=' + funded : ''}\n`;
+    }
+    html += '\n<b style="color:#fc6">— Last 25 events —</b>\n';
+    const last = BUILD_DEBUG.log.slice(-25);
+    for (const e of last) {
+      const ts = (e.t/1000).toFixed(1).padStart(5);
+      const tagColor = e.tag.startsWith('ERR') ? '#f88' : e.tag.startsWith('PUSH') ? '#fc6' : e.tag.startsWith('SYNC') ? '#9cf' : '#fff';
+      const dataStr = e.data !== undefined ? ' ' + (typeof e.data === 'string' ? e.data : JSON.stringify(e.data)).slice(0, 200) : '';
+      html += `<span style="color:#888">${ts}s</span> <span style="color:${tagColor}">[${e.tag}]</span> ${e.msg}${dataStr ? '<span style="color:#888">' + dataStr.replace(/</g,'&lt;') + '</span>' : ''}\n`;
+    }
+    BUILD_DEBUG.overlay.innerHTML = html;
+  }
+  // Toggle with backtick key
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Backquote') {
+      BUILD_DEBUG.enabled = !BUILD_DEBUG.enabled;
+      if (BUILD_DEBUG.enabled) bdInitOverlay();
+      else if (BUILD_DEBUG.overlay) { BUILD_DEBUG.overlay.remove(); BUILD_DEBUG.overlay = null; }
+    }
+  });
+  if (BUILD_DEBUG.enabled) setTimeout(bdInitOverlay, 100);
+  // Expose for console inspection
+  window.__BD = BUILD_DEBUG;
+  bdLog('BOOT', 'Building debug system ready', { uid: 'pending' });
+
   // Fetch latest market pressure from Supabase (called on city entry + periodic)
   async function economySync() {
     if (!ECONOMY.enabled) return;
@@ -2913,6 +2978,7 @@ const NPC_INTERACT_RADIUS = 18;
         .filter(([, s]) => s.built || (s.playerFunded || 0) > 0)
         .map(([k, s]) => [k, { level: s.level, built: s.built, playerFunded: s.playerFunded }])
     );
+    bdLog('PUSH-CT', `upsert_city_treasury ${cid} touched=${Object.keys(touchedBuildings).join(',') || '(none)'}`, touchedBuildings);
     fetch(`${ECONOMY.url}/rest/v1/rpc/upsert_city_treasury`, {
       method: 'POST',
       headers: { ...economyHeaders() },
@@ -2924,7 +2990,10 @@ const NPC_INTERACT_RADIUS = 18;
         p_buildings:  touchedBuildings,
         p_updated_at: new Date().toISOString(),
       }),
-    }).catch(() => {});
+    }).then(r => {
+      bdLog(r.ok ? 'PUSH-CT-OK' : 'ERR-PUSH-CT', `HTTP ${r.status} for ${cid}`, null);
+      if (!r.ok) r.text().then(t => bdLog('ERR-PUSH-CT-BODY', t.slice(0, 200), null));
+    }).catch(e => bdLog('ERR-PUSH-CT', `${cid} network error: ${String(e).slice(0,100)}`, null));
   }
 
   // Push AI trader state to DB after arrive/depart (fire-and-forget)
@@ -3007,6 +3076,7 @@ const NPC_INTERACT_RADIUS = 18;
 
   async function syncWorldState() {
     if (__QA.enabled) return;
+    bdLog('SYNC-START', 'syncWorldState() begin', null);
     try {
       // ── 1. City state from city_treasury ──
       // Fetched FIRST so cityBuildings is populated before the day-catchup loop
@@ -3016,6 +3086,7 @@ const NPC_INTERACT_RADIUS = 18;
         `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings,bank_reserve,total_deposits,bankrupt_day`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []);
+      bdLog('SYNC-CT-FETCH', `Got ${rows.length} city_treasury rows`, rows.map(r => ({ cid: r.city_id, buildings: r.buildings })));
 
       for (const row of rows) {
         const cid = row.city_id;
@@ -3057,8 +3128,17 @@ const NPC_INTERACT_RADIUS = 18;
             if (!slot.playerFunded || slot.playerFunded === 0) {
               slot.playerFunded = saved.playerFunded ?? 0;
             }
-            if (slot.built && !wasBuilt) buildSlotOnMap(cid, key, slot);
+            if (slot.built && !wasBuilt) {
+              bdLog('SYNC-BUILD-MAP', `${cid}.${key} → calling buildSlotOnMap (DB had built:true, mem was built:false)`, null);
+              buildSlotOnMap(cid, key, slot);
+            } else if (slot.built && wasBuilt) {
+              bdLog('SYNC-ALREADY-BUILT', `${cid}.${key} already built in mem (DB also built), skipping paint`, null);
+            } else if (!slot.built) {
+              bdLog('SYNC-NOT-BUILT', `${cid}.${key} DB says built=${saved.built} level=${saved.level}`, null);
+            }
           }
+        } else if (cityBuildings[cid]) {
+          bdLog('SYNC-NO-BUILDINGS', `${cid} DB row had empty/missing buildings column`, row.buildings);
         }
       }
 
@@ -3099,6 +3179,7 @@ const NPC_INTERACT_RADIUS = 18;
           // cityBuildings is now populated from step 1, so cityInvestTick is safe.
           // Cap at 30 days to avoid runaway on first load after long server-only run.
           const daysAhead = Math.min(Math.floor(ws.day) - Math.floor(time.day), 30);
+          bdLog('SYNC-CATCHUP', `Server day ${ws.day} > local ${time.day}; advancing ${daysAhead} days`, null);
           for (let i = 0; i < daysAhead; i++) {
             time.day++;
             populationTick();
@@ -3112,7 +3193,10 @@ const NPC_INTERACT_RADIUS = 18;
           pushWorldTimeToDb();
         }
       }
-    } catch (_) { /* non-fatal - runs on degraded local state */ }
+      bdLog('SYNC-END', 'syncWorldState() complete', null);
+    } catch (e) {
+      bdLog('ERR-SYNC', `Exception: ${String(e).slice(0,200)}`, null);
+    }
   }
 
   // Initial sync on load (syncWorldState deferred - needs buildSlotOnMap defined first)
@@ -5925,6 +6009,7 @@ function drawNpcBubble() {
     if (!slot) return;
     const nextCost = slot.costPerLevel[slot.level];
     if (nextCost === undefined) { toast('Already maxed.', 2); return; }
+    bdLog('DONATE-START', `${cityId}.${key} +${amount}g (nextCost=${nextCost}, currentFunded=${slot.playerFunded||0}, built=${slot.built})`, null);
     player.gold -= amount;
     slot.playerFunded = Math.min((slot.playerFunded || 0) + amount, nextCost);
     const slotLabel = key.charAt(0).toUpperCase() + key.slice(1);
@@ -5950,6 +6035,7 @@ function drawNpcBubble() {
     // Atomic RPC: locks the city_treasury row, increments playerFunded, upgrades if complete,
     // and logs the donation — all in one transaction (no concurrent-write races).
     if (!__QA.enabled) {
+      bdLog('DONATE-RPC-CALL', `POST donate_to_building ${cityId}.${key} amount=${amount} nextCost=${nextCost}`, null);
       fetch(`${ECONOMY.url}/rest/v1/rpc/donate_to_building`, {
         method: 'POST',
         headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
@@ -5961,8 +6047,12 @@ function drawNpcBubble() {
           p_next_cost: nextCost,
         }),
       })
-        .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
+        .then(r => {
+          bdLog('DONATE-RPC-STATUS', `HTTP ${r.status} ${r.statusText}`, null);
+          return r.ok ? r.json() : r.text().then(t => Promise.reject(t));
+        })
         .then(result => {
+          bdLog('DONATE-RPC-RESPONSE', `ok=${result.ok} completed=${result.completed}`, result);
           if (!result.ok) {
             player.gold += amount;
             slot.playerFunded = Math.max(0, (slot.playerFunded || 0) - amount);
@@ -5983,9 +6073,11 @@ function drawNpcBubble() {
                 s.playerFunded = saved.playerFunded ?? s.playerFunded;
               }
             }
+            bdLog('DONATE-MERGE-DONE', `Final mem state: ${cityId}.${key} built=${slot.built} L=${slot.level} funded=${slot.playerFunded}`, null);
           }
         })
         .catch(e => {
+          bdLog('ERR-DONATE-RPC', `RPC failed: ${String(e).slice(0,200)}`, null);
           console.warn('[donateToSlot] RPC failed:', e);
           if (slot.playerFunded > 0 && !slot.built) {
             player.gold += amount;
@@ -6002,7 +6094,11 @@ function drawNpcBubble() {
 
   // ── Build a slot visually on the map ────────────────────────────────────
   function buildSlotOnMap(cid, slotKey, slot) {
-    if (!mapData || !slot || slot.tileX <= 0) return;
+    if (!mapData || !slot || slot.tileX <= 0) {
+      bdLog('ERR-PAINT', `buildSlotOnMap ${cid}.${slotKey} ABORTED (mapData=${!!mapData} slot=${!!slot} tileX=${slot?.tileX})`, null);
+      return;
+    }
+    bdLog('PAINT', `buildSlotOnMap ${cid}.${slotKey} at (${slot.tileX},${slot.tileY}) ${slot.tileW}x${slot.tileH}`, null);
     const bx = slot.tileX, by = slot.tileY;
     const bw = slot.tileW, bh = slot.tileH;
     const interior = slot.tileType;
@@ -6147,11 +6243,11 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.1',
+    version: 'v0.5.2',
     whatsNew: [
-      'Fix: built buildings now survive a page refresh — pushCityTreasuryToDb was overwriting valid built:true slots in the DB with zeroed local state on early game-loop ticks.',
-      'New upsert_city_treasury RPC merges the buildings JSONB column instead of replacing it, so untouched slots from other players survive every write.',
-      'syncWorldState now fetches city_treasury before the day-catchup loop so cityInvestTick/cityMineTick run against authoritative building state.',
+      'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
+      'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
+      'window.__BD exposes the full ring buffer for inspection from devtools.',
     ],
     whatsNext: [
       'World news feed: log notable world events (building built, city grew, famine).',
@@ -7538,7 +7634,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.1',
+      buildVersion: 'v0.5.2',
       savedAt: Date.now(),
       player: {
         x: player.x,
