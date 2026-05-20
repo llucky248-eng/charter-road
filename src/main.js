@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.54'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.0'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6138,21 +6138,21 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.54',
+    version: 'v0.5.0',
     whatsNew: [
-      'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
-      'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
-      '3D building rises capped to one tile so vertically-stacked buildings no longer overlap each other.',
-      'Mine slot uses its own tile type and labels as "Mine" instead of "Warehouse".',
-      'Granary / Warehouse / Mine slots shifted one row south to relieve centre crowding.',
-      'Mining: Ironholt mine building slot produces daily ore/coal (rare gems) into the city treasury.',
-      'Player-active mining: ore-vein tiles spawn near Ironholt mountains. Tap a vein to mine; uses stamina, 30s vein cooldown.',
-      'Items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
+      'Multiplayer world: market prices, hunger, ore veins, caches, bank reserves and contract boards are now shared state — all players see the same world.',
+      'World events: harvest gluts, droughts, pirate raids and more fire every 7–14 game-days, shifting prices city-wide for everyone.',
+      '2 new NPC traders: Bex the Pilgrim (opportunist scribe) and Iron Marek (aggressive guard).',
+      'Atomic building donations: player donations to building slots are now serialised server-side — no more lost contributions from concurrent players.',
+      'Shared bank vault: deposits from all players pool into the same city reserve; bank solvency ticked server-side.',
+      'Global ore vein cooldowns: the same vein cannot be mined by two players within 30 seconds.',
+      'Global cache loot: a cache tile can only be opened once — first player wins, others see "Already looted".',
+      'Shared contract boards: all players at the same city see the same listing, regenerated every 3 game-days by the world service.',
     ],
     whatsNext: [
-      'Supabase Realtime channel for instant presence updates (currently 5s poll).',
       'World news feed: log notable world events (building built, city grew, famine).',
       'Player-to-player trade: offer/accept item trades with nearby players.',
+      'Supabase Realtime channel for instant presence updates (currently 5-second poll).',
     ],
   };
 
@@ -7534,7 +7534,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.54',
+      buildVersion: 'v0.5.0',
       savedAt: Date.now(),
       player: {
         x: player.x,
