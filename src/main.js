@@ -3028,14 +3028,10 @@ const NPC_INTERACT_RADIUS = 18;
   let _realtimeClient = null;
   let _realtimeConnected = false;
   let _realtimeFallbackTimer = null;
-  // Throttle for action-triggered world syncs (avoids double-sync when trading multiple items)
+  // Shared throttle timestamp used by syncWorldState() to guard all callers
   let _lastWorldSyncT = 0;
-  function syncWorldStateOnAction() {
-    const now = Date.now();
-    if (now - _lastWorldSyncT < 5000) return;
-    _lastWorldSyncT = now;
-    syncWorldState();
-  }
+  // Semantic alias for call sites inside player action handlers
+  function syncWorldStateOnAction() { syncWorldState(); }
 
   function pushPlayerPresence() {
     if (__QA.enabled || !ECONOMY.enabled) return;
@@ -3092,6 +3088,10 @@ const NPC_INTERACT_RADIUS = 18;
 
   async function syncWorldState() {
     if (__QA.enabled) return;
+    // Guard against any caller running this faster than 3s — city entry, actions, or stray calls
+    const _now = Date.now();
+    if (_now - _lastWorldSyncT < 3000) return;
+    _lastWorldSyncT = _now;
     let _syncHadChange = false;
     try {
       // ── 1. City state from city_treasury ──
@@ -12276,7 +12276,7 @@ function drawEvent() {
         }
       }
       // Sync global economy on city entry
-      if (nowId) { economySync(); syncWorldState(); _lastWorldSyncT = Date.now(); } // on city entry: refresh world state
+      if (nowId) { economySync(); syncWorldState(); } // on city entry: refresh world state
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
