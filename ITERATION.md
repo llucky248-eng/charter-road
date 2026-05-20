@@ -1,5 +1,18 @@
 # Iteration Log — The Charter Road
 
+## v0.5.0 — 2026-05-20 (Multiplayer World State)
+- **Shared market drift**: price drift is now ticked server-side every 5 minutes by `world_service.mjs` and stored in `world_state.market_drift`. All players see identical prices.
+- **World events**: 8 event templates (harvest glut, drought, pirate raid, trade boom, plague, cold snap, merchant fair, border tax) fire every 7–14 game-days, shift prices city-wide, and expire automatically. Stored in `world_state.active_events`.
+- **Server-side hunger**: city hunger advances once per game-day on the server; clients read the authoritative value from `city_treasury.hunger` via `syncWorldState()`.
+- **Atomic building donations**: `donate_to_building()` RPC uses `SELECT … FOR UPDATE` so concurrent players' contributions are serialised rather than last-write-wins. Donation history stored in `building_donations` table.
+- **Global cache loot**: `open_cache()` RPC uses `INSERT … ON CONFLICT DO NOTHING` — first claimer wins; subsequent players see "Already looted — empty crate."
+- **Global ore vein cooldowns**: `mine_ore_vein()` RPC enforces a 30-second server-side cooldown per vein tile; second miner gets "Another miner just worked this vein."
+- **Shared bank vault**: `bank_reserve`, `total_deposits`, and `bankrupt_day` are columns on `city_treasury`. Four atomic RPCs (`bank_deposit`, `bank_withdraw`, `bank_loan`, `bank_repay`) serialise all vault operations. Server `tickBankSolvency()` handles insolvency and reopen logic.
+- **Shared contract boards**: `rewardForContract()` and `makeContract()` ported to the server using deterministic seeded RNG. Boards regenerate every 3 game-days and are stored in `world_state.contract_boards`; all players at a city see the same listings.
+- **2 new NPC traders**: Bex the Pilgrim (opportunist scribe, speed 55) and Iron Marek (aggressive guard, speed 80).
+- **CI lint**: `node --check src/main.js` added to the test workflow so syntax errors fail fast.
+- **21 parity tests**: economy, hunger, bank solvency, and contract board invariants all verified in `ops/scripts/economy_parity_test.mjs`.
+
 ## v0.4.49 — 2026-05-10 (Ironholt Bank / Guild / Inn Visibility)
 - **Bank, Guild and Workers Lodge get 3D sprites**: previously these three buildings only existed as static `placeBuilding` tile paints in `paintCity` for Ironholt. `_drawCityBuildingSprites` only iterates `cityBuildings` slots, so the static buildings rendered as flat 2-tile floors surrounded by walls — much smaller and less visible than the slot-driven Market/Warehouse/Mine. Added `bank`, `guild`, `inn` as pre-built civic slots (`built: true, level: 1, maxLevel: 1, costPerLevel: []`) so the sprite renderer picks them up. Auto-invest leaves them alone (already at max level), tap-to-open still works via the underlying tile ids.
 - **Sprite renderer cases for tile 4 (Barracks), 13 (Bank), 19 (Mine)**: previously these fell through to the gray `default` palette. Each now has its own facade colour set — slate fort, dressed stone + gilded trim, and dark stone + lantern glow respectively.

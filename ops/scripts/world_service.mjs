@@ -19,6 +19,8 @@ const TRADER_DEFS = [
   { id: 'mira_silvertong', name: 'Mira Silvertongue', personality: 'opportunist', color: '#a78bfa', startGold: 100 },
   { id: 'cargo_dom',       name: 'Cargo Dom',         personality: 'cautious',    color: '#f59e0b', startGold: 120 },
   { id: 'wren_the_swift',  name: 'Wren the Swift',    personality: 'aggressive',  color: '#34d399', startGold: 140 },
+  { id: 'pilgrim_bex',     name: 'Bex the Pilgrim',   personality: 'opportunist', color: '#86efac', startGold: 90  },
+  { id: 'iron_marek',      name: 'Iron Marek',        personality: 'aggressive',  color: '#fb923c', startGold: 110 },
 ];
 
 const ITEMS = [
@@ -32,6 +34,127 @@ const ITEMS = [
 ];
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+
+// City food demand + base population (mirrors CITY_RULES in main.js)
+const CITY_FOOD_RULES = {
+  valdenmere: { foodDemand: 0.0010, population: 8000,  taxRate: 0.08 },
+  ashport:    { foodDemand: 0.0007, population: 4000,  taxRate: 0.05 },
+  crosshaven: { foodDemand: 0.0005, population: 1500,  taxRate: 0.03 },
+  ironholt:   { foodDemand: 0.0008, population: 2500,  taxRate: 0.10 },
+};
+
+// ── World Events ──────────────────────────────────────────────────────────
+// Schema migration required (run once):
+//   ALTER TABLE world_state ADD COLUMN IF NOT EXISTS active_events JSONB DEFAULT '[]';
+//   ALTER TABLE world_state ADD COLUMN IF NOT EXISTS next_event_day INT DEFAULT 0;
+
+const WORLD_EVENT_TEMPLATES = [
+  { id: 'harvest',      name: 'Bumper Harvest',    cities: ['crosshaven'],           items: ['grain','food'],   effect: 0.75, minDur: 5, maxDur: 8 },
+  { id: 'drought',      name: 'Summer Drought',    cities: null,                     items: ['grain'],          effect: 1.45, minDur: 4, maxDur: 6 },
+  { id: 'trade_fair',   name: 'Ashport Trade Fair',cities: ['ashport'],              items: null,               effect: 1.20, minDur: 3, maxDur: 5 },
+  { id: 'mining_boom',  name: 'Iron Rush',         cities: ['ironholt'],             items: ['ore','coal'],     effect: 0.80, minDur: 5, maxDur: 7 },
+  { id: 'pirate_raid',  name: 'Pirate Raids',      cities: ['ashport'],              items: ['relic','ink'],    effect: 1.55, minDur: 3, maxDur: 5 },
+  { id: 'plague_scare', name: 'Plague Rumours',    cities: null,                     items: ['potion','herbs'], effect: 1.65, minDur: 3, maxDur: 5 },
+  { id: 'gem_rush',     name: 'Gem Discovery',     cities: ['ironholt'],             items: ['relic'],          effect: 0.70, minDur: 4, maxDur: 6 },
+  { id: 'herb_bloom',   name: 'Herb Bloom',        cities: ['crosshaven','ashport'], items: ['herbs','potion'], effect: 0.80, minDur: 4, maxDur: 7 },
+];
+
+// Active world events; loaded from DB at tick start, saved back at end
+const WORLD_EVENTS = [];
+
+// Market drift: world-authoritative ±20% daily price drift, ticked by cron
+// Mirrors client marketDrift — clients load this instead of running their own RNG
+const MARKET_DRIFT     = {};
+let   MARKET_DRIFT_DAY = 0;
+
+function initMarketDrift() {
+  for (const cityId of CITIES) {
+    if (!MARKET_DRIFT[cityId]) MARKET_DRIFT[cityId] = {};
+    for (const item of ITEMS) {
+      if (!Number.isFinite(MARKET_DRIFT[cityId][item.id])) MARKET_DRIFT[cityId][item.id] = 1.0;
+    }
+  }
+}
+
+function tickMarketDrift() {
+  const fromDay = MARKET_DRIFT_DAY;
+  const toDay   = Math.floor(WORLD_STATE.day);
+  if (fromDay >= toDay) return;
+  for (let d = fromDay + 1; d <= toDay; d++) {
+    for (const cityId of CITIES) {
+      if (!MARKET_DRIFT[cityId]) MARKET_DRIFT[cityId] = {};
+      for (const item of ITEMS) {
+        const cs    = citySeed(cityId);
+        const u     = seeded01(cs ^ (d * 7919), item.id.charCodeAt(0), d);
+        const delta = (u - 0.5) * 0.04; // ±2% per day
+        const cur   = MARKET_DRIFT[cityId][item.id] ?? 1.0;
+        MARKET_DRIFT[cityId][item.id] = Math.max(0.85, Math.min(1.20, cur * (1 + delta)));
+      }
+    }
+  }
+  MARKET_DRIFT_DAY = toDay;
+  if (toDay > fromDay) console.log(`[DRIFT] Ticked day ${fromDay}→${toDay}`);
+}
+
+// Tick each city's bank vault: collapse when reserve can't cover 30% of total deposits,
+// reopen after BANK_BANKRUPTCY_REOPEN_DAYS. Mirrors client checkBankSolvency at main.js:3392.
+// Also funnels 20% of treasury gold into the vault every 7 game-days (cityInvestTick parity).
+function tickBankSolvency() {
+  const day = Math.floor(WORLD_STATE.day);
+  for (const cityId of CITIES) {
+    const t = CITY_TREASURY[cityId];
+    if (!t) continue;
+    // Treasury → vault: 20% of treasury gold every 7 days (mirrors client cityInvestTick)
+    if (day > 0 && day % 7 === 0 && (t._lastVaultFundingDay !== day)) {
+      const share = Math.floor((t.gold || 0) * 0.20);
+      if (share > 0) {
+        t.gold         -= share;
+        t.bank_reserve += share;
+        t._lastVaultFundingDay = day;
+        console.log(`[BANK][${cityId}] Treasury funded vault +${share}g (reserve=${t.bank_reserve})`);
+      }
+    }
+    // Reopen check
+    if (t.bankrupt_day !== null && day >= t.bankrupt_day + BANK_BANKRUPTCY_REOPEN_DAYS) {
+      console.log(`[BANK][${cityId}] Reopening after bankruptcy (day ${t.bankrupt_day} → ${day})`);
+      t.bankrupt_day = null;
+      t.bank_reserve = Math.max(t.bank_reserve, 20); // re-seed with small reserve
+    }
+    // Solvency check
+    if (t.bankrupt_day === null && t.total_deposits > 0 && t.bank_reserve < t.total_deposits * 0.30) {
+      console.log(`[BANK][${cityId}] BANKRUPT — reserve=${t.bank_reserve} owed=${t.total_deposits}`);
+      t.bankrupt_day   = day;
+      t.total_deposits = 0;        // depositors get whatever they can scrape; client handles per-uid cleanup
+      t.bank_reserve   = 0;
+    }
+  }
+}
+
+// Tick city hunger once per game-day elapsed (mirrors populationTick() in main.js).
+// Hunger rises from foodDemand * (pop / basePop) * subsidyReduction each day.
+// Clamped [0, 1]. Written to city_treasury.hunger so all clients read the same value.
+function tickHunger() {
+  const toDay   = Math.floor(WORLD_STATE.day);
+  const fromDay = MARKET_DRIFT_DAY; // hunger advances on the same cadence as drift
+  if (fromDay >= toDay) return;
+  const days = toDay - fromDay;
+  for (const cityId of CITIES) {
+    const t    = CITY_TREASURY[cityId];
+    const rule = CITY_FOOD_RULES[cityId];
+    if (!t || !rule) continue;
+    const subsidyReduction = 1 - (t.city_bonus?.foodSubsidy || 0);
+    for (let i = 0; i < days; i++) {
+      t.hunger = Math.min(1, (t.hunger || 0) + rule.foodDemand * (t.population / rule.population) * subsidyReduction);
+    }
+    // Population growth/decline driven by hunger (same thresholds as client)
+    if (t.hunger < 0.2) {
+      t.population = Math.min(t.population * 1.002, rule.population * 1.5);
+    } else if (t.hunger > 0.7) {
+      t.population = Math.max(t.population * 0.998, rule.population * 0.5);
+    }
+    if (days > 0) console.log(`[HUNGER][${cityId}] day ${fromDay}→${toDay} hunger=${t.hunger.toFixed(3)}`);
+  }
+}
 
 // Travel durations in seconds (at 5-min ticks, progress advances each tick)
 const ROUTE_DURATION = {
@@ -168,11 +291,60 @@ function dayWobble(cityId, item) {
   return 0.97 + u * 0.06;
 }
 
+function eventModifier(cityId, itemId) {
+  let mult = 1.0;
+  for (const ev of WORLD_EVENTS) {
+    if (ev.cities && !ev.cities.includes(cityId)) continue;
+    if (ev.items  && !ev.items.includes(itemId))  continue;
+    mult *= ev.effect;
+  }
+  return mult;
+}
+
 function midPriceFor(cityId, item) {
-  const mult = CITY_MULTS[cityId]?.[item.id] ?? 1;
-  const wob = dayWobble(cityId, item);
-  const econ = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
-  return Math.max(1, Math.round(item.base * mult * wob * econ));
+  const mult  = CITY_MULTS[cityId]?.[item.id] ?? 1;
+  const drift = MARKET_DRIFT[cityId]?.[item.id] ?? 1;
+  const wob   = dayWobble(cityId, item);
+  const econ  = 1 + (PRESSURE_MAP[`${cityId}:${item.id}`] || 0);
+  const evMod = eventModifier(cityId, item.id);
+  return Math.max(1, Math.round(item.base * mult * drift * wob * econ * evMod));
+}
+
+function generateWorldEvents() {
+  const day = WORLD_STATE.day;
+  if (day < (WORLD_STATE.next_event_day || 0)) return false;
+
+  // Expire old events
+  for (let i = WORLD_EVENTS.length - 1; i >= 0; i--) {
+    if (WORLD_EVENTS[i].endDay <= day) {
+      console.log(`[WORLD_EVENT] "${WORLD_EVENTS[i].name}" expired on day ${day}`);
+      WORLD_EVENTS.splice(i, 1);
+    }
+  }
+
+  // Cap at 2 simultaneous events; 50% roll for new event
+  if (WORLD_EVENTS.length >= 2) return false;
+  if (Math.random() > 0.5) return false;
+
+  const activeIds = new Set(WORLD_EVENTS.map(e => e.templateId));
+  const available = WORLD_EVENT_TEMPLATES.filter(t => !activeIds.has(t.id));
+  if (!available.length) return false;
+
+  const tmpl = available[Math.floor(Math.random() * available.length)];
+  const dur  = tmpl.minDur + Math.floor(Math.random() * (tmpl.maxDur - tmpl.minDur + 1));
+  WORLD_EVENTS.push({
+    templateId: tmpl.id,
+    name:       tmpl.name,
+    cities:     tmpl.cities ? [...tmpl.cities] : null,
+    items:      tmpl.items  ? [...tmpl.items]  : null,
+    effect:     tmpl.effect,
+    startDay:   day,
+    endDay:     day + dur,
+  });
+  WORLD_STATE.next_event_day = day + 7 + Math.floor(Math.random() * 7);
+  const ev = WORLD_EVENTS[WORLD_EVENTS.length - 1];
+  console.log(`[WORLD_EVENT] "${ev.name}" started day ${ev.startDay}–${ev.endDay} ×${ev.effect}`);
+  return true;
 }
 
 // Live market pressure snapshot loaded at tick start — keyed as "cityId:itemId"
@@ -180,12 +352,41 @@ const PRESSURE_MAP = {};
 
 async function loadWorldState() {
   try {
-    const rows = await sbFetch('/rest/v1/world_state?id=eq.main&select=day,frac,seed') || [];
+    const rows = await sbFetch(
+      '/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,next_event_day,market_drift,market_drift_day,contract_boards,contract_regen'
+    ) || [];
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (row && typeof row === 'object') {
-      WORLD_STATE.day = Number.isFinite(row.day) ? row.day : WORLD_STATE.day;
-      WORLD_STATE.frac = Number.isFinite(row.frac) ? row.frac : WORLD_STATE.frac;
-      WORLD_STATE.seed = Number.isFinite(row.seed) ? row.seed : WORLD_STATE.seed;
+      WORLD_STATE.day            = Number.isFinite(row.day)            ? row.day            : WORLD_STATE.day;
+      WORLD_STATE.frac           = Number.isFinite(row.frac)           ? row.frac           : WORLD_STATE.frac;
+      WORLD_STATE.seed           = Number.isFinite(row.seed)           ? row.seed           : WORLD_STATE.seed;
+      WORLD_STATE.next_event_day = Number.isFinite(row.next_event_day) ? row.next_event_day : 0;
+      // Restore active events
+      if (Array.isArray(row.active_events)) {
+        WORLD_EVENTS.length = 0;
+        for (const ev of row.active_events) WORLD_EVENTS.push(ev);
+        console.log(`[WORLD_EVENT] Loaded ${WORLD_EVENTS.length} active event(s)`);
+      }
+      // Restore market drift
+      MARKET_DRIFT_DAY = Number.isFinite(row.market_drift_day) ? row.market_drift_day : 0;
+      if (row.market_drift && typeof row.market_drift === 'object') {
+        for (const [cid, items] of Object.entries(row.market_drift)) {
+          MARKET_DRIFT[cid] = { ...items };
+        }
+      }
+      initMarketDrift(); // fill any cities/items missing from stored blob
+
+      // Restore contract boards + regen tracking
+      if (row.contract_boards && typeof row.contract_boards === 'object') {
+        for (const [cid, board] of Object.entries(row.contract_boards)) {
+          if (Array.isArray(board)) CONTRACT_BOARDS[cid] = board;
+        }
+      }
+      if (row.contract_regen && typeof row.contract_regen === 'object') {
+        for (const [cid, lastDay] of Object.entries(row.contract_regen)) {
+          if (Number.isFinite(lastDay)) CONTRACT_REGEN_DAY[cid] = lastDay;
+        }
+      }
     }
   } catch (e) {
     console.warn('[WORLD_STATE] Failed to load (non-fatal):', e.message);
@@ -541,11 +742,67 @@ function blankBuildings(cityId) {
 }
 
 const CITY_TREASURY = {
-  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
-  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
-  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
-  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
+  valdenmere: { gold:60, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:8000, hunger:0, bank_reserve:120, total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('valdenmere') },
+  ashport:    { gold:40, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:4000, hunger:0, bank_reserve:80,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('ashport')    },
+  crosshaven: { gold:30, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:1500, hunger:0, bank_reserve:40,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('crosshaven') },
+  ironholt:   { gold:45, tax_collected:0, permit_collected:0, spent:0, invest_log:[], population:2500, hunger:0, bank_reserve:60,  total_deposits:0, bankrupt_day:null, city_bonus:blankBonus(), buildings:blankBuildings('ironholt')   },
 };
+
+const BANK_BANKRUPTCY_REOPEN_DAYS = 5; // mirrors client constant
+
+// ── Contract boards (shared listings per city) ─────────────────────────────
+const CONTRACT_REGEN_DAYS = 3;
+const CONTRACT_ITEMS          = ['grain','food','ore','herbs','potion','relic'];
+const CONTRACT_ITEMS_IRONHOLT = ['grain','food','ore','herbs','potion','relic','coal','coal','gem'];
+const CONTRACT_BOARDS    = {}; // { cityId: [contracts] }
+const CONTRACT_REGEN_DAY = {}; // { cityId: lastRegenDay }
+
+// Mirrors rewardForContract() in src/main.js — both must stay in sync (asserted by tests)
+function rewardForContract(want, qty) {
+  const it = ITEMS.find(x => x.id === want);
+  const base = it ? it.base : 20;
+  const bestMarginRef = {
+    grain: 7, food: 5, ore: 9, herbs: 7, potion: 10, relic: 18, ink: 13, coal: 4, gem: 22,
+  }[want] || 5;
+  const buyCostRef       = Math.round(base * 0.88);
+  const deliveryPremium  = Math.round(bestMarginRef * 1.2);
+  const perUnit          = buyCostRef + deliveryPremium;
+  const qtyMult          = qty === 1 ? 1.0 : qty === 2 ? 1.75 : 2.35;
+  const r = Math.round(perUnit * qtyMult);
+  return Math.max(18, Math.min(280, r));
+}
+
+function makeContract(fromId, tier, daySeed, slotIdx) {
+  const pool = (fromId === 'ironholt') ? CONTRACT_ITEMS_IRONHOLT : CONTRACT_ITEMS;
+  // Deterministic per (city, day, slot)
+  const seedA = citySeed(fromId);
+  const wIdx  = Math.floor(seeded01(seedA, daySeed, slotIdx * 13 + tier) * pool.length);
+  const want  = pool[Math.min(wIdx, pool.length - 1)];
+  const qty   = 1 + Math.floor(seeded01(seedA, daySeed + 7919, slotIdx * 19 + tier) * (2 + tier));
+  const others = CITIES.filter(id => id !== fromId);
+  const toIdx = Math.floor(seeded01(seedA, daySeed + 1009, slotIdx * 31 + tier) * others.length);
+  const toId  = others[Math.min(toIdx, others.length - 1)];
+  return { fromId, toId, want, qty, reward: rewardForContract(want, qty), tier };
+}
+
+function regenerateContracts() {
+  const day = Math.floor(WORLD_STATE.day);
+  let regenerated = 0;
+  for (const cityId of CITIES) {
+    const lastRegen = CONTRACT_REGEN_DAY[cityId] || 0;
+    if (day > 0 && day - lastRegen >= CONTRACT_REGEN_DAYS) {
+      CONTRACT_BOARDS[cityId] = [
+        makeContract(cityId, 0, day, 0),
+        makeContract(cityId, 0, day, 1),
+        makeContract(cityId, 1, day, 2),
+        makeContract(cityId, 2, day, 3),
+      ];
+      CONTRACT_REGEN_DAY[cityId] = day;
+      regenerated++;
+    }
+  }
+  if (regenerated > 0) console.log(`[CONTRACTS] Regenerated ${regenerated} board(s) on day ${day}`);
+}
 
 function addTaxRevenue(cityId, amount, type = 'tax') {
   const t = CITY_TREASURY[cityId];
@@ -610,6 +867,10 @@ async function fetchTreasuries() {
       t.spent            = row.spent || 0;
       t.invest_log       = row.invest_log || [];
       if (row.population) t.population = row.population;
+      if (Number.isFinite(row.hunger))         t.hunger         = row.hunger;
+      if (Number.isFinite(row.bank_reserve))   t.bank_reserve   = row.bank_reserve;
+      if (Number.isFinite(row.total_deposits)) t.total_deposits = row.total_deposits;
+      t.bankrupt_day = Number.isFinite(row.bankrupt_day) ? row.bankrupt_day : null;
       // Restore city_bonus from DB
       if (row.city_bonus && typeof row.city_bonus === 'object') {
         Object.assign(t.city_bonus, row.city_bonus);
@@ -637,6 +898,10 @@ async function upsertTreasuries() {
     spent:            t.spent,
     invest_log:       t.invest_log,
     population:       t.population,
+    hunger:           Math.max(0, Math.min(1, t.hunger || 0)),
+    bank_reserve:     Math.max(0, t.bank_reserve || 0),
+    total_deposits:   Math.max(0, t.total_deposits || 0),
+    bankrupt_day:     t.bankrupt_day ?? null,
     city_bonus:       t.city_bonus || {},
     buildings:        Object.fromEntries(
       Object.entries(t.buildings || {}).map(([k, s]) => [k, {
@@ -876,6 +1141,31 @@ async function main() {
   await upsertTreasuries();
 
   await callAggregateEconomy();
+
+  // Tick world state: drift, hunger, bank solvency, events, contracts — then save all back
+  tickMarketDrift();
+  tickHunger();
+  tickBankSolvency();
+  generateWorldEvents();
+  regenerateContracts();
+  try {
+    await sbFetch('/rest/v1/world_state?id=eq.main', {
+      method: 'PATCH',
+      headers: { ...HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        active_events:    WORLD_EVENTS,
+        next_event_day:   WORLD_STATE.next_event_day,
+        market_drift:     MARKET_DRIFT,
+        market_drift_day: MARKET_DRIFT_DAY,
+        contract_boards:  CONTRACT_BOARDS,
+        contract_regen:   CONTRACT_REGEN_DAY,
+      }),
+    });
+    console.log(`[WORLD_STATE] Saved drift (day ${MARKET_DRIFT_DAY}), ${WORLD_EVENTS.length} event(s), ${Object.keys(CONTRACT_BOARDS).length} contract board(s)`);
+  } catch (e) {
+    console.warn('[WORLD_STATE] Failed to save world state (non-fatal):', e.message);
+  }
+
   console.log('[WORLD SIM] Tick complete');
 }
 
@@ -887,6 +1177,8 @@ export {
   SPREAD,
   PRESSURE_EFFECT,
   WORLD_STATE,
+  WORLD_EVENTS,
+  WORLD_EVENT_TEMPLATES,
   PRESSURE_MAP,
   CITY_TREASURY,
   seeded01,
@@ -898,6 +1190,23 @@ export {
   netSellPrice,
   decideRoute,
   traderCapacity,
+  eventModifier,
+  generateWorldEvents,
+  MARKET_DRIFT,
+  tickMarketDrift,
+  initMarketDrift,
+  CITY_FOOD_RULES,
+  tickHunger,
+  tickBankSolvency,
+  BANK_BANKRUPTCY_REOPEN_DAYS,
+  CONTRACT_BOARDS,
+  CONTRACT_REGEN_DAY,
+  CONTRACT_REGEN_DAYS,
+  CONTRACT_ITEMS,
+  CONTRACT_ITEMS_IRONHOLT,
+  rewardForContract,
+  makeContract,
+  regenerateContracts,
 };
 
 const isDirectRun = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

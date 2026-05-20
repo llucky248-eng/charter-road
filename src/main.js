@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.4.49'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.0'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -476,6 +476,7 @@ ${line4}`;
                 showBanner(title, text);
 
                 contracts.active = null;
+                checkGuildMilestone();
                 scheduleAutoSave();
               }
             }
@@ -1257,6 +1258,23 @@ ${line4}`;
     }
     return false;
   }
+
+  function handleEventChoiceTap(sx, sy) {
+    if (!ui.eventOpen) return false;
+    const E = ui._eventList;
+    if (!E || sx < E.x || sx > E.x + E.w || sy < E.y || sy > E.y + E.h) return false;
+    const vi = Math.floor((sy - E.y) / E.rowH);
+    const i = ui.eventScroll + vi;
+    if (i < 0 || i >= ui.eventChoices.length) return false;
+    if (ui.eventSel === i) {
+      const ch = ui.eventChoices[i];
+      if (ch && typeof ch.run === 'function') ch.run();
+    } else {
+      ui.eventSel = i;
+    }
+    return true;
+  }
+
 // Touch UI -> virtual keys
 
 // Mobile HUD tap: global capture (Safari reliability)
@@ -1335,6 +1353,12 @@ if (IS_MOBILE && !window.__npcGlobalTapListener) {
 function handleMobileHudTap(sx, sy) {
   if (!IS_MOBILE) return false;
   if (ui.marketOpen || ui.eventOpen || ui.contractsOpen || ui.bankOpen || ui.innOpen || ui.guildOpen || ui.warehouseOpen || ui.buildingDonateOpen) return false;
+  // Contract indicator strip — tap navigates to destination
+  const CT = ui._hudContractTap;
+  if (CT && sx >= CT.x && sx <= CT.x + CT.w && sy >= CT.y && sy <= CT.y + CT.h) {
+    startNavTo(CT.toId);
+    return true;
+  }
   const T = ui._hudCityTap;
   if (T && sx >= T.x && sx <= T.x + T.w && sy >= T.y && sy <= T.y + T.h) {
     ui.mobileHudExpanded = !ui.mobileHudExpanded;
@@ -1418,6 +1442,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // ── Modal scroll (market/event/contracts) ──────────────────────────
     if (ui.marketOpen || ui.eventOpen || ui.contractsOpen) {
       if (handleMarketTap(sx, sy)) { e.preventDefault(); return; }
+      if (handleEventChoiceTap(sx, sy)) { e.preventDefault(); return; }
       const kind = ui.marketOpen ? 'market' : 'event';
       const L2 = kind === 'market' ? ui._marketList : ui._eventList;
       if (L2 && sx >= L2.x && sx <= L2.x + L2.w && sy >= L2.y && sy <= L2.y + L2.h) {
@@ -1468,10 +1493,54 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // otherwise walk to the tile first then open on arrival.
     const TAP_BUILDING_ACTIONS = { 6: 'market', 12: 'contracts', 7: 'inn', 8: 'warehouse', 13: 'bank', 14: 'inn', 15: 'guild', 16: 'vacant', 18: 'mine', 19: 'mine_building' };
 
+    // Sprite-space hit test FIRST: the 3D building sprite extends visually
+    // above the footprint by `rise` pixels, and construction sites have a
+    // floating hammer cue above the plaque. Tile-based hit testing misses
+    // both. Walk every city building slot and check the sprite bounds in
+    // world coords; if we hit one, redirect the tap to a tile inside its
+    // footprint so the rest of the existing dispatch logic just works.
+    let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
+    let spriteHitFootprint = null, spriteHitRise = null;
+    for (const city of world.cities) {
+      const slots = cityBuildings[city.id];
+      if (!slots) continue;
+      for (const slot of Object.values(slots)) {
+        if (!slot || slot.tileX <= 0) continue;
+        const slotTapTile = slot.built ? slot.tileType : 16;
+        if (TAP_BUILDING_ACTIONS[slotTapTile] === undefined) continue;
+        const fx0 = slot.tileX * TILE;
+        const fx1 = (slot.tileX + slot.tileW) * TILE;
+        const fy0 = slot.tileY * TILE;
+        const fy1 = (slot.tileY + slot.tileH) * TILE;
+        if (worldX < fx0 || worldX >= fx1) continue;
+        const cx = slot.tileX + (slot.tileW >> 1);
+        const cy = slot.tileY + (slot.tileH >> 1);
+        // Direct footprint hit — strongest match.
+        if (worldY >= fy0 && worldY < fy1) {
+          spriteHitFootprint = { tile: slotTapTile, tx: cx, ty: cy };
+          break;
+        }
+        // Above-footprint hit (roof rise + floating cues). Use a generous
+        // margin: full rise for built buildings, plus an extra 10px for the
+        // construction-site bobbing hammer.
+        const rise = slot.built ? Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55)) : 0;
+        const riseTop = fy0 - rise - 10;
+        if (worldY >= riseTop && worldY < fy0 && !spriteHitRise) {
+          spriteHitRise = { tile: slotTapTile, tx: cx, ty: cy };
+        }
+      }
+      if (spriteHitFootprint) break;
+    }
+    const spriteHit = spriteHitFootprint || spriteHitRise;
+    if (spriteHit) {
+      tapTile = spriteHit.tile;
+      resolvedTileX = spriteHit.tx;
+      resolvedTileY = spriteHit.ty;
+    }
+
     // If the player tapped a wall tile (3), scan the 5×5 neighbourhood for the
     // nearest building interior tile so tapping on a building's visible art still works.
-    let resolvedTileX = tapTileX, resolvedTileY = tapTileY;
-    if (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined) {
+    if (!spriteHit && (tapTile === 3 || TAP_BUILDING_ACTIONS[tapTile] === undefined)) {
       let bestDist = 9999, bestTile = null;
       for (let dy = -4; dy <= 4; dy++) {
         for (let dx = -4; dx <= 4; dx++) {
@@ -1622,7 +1691,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const ty = Math.floor(py / TILE);
     const t = tileAt(tx, ty);
     if (t === 10) return 0.45;  // forest: 45% speed
-    if (t === 11) return 0.55;  // swamp: 55% speed
+    if (t === 11) return 0.28;  // swamp: 28% speed (slowest terrain)
     return 1.0;
   }
 
@@ -2056,12 +2125,17 @@ function handleGlobalHudTap(clientX, clientY, e) {
     paintPatch(50, 155, 14, 10, 0.72);   // SW forest
     paintPatch(200, 90, 14, 10, 0.70);   // Mid-east forest (near detour)
     paintPatch(70, 50, 10, 10, 0.68);    // NW pocket forest
+    paintPatch(240, 135, 14, 10, 0.72);  // Far-east forest
+    paintPatch(115, 160, 12, 10, 0.68);  // South forest
+    paintPatch(30, 75, 10, 10, 0.65);    // Far-west forest
 
     // Swamps (tile 11)
     paintPatch(180, 72, 16, 11, 0.75);   // NE swamp
     paintPatch(88, 140, 12, 11, 0.80);   // S swamp near Crosshaven
     paintPatch(40, 165, 10, 11, 0.70);   // SW wetlands
     paintPatch(142, 108, 8, 11, 0.65);   // Central lowland bog
+    paintPatch(50, 110, 12, 11, 0.75);   // West swamp
+    paintPatch(200, 150, 10, 11, 0.68);  // SE swamp
 
     // scatter a few rocks for flavor
     for (let i = 0; i < 2600; i++) {
@@ -2165,7 +2239,21 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // Expose map array for dynamic building placement
     mapData = m;
 
-    return { m, cities: [cityA, cityB, cityC, cityD] };
+    // Collect road POI positions for minimap markers (tiles 8=camp, 9=ruins, 13=cache)
+    const pois = [];
+    for (let iy = 0; iy < MAP_H; iy++) {
+      for (let ix = 0; ix < MAP_W; ix++) {
+        const t = m[iy * MAP_W + ix];
+        if (t === 8 || t === 9 || t === 13) {
+          // Only include POIs outside city bounds
+          const inAnyCity = [cityA, cityB, cityC, cityD].some(c =>
+            ix >= c.x && ix < c.x + c.w && iy >= c.y && iy < c.y + c.h);
+          if (!inAnyCity) pois.push({ x: ix, y: iy, type: t });
+        }
+      }
+    }
+
+    return { m, cities: [cityA, cityB, cityC, cityD], pois };
   }
 
   const world = makeMap();
@@ -2199,6 +2287,8 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (id === 7) { r=167; g=139; b=250; } // shrine
         else if (id === 8) { r=217; g=119; b=6; }   // camp
         else if (id === 9) { r=156; g=163; b=175; } // ruins
+        else if (id === 10) { r=18;  g=68;  b=38;  } // forest (dark green)
+        else if (id === 11) { r=40;  g=62;  b=54;  } // swamp (dark teal-grey)
         else if (id === 13) { r=246; g=196; b=74; } // cache
         else if (id === 16) { r=100; g=70;  b=30;  } // vacant lot
         const i = (y * mini.w + x) * 4;
@@ -2298,6 +2388,27 @@ function handleGlobalHudTap(clientX, clientY, e) {
     const boots = currentGear('boots');
     player.capacity = pack.capacity;
     player.speed    = boots.speed;
+  }
+
+  function checkGuildMilestone() {
+    if (player.guildMember) return;
+    const cityIds = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+    const allRep = cityIds.every(id => (player.rep?.[id] || 0) >= 5);
+    const hasCargo = (player.gear?.pack ?? 0) >= 3; // Cargo Wagon or better
+    if (!allRep || !hasCargo) return;
+    player.guildMember = true;
+    scheduleAutoSave();
+    openEvent({
+      title: '⚜️ Merchant Guild Member',
+      text: 'Your reputation has spread across all four cities, and your cart is the envy of the road. The Merchants Guild formally recognises you as a member.',
+      choices: [
+        { label: 'Accept the honour', run: () => {
+            toast('⚜️ Merchant Guild Member — you\'ve earned it.', 4);
+            closeEvent();
+          }
+        },
+      ],
+    });
   }
 
   const CITY_RULES = {
@@ -2738,6 +2849,19 @@ const NPC_INTERACT_RADIUS = 18;
     return 1 + p;
   }
 
+  // Active world events synced from server (active_events column in world_state)
+  const worldEvents = []; // { templateId, name, cities, items, effect, startDay, endDay }
+
+  function worldEventModifier(cityId, itemId) {
+    let mult = 1.0;
+    for (const ev of worldEvents) {
+      if (ev.cities && !ev.cities.includes(cityId)) continue;
+      if (ev.items  && !ev.items.includes(itemId))  continue;
+      mult *= (ev.effect || 1.0);
+    }
+    return mult;
+  }
+
   // Trigger economy aggregation on server (called hourly via stateTime)
   let _lastEconomyAggregate = 0;
   function maybeAggregateEconomy() {
@@ -2881,11 +3005,36 @@ const NPC_INTERACT_RADIUS = 18;
     try {
       // ── 1. World time from world_state ──
       const wsRows = await fetch(
-        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed`,
+        `${ECONOMY.url}/rest/v1/world_state?id=eq.main&select=day,frac,seed,active_events,market_drift,contract_boards`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []).catch(() => []);
       if (wsRows.length > 0) {
         const ws = wsRows[0];
+        // Sync active world events
+        if (Array.isArray(ws.active_events)) {
+          const prevCount = worldEvents.length;
+          worldEvents.length = 0;
+          for (const ev of ws.active_events) worldEvents.push(ev);
+          if (worldEvents.length > prevCount) {
+            const newest = worldEvents[worldEvents.length - 1];
+            if (newest) toast(`World event: ${newest.name}`, 4);
+          }
+        }
+        // Sync market drift — server is authoritative; overrides local random drift
+        if (ws.market_drift && typeof ws.market_drift === 'object') {
+          for (const cid of Object.keys(marketDrift)) {
+            if (ws.market_drift[cid]) Object.assign(marketDrift[cid], ws.market_drift[cid]);
+          }
+        }
+        // Sync contract boards — server-regenerated every 3 game-days; all players see the same board
+        if (ws.contract_boards && typeof ws.contract_boards === 'object') {
+          for (const [cid, board] of Object.entries(ws.contract_boards)) {
+            if (Array.isArray(board) && board.length > 0 && contracts.byCity[cid] !== undefined) {
+              contracts.byCity[cid] = board;
+              contracts.lastRegenDay[cid] = Math.floor(time.day);
+            }
+          }
+        }
         if (typeof ws.day === 'number' && ws.day > time.day) {
           // Server (or another player) advanced time - catch up.
           // Cap at 30 days to avoid runaway on first load after long server-only run.
@@ -2906,7 +3055,7 @@ const NPC_INTERACT_RADIUS = 18;
 
       // ── 2. City state from city_treasury ──
       const rows = await fetch(
-        `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings`,
+        `${ECONOMY.url}/rest/v1/city_treasury?select=city_id,gold,population,hunger,city_bonus,buildings,bank_reserve,total_deposits,bankrupt_day`,
         { headers: { apikey: ECONOMY.key, Authorization: `Bearer ${ECONOMY.key}` } }
       ).then(r => r.ok ? r.json() : []);
 
@@ -2921,6 +3070,19 @@ const NPC_INTERACT_RADIUS = 18;
         if (cityPop[cid]) {
           if (row.population) cityPop[cid].pop = row.population;
           if (row.hunger != null) cityPop[cid].hunger = row.hunger;
+        }
+        // Bank vault (shared across all players)
+        if (bankVault[cid]) {
+          if (Number.isFinite(row.bank_reserve)) bankVault[cid].reserve = row.bank_reserve;
+          bankVault[cid].bankruptDay = row.bankrupt_day ?? null;
+          // If the server marked this bank bankrupt while we have a local deposit,
+          // clear it — the player took the haircut already (vault collapsed for all).
+          if (row.bankrupt_day !== null && playerBank.deposits[cid]) {
+            delete playerBank.deposits[cid];
+            delete playerBank.loans[cid];
+            const cityObj = getCityById(cid);
+            toast(`🏦 Bank of ${cityObj?.name || cid} collapsed — deposit lost.`, 5);
+          }
         }
         // City bonuses
         if (row.city_bonus && typeof row.city_bonus === 'object' && cityBonus[cid]) {
@@ -3043,11 +3205,12 @@ const NPC_INTERACT_RADIUS = 18;
       crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40 },
       ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70 },
     };
-    const mult = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
+    const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
-    const wob = dayWobble(cityId, item);
-    const econ = economyModifier(cityId, item.id);
-    return Math.max(1, Math.round(item.base * mult * drift * wob * econ));
+    const wob   = dayWobble(cityId, item);
+    const econ  = economyModifier(cityId, item.id);
+    const evMod = worldEventModifier(cityId, item.id);
+    return Math.max(1, Math.round(item.base * mult * drift * wob * econ * evMod));
   }
 
   function quoteFor(cityId, item) {
@@ -3546,10 +3709,12 @@ let activeNpcCityId = null;
 const AI_TRADERS = [];
 
 const TRADER_DEFS = [
-  { id: 'olt_the_bold',    name: 'Olt the Bold',    style: 'guard',    personality: 'aggressive',  color: '#ef4444', speed: 75 },
-  { id: 'mira_silvertong', name: 'Mira Silvertongue',style: 'scribe',   personality: 'opportunist', color: '#a78bfa', speed: 60 },
-  { id: 'cargo_dom',       name: 'Cargo Dom',       style: 'broker',   personality: 'cautious',    color: '#f59e0b', speed: 50 },
-  { id: 'wren_the_swift',  name: 'Wren the Swift',  style: 'smuggler', personality: 'aggressive',  color: '#34d399', speed: 85 },
+  { id: 'olt_the_bold',    name: 'Olt the Bold',      style: 'guard',    personality: 'aggressive',  color: '#ef4444', speed: 75 },
+  { id: 'mira_silvertong', name: 'Mira Silvertongue', style: 'scribe',   personality: 'opportunist', color: '#a78bfa', speed: 60 },
+  { id: 'cargo_dom',       name: 'Cargo Dom',         style: 'broker',   personality: 'cautious',    color: '#f59e0b', speed: 50 },
+  { id: 'wren_the_swift',  name: 'Wren the Swift',    style: 'smuggler', personality: 'aggressive',  color: '#34d399', speed: 85 },
+  { id: 'pilgrim_bex',     name: 'Bex the Pilgrim',   style: 'scribe',   personality: 'opportunist', color: '#86efac', speed: 55 },
+  { id: 'iron_marek',      name: 'Iron Marek',        style: 'guard',    personality: 'aggressive',  color: '#fb923c', speed: 80 },
 ];
 
 // Road waypoint paths between cities (pixel coords)
@@ -5093,11 +5258,11 @@ const intelUI = {
   tab: 'buy', // 'buy' | 'ledger'
 };
 
-function openIntelUI(npc, cityId) {
+function openIntelUI(npc, cityId, initialTab) {
   intelUI.open = true;
   intelUI.npc = npc;
   intelUI.cityId = cityId;
-  intelUI.tab = 'buy';
+  intelUI.tab = initialTab || (npc ? 'buy' : 'ledger');
   renderIntelModal();
 }
 
@@ -5155,7 +5320,7 @@ function renderIntelModal() {
         <button id="cr-intel-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
-        <button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>
+        ${intelUI.npc ? `<button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>` : ''}
         <button data-tab="ledger" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='ledger'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='ledger'?'#f0d080':'#a09060'}">Ledger (${activeCards.length})</button>
       </div>
       ${intelUI.tab === 'buy' ? `
@@ -5289,68 +5454,251 @@ function isNpcBlocking(px, py) {
   return false;
 }
 
+// ── Chibi character sprite (translated from the Plumberry Trail design) ────
+// Logical design size: 40w × 48h (SVG viewBox 0 0 40 48). The chibi's anchor
+// is the chest/waist at design coord (20, 36) so callers can ctx.translate to
+// the entity's existing world position. Caller is responsible for save/restore.
+//   opts: { skin, hair, shirt, hat }
+//   scale: design pixel → canvas pixel (typically r/12 so total height ≈ 4r)
+//   flip:  true to mirror horizontally (facing left)
+function _drawChibi(opts, scale, flip) {
+  const ink = '#3b2a1d';
+  ctx.scale(scale * (flip ? -1 : 1), scale);
+  ctx.translate(-20, -36);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Drop shadow (under feet)
+  ctx.fillStyle = 'rgba(59,42,29,0.32)';
+  ctx.beginPath();
+  ctx.ellipse(20, 47, 11, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body / shirt
+  ctx.fillStyle = opts.shirt;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(8, 36);
+  ctx.quadraticCurveTo(8, 28, 20, 28);
+  ctx.quadraticCurveTo(32, 28, 32, 36);
+  ctx.lineTo(32, 44);
+  ctx.quadraticCurveTo(32, 46, 30, 46);
+  ctx.lineTo(10, 46);
+  ctx.quadraticCurveTo(8, 46, 8, 44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Arms (skin ellipses)
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.ellipse(7, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(33, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Collar V
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(16, 28); ctx.lineTo(20, 32); ctx.lineTo(24, 28);
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(20, 18, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Hair (front fringe)
+  ctx.fillStyle = opts.hair;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(10, 16);
+  ctx.quadraticCurveTo(10, 6, 20, 6);
+  ctx.quadraticCurveTo(30, 6, 30, 16);
+  ctx.quadraticCurveTo(28, 12, 24, 13);
+  ctx.quadraticCurveTo(22, 9, 18, 12);
+  ctx.quadraticCurveTo(14, 11, 12, 14);
+  ctx.quadraticCurveTo(11, 15, 10, 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  _drawChibiHat(opts.hat || 'none', ink);
+
+  // Cheeks
+  ctx.fillStyle = '#f29ab0';
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath(); ctx.ellipse(13.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(26.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Eyes
+  ctx.fillStyle = ink;
+  ctx.beginPath(); ctx.arc(16, 18, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(24, 18, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(16.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(24.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
+
+  // Smile
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(17, 22.5);
+  ctx.quadraticCurveTo(20, 24.5, 23, 22.5);
+  ctx.stroke();
+}
+
+function _drawChibiHat(kind, ink) {
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.6;
+
+  if (kind === 'straw') {
+    ctx.fillStyle = '#e6c07b';
+    ctx.beginPath(); ctx.ellipse(20, 9, 14, 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f0d28e';
+    ctx.beginPath();
+    ctx.moveTo(13, 9);
+    ctx.quadraticCurveTo(13, 3, 20, 3);
+    ctx.quadraticCurveTo(27, 3, 27, 9);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#a87432';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(13, 8);
+    ctx.quadraticCurveTo(20, 7, 27, 8);
+    ctx.stroke();
+  } else if (kind === 'cap') {
+    ctx.fillStyle = '#5d8fb8';
+    ctx.beginPath();
+    ctx.moveTo(11, 12);
+    ctx.quadraticCurveTo(11, 4, 20, 4);
+    ctx.quadraticCurveTo(29, 4, 29, 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a6a90';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(11, 12);
+    ctx.quadraticCurveTo(15, 14, 20, 14);
+    ctx.quadraticCurveTo(25, 14, 31, 12);
+    ctx.lineTo(31, 14);
+    ctx.quadraticCurveTo(24, 16, 20, 16);
+    ctx.quadraticCurveTo(15, 16, 11, 14);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'flower') {
+    ctx.fillStyle = '#e57389';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(13, 8, 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff3c2';
+    ctx.beginPath(); ctx.arc(13, 8, 0.8, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === 'sailor') {
+    ctx.fillStyle = '#fdfaf0';
+    ctx.beginPath(); ctx.ellipse(20, 10, 11, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(12, 10);
+    ctx.quadraticCurveTo(12, 4, 20, 4);
+    ctx.quadraticCurveTo(28, 4, 28, 10);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#5d8fb8';
+    ctx.fillRect(15, 6, 10, 2);
+  } else if (kind === 'helm') {
+    ctx.fillStyle = '#7a8a96';
+    ctx.beginPath();
+    ctx.moveTo(10, 14);
+    ctx.quadraticCurveTo(10, 4, 20, 4);
+    ctx.quadraticCurveTo(30, 4, 30, 14);
+    ctx.lineTo(28, 14); ctx.lineTo(28, 18); ctx.lineTo(26, 18);
+    ctx.lineTo(26, 15); ctx.lineTo(14, 15); ctx.lineTo(14, 18); ctx.lineTo(12, 18); ctx.lineTo(12, 14);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a6a90';
+    ctx.fillRect(19, 3, 2, 4); // crest
+  } else if (kind === 'hood') {
+    ctx.fillStyle = '#5b5561';
+    ctx.beginPath();
+    ctx.moveTo(8, 22);
+    ctx.quadraticCurveTo(6, 8, 20, 6);
+    ctx.quadraticCurveTo(34, 8, 32, 22);
+    ctx.lineTo(28, 18);
+    ctx.quadraticCurveTo(28, 14, 20, 12);
+    ctx.quadraticCurveTo(12, 14, 12, 18);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'bakerCap') {
+    ctx.fillStyle = '#fdfaf0';
+    ctx.beginPath();
+    ctx.moveTo(12, 12);
+    ctx.quadraticCurveTo(8, 2, 20, 2);
+    ctx.quadraticCurveTo(32, 2, 28, 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(12, 12); ctx.lineTo(28, 12);
+    ctx.stroke();
+  } else if (kind === 'scribeHood') {
+    ctx.fillStyle = '#a87842';
+    ctx.beginPath();
+    ctx.moveTo(8, 20);
+    ctx.quadraticCurveTo(8, 6, 20, 6);
+    ctx.quadraticCurveTo(32, 6, 32, 20);
+    ctx.lineTo(30, 20);
+    ctx.quadraticCurveTo(30, 12, 20, 12);
+    ctx.quadraticCurveTo(10, 12, 10, 20);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === 'travelhat') {
+    // Wide-brim with crown + feather (player)
+    ctx.fillStyle = '#5a3a1a';
+    ctx.beginPath(); ctx.ellipse(20, 9, 15, 2.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#7a4a26';
+    ctx.beginPath();
+    ctx.moveTo(13, 9);
+    ctx.quadraticCurveTo(13, 1, 20, 1);
+    ctx.quadraticCurveTo(27, 1, 27, 9);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(13, 7); ctx.lineTo(27, 7);
+    ctx.stroke();
+    ctx.strokeStyle = '#e57389';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(26, 3);
+    ctx.quadraticCurveTo(33, -3, 33, 4);
+    ctx.stroke();
+  }
+}
+
+// Per-style palette for NPC chibis. Falls back to a default when unknown.
+const _NPC_STYLE_OPTS = {
+  scribe:   { skin: '#f5d2b8', hair: '#3b2a1d', shirt: '#a87842', hat: 'scribeHood' },
+  baker:    { skin: '#f5d2b8', hair: '#8a5a2e', shirt: '#d9b38c', hat: 'bakerCap' },
+  guard:    { skin: '#e6c08a', hair: '#3b2a1d', shirt: '#7a8a96', hat: 'helm' },
+  fisher:   { skin: '#f5d2b8', hair: '#8a5a2e', shirt: '#7fbf83', hat: 'sailor' },
+  smuggler: { skin: '#d2b88a', hair: '#3b2a1d', shirt: '#5b5561', hat: 'hood' },
+  broker:   { skin: '#e6c08a', hair: '#5a3a1a', shirt: '#b0a38a', hat: 'cap' },
+};
+const _NPC_DEFAULT_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#c7b9a5', hat: 'straw' };
+
 function drawNpcEntity(e) {
   const sx = e.x - camera.x;
   const sy = e.y - camera.y;
-  const r = e.radius;
+  const r = e.radius || 6;
+
+  const opts = _NPC_STYLE_OPTS[e.style] || _NPC_DEFAULT_OPTS;
+  const scale = r / 12;
+  // Idle bob — phase varies per NPC so they don't all bob in sync
+  const phase = (typeof e.id === 'string') ? e.id.charCodeAt(0) * 0.37 : 0;
+  const bob = Math.sin(stateTime * 0.0024 + phase) * (r * 0.10);
+  const flip = (e.facing && typeof e.facing.x === 'number') ? e.facing.x < -0.1 : false;
+
   ctx.save();
-  ctx.translate(sx, sy);
-
-  // base body
-  ctx.fillStyle = 'rgba(220, 210, 190, 0.95)';
-  ctx.beginPath();
-  ctx.arc(0, -r, r * 0.7, 0, Math.PI * 2);
-  ctx.fill();
-
-  if (e.style === 'scribe') {
-    ctx.fillStyle = '#c7a97a'; // robe
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#f1e7c8'; // scroll
-    ctx.fillRect(r * 0.4, r * 0.2, r * 0.9, r * 0.5);
-  } else if (e.style === 'baker') {
-    ctx.fillStyle = '#d9b38c';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#f4f1e8'; // cap
-    ctx.fillRect(-r * 0.8, -r * 1.6, r * 1.6, r * 0.6);
-    ctx.fillStyle = '#e0c4a8'; // apron
-    ctx.fillRect(-r * 0.4, r * 0.4, r * 0.8, r * 1.2);
-  } else if (e.style === 'guard') {
-    ctx.fillStyle = '#9aa3b2';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#6b7280'; // helm
-    ctx.fillRect(-r * 0.9, -r * 1.8, r * 1.8, r * 0.8);
-    ctx.strokeStyle = '#cbd5e1'; // spear
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(r * 1.2, r * 0.1);
-    ctx.lineTo(r * 1.6, r * 1.8);
-    ctx.stroke();
-  } else if (e.style === 'fisher') {
-    ctx.fillStyle = '#9ec5a1';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#6b8f9c'; // hat
-    ctx.fillRect(-r, -r * 1.6, r * 2, r * 0.6);
-    ctx.strokeStyle = '#d1d5db'; // hook
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-r * 1.3, r * 0.2);
-    ctx.lineTo(-r * 1.8, r * 1.4);
-    ctx.stroke();
-  } else if (e.style === 'smuggler') {
-    ctx.fillStyle = '#5b5561';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#3f3a45'; // hood
-    ctx.fillRect(-r, -r * 1.7, r * 2, r * 0.8);
-  } else if (e.style === 'broker') {
-    ctx.fillStyle = '#b0a38a';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-    ctx.fillStyle = '#8b7b63'; // ledger
-    ctx.fillRect(-r * 1.4, r * 0.4, r * 0.8, r * 0.7);
-  } else {
-    ctx.fillStyle = '#c7b9a5';
-    ctx.fillRect(-r, -r * 0.2, r * 2, r * 2.2);
-  }
-
+  ctx.translate(sx, sy + bob);
+  _drawChibi(opts, scale, flip);
   ctx.restore();
 }
 
@@ -5440,8 +5788,8 @@ function drawNpcBubble() {
     for (const [cid, rule] of Object.entries(CITY_RULES)) {
       const state = cityPop[cid];
       if (!state) continue;
-      const subsidyReduction = 1 - (cityBonus[cid]?.foodSubsidy || 0);
-      state.hunger = Math.min(1, state.hunger + rule.foodDemand * (state.pop / rule.population) * subsidyReduction);
+      // hunger is now ticked server-side (world_service.mjs tickHunger) and
+      // loaded via syncWorldState() → city_treasury.hunger. Read-only here.
       const pressureBoost = state.hunger * 0.4;
       if (pressureBoost > 0.02) {
         if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
@@ -5514,12 +5862,17 @@ function drawNpcBubble() {
   }
 
   // ── Find building slot by map tile position ──────────────────────────────
+  // Returns the unbuilt slot whose footprint contains (tx, ty), or null.
   function findSlotAtTile(cityId, tx, ty) {
     const slots = cityBuildings[cityId];
     if (!slots) return null;
     for (const [key, slot] of Object.entries(slots)) {
       if (slot.built) continue;
-      if (Math.abs(tx - slot.tileX) <= 1 && Math.abs(ty - slot.tileY) <= 1) return { key, slot };
+      if (slot.tileX <= 0 || slot.tileY <= 0) continue;
+      if (tx >= slot.tileX && tx < slot.tileX + slot.tileW &&
+          ty >= slot.tileY && ty < slot.tileY + slot.tileH) {
+        return { key, slot };
+      }
     }
     return null;
   }
@@ -5585,31 +5938,52 @@ function drawNpcBubble() {
         if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
       }
     }
-    // Write buildings + city_bonus to DB (multiplayer - other players see donation/build)
+    // Atomic RPC: locks the city_treasury row, increments playerFunded, upgrades if complete,
+    // and logs the donation — all in one transaction (no concurrent-write races).
     if (!__QA.enabled) {
-      const buildingsPayload = {};
-      for (const [k, s] of Object.entries(cityBuildings[cityId] || {})) {
-        buildingsPayload[k] = { level: s.level, built: s.built, playerFunded: s.playerFunded };
-      }
-      // Upsert so it works even if the city_treasury row doesn't exist yet
-      fetch(`${ECONOMY.url}/rest/v1/city_treasury`, {
+      fetch(`${ECONOMY.url}/rest/v1/rpc/donate_to_building`, {
         method: 'POST',
-        headers: { ...economyHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({
-          city_id: cityId,
-          buildings: buildingsPayload,
-          city_bonus: { ...(cityBonus[cityId] || {}) }, // write bonus so other players see it immediately
+          p_uid:       player.uid || '0',
+          p_city_id:   cityId,
+          p_slot_key:  key,
+          p_amount:    amount,
+          p_next_cost: nextCost,
         }),
-      }).catch((e) => {
-        console.warn('[donateToSlot] DB write failed:', e);
-        // Refund if donation was recorded locally but DB failed (conservative)
-        // Note: only refund playerFunded - don't reverse a build that already happened
-        if (slot.playerFunded > 0 && !slot.built) {
-          player.gold += amount;
-          slot.playerFunded = Math.max(0, slot.playerFunded - amount);
-          toast('Network error - donation refunded.', 3);
-        }
-      });
+      })
+        .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
+        .then(result => {
+          if (!result.ok) {
+            player.gold += amount;
+            slot.playerFunded = Math.max(0, (slot.playerFunded || 0) - amount);
+            toast(`Donation failed: ${result.error || 'server error'}`, 3);
+            return;
+          }
+          // Merge authoritative buildings state back (captures concurrent donations from other players)
+          if (result.buildings && typeof result.buildings === 'object') {
+            for (const [k, saved] of Object.entries(result.buildings)) {
+              if (!cityBuildings[cityId]?.[k]) continue;
+              const s = cityBuildings[cityId][k];
+              if (saved.level > s.level) {
+                s.level = saved.level;
+                s.built = saved.built ?? s.built;
+                s.playerFunded = saved.playerFunded ?? 0;
+                if (s.built) buildSlotOnMap(cityId, k, s);
+              } else {
+                s.playerFunded = saved.playerFunded ?? s.playerFunded;
+              }
+            }
+          }
+        })
+        .catch(e => {
+          console.warn('[donateToSlot] RPC failed:', e);
+          if (slot.playerFunded > 0 && !slot.built) {
+            player.gold += amount;
+            slot.playerFunded = Math.max(0, slot.playerFunded - amount);
+            toast('Network error — donation refunded.', 3);
+          }
+        });
     }
     ui.buildingDonateOpen = false;
     dom.key = '';
@@ -5643,12 +6017,8 @@ function drawNpcBubble() {
 
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
-      // ── Treasury → Bank funding (20% of treasury flows to bank vault each cycle) ──
-      const vaultShare = Math.floor(treasury.gold * 0.20);
-      if (vaultShare > 0 && bankVault[cid]) {
-        treasury.gold -= vaultShare;
-        bankVault[cid].reserve += vaultShare;
-      }
+      // Treasury → Bank funding (20% each invest cycle) is now done server-side
+      // in world_service.mjs tickBankSolvency() so it applies to the shared vault.
 
       // ── If treasury is critically low, bank vault bleeds (no new investment) ──
       if (treasury.gold < 20 && bankVault[cid]) {
@@ -5657,7 +6027,7 @@ function drawNpcBubble() {
 
       // ── City investment: spend treasury on building slots ──
       const slots = cityBuildings[cid];
-      if (!slots) { checkBankSolvency(cid); continue; }
+      if (!slots) continue;
 
       // Find affordable next-level slots, cheapest first
       const candidates = Object.entries(slots)
@@ -5700,8 +6070,7 @@ function drawNpcBubble() {
         }
       }
 
-      // ── Check bank solvency after funding changes ──
-      checkBankSolvency(cid);
+      // Bank solvency check moved to server (tickBankSolvency in world_service.mjs)
 
       // ── Push full treasury + buildings to DB so other players see the world ──
       pushCityTreasuryToDb(cid);
@@ -5750,24 +6119,14 @@ function drawNpcBubble() {
       cityMineTick();
       // City investment every 7 days
       if (time.day % 7 === 0) cityInvestTick();
-      // Daily bank solvency check (catches slow vault drain between invest ticks)
-      for (const cid of Object.keys(bankVault)) checkBankSolvency(cid);
-      // Contract boards refresh every CONTRACT_REGEN_DAYS days (silent background regen)
-      for (const cid of Object.keys(contracts.byCity)) {
-        const last = contracts.lastRegenDay[cid] || 1;
-        if (time.day - last >= CONTRACT_REGEN_DAYS) {
-          contracts.byCity[cid] = regenContractsForCity(cid);
-          contracts.lastRegenDay[cid] = time.day;
-        }
-      }
-      // tiny drift; mean ~0 over time; clamp to keep prices sane
-      for (const cityId of Object.keys(marketDrift)) {
-        for (const it of ITEMS) {
-          const r = rand01();
-          const delta = (r - 0.5) * 0.04; // +/-2% per day
-          marketDrift[cityId][it.id] = clamp(marketDrift[cityId][it.id] * (1 + delta), 0.85, 1.20);
-        }
-      }
+      // Bank solvency is now ticked server-side (world_service.mjs tickBankSolvency).
+      // Local clients receive bankrupt_day via syncWorldState() and react accordingly.
+      // Contract boards now regenerate server-side (world_service.mjs regenerateContracts)
+      // and arrive via syncWorldState() → world_state.contract_boards JSONB.
+      // Local regen kept as a fallback if the server is unreachable on first load.
+      // Market drift is now server-authoritative (world_service.mjs tickMarketDrift).
+      // Clients receive it via syncWorldState() → market_drift column.
+      // Local ticking removed to prevent per-player price divergence.
     }
 
     if (advanced > 0) {
@@ -5779,21 +6138,21 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.4.49',
+    version: 'v0.5.0',
     whatsNew: [
-      'Ironholt: Bank, Guild Hall and Workers Lodge now render as proper 3D sprite buildings (added as pre-built civic slots so they match the visual weight of the slot-driven Market/Warehouse/Mine).',
-      'Sprite renderer now has distinct facades for tile-13 (Bank — dressed stone + gilded trim), tile-4 (Barracks — slate fort), and tile-19 (Mine — dark stone + lantern glow).',
-      '3D building rises capped to one tile so vertically-stacked buildings no longer overlap each other.',
-      'Mine slot uses its own tile type and labels as "Mine" instead of "Warehouse".',
-      'Granary / Warehouse / Mine slots shifted one row south to relieve centre crowding.',
-      'Mining: Ironholt mine building slot produces daily ore/coal (rare gems) into the city treasury.',
-      'Player-active mining: ore-vein tiles spawn near Ironholt mountains. Tap a vein to mine; uses stamina, 30s vein cooldown.',
-      'Items: Coal (bulk fuel, base 8g) and Gemstones (rare, base 80g, low weight).',
+      'Multiplayer world: market prices, hunger, ore veins, caches, bank reserves and contract boards are now shared state — all players see the same world.',
+      'World events: harvest gluts, droughts, pirate raids and more fire every 7–14 game-days, shifting prices city-wide for everyone.',
+      '2 new NPC traders: Bex the Pilgrim (opportunist scribe) and Iron Marek (aggressive guard).',
+      'Atomic building donations: player donations to building slots are now serialised server-side — no more lost contributions from concurrent players.',
+      'Shared bank vault: deposits from all players pool into the same city reserve; bank solvency ticked server-side.',
+      'Global ore vein cooldowns: the same vein cannot be mined by two players within 30 seconds.',
+      'Global cache loot: a cache tile can only be opened once — first player wins, others see "Already looted".',
+      'Shared contract boards: all players at the same city see the same listing, regenerated every 3 game-days by the world service.',
     ],
     whatsNext: [
-      'Supabase Realtime channel for instant presence updates (currently 5s poll).',
       'World news feed: log notable world events (building built, city grew, famine).',
       'Player-to-player trade: offer/accept item trades with nearby players.',
+      'Supabase Realtime channel for instant presence updates (currently 5-second poll).',
     ],
   };
 
@@ -5816,6 +6175,7 @@ function drawNpcBubble() {
     npcDiag: __NPCDIAG_STATE,
     mobileHudExpanded: false,
     _hudCityTap: null,
+    _hudContractTap: null,
     _hudExpandedText: '',
     _hudExpandedVisible: false,
     _hudTopH: 0,
@@ -6327,6 +6687,7 @@ function drawNpcBubble() {
         player.gold -= g.cost;
         player.gear[slot] = tier;
         applyGearStats();
+        checkGuildMilestone();
         scheduleAutoSave();
         showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped - ${g.desc}`);
         toast(`${g.icon} ${g.name} equipped!`, 2.5);
@@ -6590,10 +6951,18 @@ function drawNpcBubble() {
       uiRoot.querySelectorAll('[data-bank-tab]').forEach(el => el.addEventListener('click', () => { ui.bankTab = el.getAttribute('data-bank-tab'); dom.key = ''; domRender(); }));
 
       if (!isBankrupt) {
+        const bankRPC = (op, body) => {
+          if (__QA.enabled || !ECONOMY.enabled) return Promise.resolve({ ok: true });
+          return fetch(`${ECONOMY.url}/rest/v1/rpc/${op}`, {
+            method: 'POST',
+            headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+            body: JSON.stringify(body),
+          }).then(r => r.ok ? r.json() : r.text().then(t => ({ ok: false, error: t })));
+        };
         const bankDeposit = (amt) => {
           if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
+          // Optimistic local update
           player.gold -= amt;
-          // Deposit goes into vault reserve
           if (bankVault[cid]) bankVault[cid].reserve += amt;
           if (!playerBank.deposits[cid]) {
             playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
@@ -6604,6 +6973,23 @@ function drawNpcBubble() {
             d.depositDay = Math.floor(time.day);
           }
           toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          // Atomic shared-vault update
+          bankRPC('bank_deposit', { p_city_id: cid, p_amount: amt }).then(res => {
+            if (!res?.ok) {
+              // Revert optimistic local change
+              player.gold += amt;
+              if (bankVault[cid]) bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - amt);
+              const d = playerBank.deposits[cid];
+              if (d) {
+                d.amount -= amt;
+                if (d.amount <= 0) delete playerBank.deposits[cid];
+              }
+              toast(`Deposit failed: ${res?.error || 'server error'}`, 3);
+              dom.key = ''; domRender();
+            } else if (Number.isFinite(res.bank_reserve) && bankVault[cid]) {
+              bankVault[cid].reserve = res.bank_reserve; // reconcile from server
+            }
+          });
         };
         uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
         uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
@@ -6614,36 +7000,43 @@ function drawNpcBubble() {
           const d = playerBank.deposits[cid];
           const days = Math.max(0, Math.floor(time.day) - d.depositDay);
           const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
-          const vault = bankVault[cid];
-          if (vault && vault.reserve < total) {
-            toast(`⚠️ Vault only has ${vault.reserve}g - partial withdrawal only.`, 3);
-            const partial = vault.reserve;
-            player.gold += partial;
-            vault.reserve = 0;
+          // Atomic withdraw — server returns actual amount paid (partial if insolvent)
+          bankRPC('bank_withdraw', { p_city_id: cid, p_amount: total }).then(res => {
+            if (!res?.ok) {
+              toast(`Withdraw failed: ${res?.error || 'server error'}`, 3);
+              return;
+            }
+            const paid = Number.isFinite(res.paid) ? res.paid : total;
+            player.gold += paid;
+            if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
             delete playerBank.deposits[cid];
-            checkBankSolvency(cid);
+            if (paid < total) toast(`⚠️ Vault paid ${paid}g of ${total}g owed.`, 3);
+            else toast(`Withdrew ${paid}g (incl. interest).`, 2);
             scheduleAutoSave(); dom.key = ''; domRender();
-            return;
-          }
-          player.gold += total;
-          if (vault) vault.reserve = Math.max(0, vault.reserve - total);
-          delete playerBank.deposits[cid];
-          toast(`Withdrew ${total}g (incl. interest).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          });
         });
 
         const maxLoan = Math.min(200, Math.floor((bankVault[cid]?.reserve || 0) * 0.6));
 
         const takeLoan = (amt) => {
           if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
-          const v = bankVault[cid];
-          if (!v || v.reserve < amt) { toast(`Vault can only lend ${v?.reserve || 0}g right now.`, 2); return; }
-          const feeAmt = Math.round(amt * BANK_LOAN_RATE);
-          const repayAmt = amt + feeAmt;
-          // Store principal separately so overdue penalty compounds on original borrowed amount, not inflated repay total
-          playerBank.loans[cid] = { principal: amt, amount: repayAmt, fee: feeAmt, dueDay: Math.floor(time.day) + 7 };
-          player.gold += amt;
-          v.reserve -= amt; // loan comes out of vault
-          toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3); scheduleAutoSave(); dom.key = ''; domRender();
+          // Atomic loan — server checks reserve and deducts; client only commits on success
+          bankRPC('bank_loan', { p_city_id: cid, p_amount: amt }).then(res => {
+            if (!res?.ok) {
+              const reserve = res?.bank_reserve ?? 0;
+              toast(res?.error === 'insufficient reserve'
+                ? `Vault can only lend ${reserve}g right now.`
+                : `Loan failed: ${res?.error || 'server error'}`, 3);
+              return;
+            }
+            const feeAmt = Math.round(amt * BANK_LOAN_RATE);
+            const repayAmt = amt + feeAmt;
+            playerBank.loans[cid] = { principal: amt, amount: repayAmt, fee: feeAmt, dueDay: Math.floor(time.day) + 7 };
+            player.gold += amt;
+            if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
+            toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3);
+            scheduleAutoSave(); dom.key = ''; domRender();
+          });
         };
         uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
         uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
@@ -6653,15 +7046,27 @@ function drawNpcBubble() {
           const l = playerBank.loans[cid];
           if (!l) { toast('No loan here.', 2); return; }
           const overdue = Math.max(0, Math.floor(time.day) - l.dueDay);
-          // Penalty on original principal only, not on the already-interest-inflated repay amount
-          const basePrincipal = l.principal ?? l.amount; // fallback for legacy saves
+          const basePrincipal = l.principal ?? l.amount;
           const penalty = overdue > 0 ? Math.round(basePrincipal * 0.05 * overdue) : 0;
           const total = l.amount + penalty;
           if (player.gold < total) { toast(`Need ${total}g to repay${penalty > 0 ? ` (incl. ${penalty}g overdue penalty)` : ''}.`, 2); return; }
+          // Optimistic local update
           player.gold -= total;
-          if (bankVault[cid]) bankVault[cid].reserve += total; // repayment flows back to vault
           delete playerBank.loans[cid];
-          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2); scheduleAutoSave(); dom.key = ''; domRender();
+          toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2);
+          scheduleAutoSave(); dom.key = ''; domRender();
+          // Return funds to shared vault
+          bankRPC('bank_repay', { p_city_id: cid, p_amount: total }).then(res => {
+            if (!res?.ok) {
+              // RPC failed — revert (rare; player loses sync but no money disappears)
+              player.gold += total;
+              playerBank.loans[cid] = l;
+              toast(`Repay sync failed: ${res?.error || 'server error'}`, 3);
+              dom.key = ''; domRender();
+            } else if (bankVault[cid] && Number.isFinite(res.bank_reserve)) {
+              bankVault[cid].reserve = res.bank_reserve;
+            }
+          });
         });
       }
       return;
@@ -7031,6 +7436,9 @@ function drawNpcBubble() {
     mineCooldown: {},
     mineStamina: 100,
     _mineStaminaTickAt: 0,
+
+    guildMember: false, // true once Merchant Guild milestone is achieved
+    _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
   // --- Save/Load (localStorage)
@@ -7126,7 +7534,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.4.49',
+      buildVersion: 'v0.5.0',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7140,6 +7548,7 @@ function drawNpcBubble() {
         facing: { ...player.facing },
         intelLedger: player.intelLedger ? [...player.intelLedger] : [],
         intelSells: player.intelSells || 0,
+        guildMember: player.guildMember || false,
         gear: { ...player.gear },
         mineCooldown: { ...(player.mineCooldown || {}) },
         mineStamina: typeof player.mineStamina === 'number' ? player.mineStamina : 100,
@@ -7316,9 +7725,25 @@ function drawNpcBubble() {
     applyGearStats();
     // Restore time
     Object.assign(time, state.time);
-    // Restore market drift
+    // Restore market drift — normalise 50% toward 1.0 on load so stale
+    // extremes correct themselves after a real-world break.
     for (const cid of Object.keys(marketDrift)) {
-      if (state.marketDrift?.[cid]) Object.assign(marketDrift[cid], state.marketDrift[cid]);
+      const saved = state.marketDrift?.[cid];
+      if (!saved) continue;
+      for (const itemId of Object.keys(marketDrift[cid])) {
+        if (saved[itemId] !== undefined) {
+          marketDrift[cid][itemId] = 1 + (saved[itemId] - 1) * 0.5;
+        }
+      }
+    }
+    if (typeof player.guildMember !== 'boolean') player.guildMember = false;
+    // Re-check milestone silently on load (no event, just ensures flag is set for saves
+    // that predate this feature where conditions may already be met)
+    if (!player.guildMember) {
+      const cityIds = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+      if (cityIds.every(id => (player.rep?.[id] || 0) >= 5) && (player.gear?.pack ?? 0) >= 3) {
+        player.guildMember = true;
+      }
     }
     // Restore contracts
     contracts.active = state.contracts?.active || null;
@@ -7551,6 +7976,7 @@ function drawNpcBubble() {
       return false;
     }
     const key = ty * MAP_W + tx;
+    // Local debounce: prevent spam-tap before the RPC responds
     const cd = player.mineCooldown[key] || 0;
     if (stateTime < cd) {
       const left = Math.ceil((cd - stateTime) / 1000);
@@ -7565,21 +7991,45 @@ function drawNpcBubble() {
       toast('Cargo full — drop some load first.', 2);
       return false;
     }
-    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
-    const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
-    player.inv.ore = (player.inv.ore || 0) + oreQty;
-    let bonus = '';
-    if (Math.random() < 0.10) {
-      player.inv.coal = (player.inv.coal || 0) + 1;
-      bonus += ' +1 coal';
-    }
-    if (Math.random() < 0.05) {
-      player.inv.gem = (player.inv.gem || 0) + 1;
-      bonus += ' +1 GEM!';
-    }
+    // Optimistic local cooldown so the player can't tap twice before RPC responds
     player.mineCooldown[key] = stateTime + 30000;
-    toast(`Mined ${oreQty} ore${bonus}`, 2.5);
-    saveGame(true);
+    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
+
+    function _doMineYield() {
+      const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
+      player.inv.ore = (player.inv.ore || 0) + oreQty;
+      let bonus = '';
+      if (Math.random() < 0.10) { player.inv.coal = (player.inv.coal || 0) + 1; bonus += ' +1 coal'; }
+      if (Math.random() < 0.05) { player.inv.gem  = (player.inv.gem  || 0) + 1; bonus += ' +1 GEM!'; }
+      toast(`Mined ${oreQty} ore${bonus}`, 2.5);
+      saveGame(true);
+    }
+
+    if (!__QA.enabled && ECONOMY.enabled) {
+      fetch(`${ECONOMY.url}/rest/v1/rpc/mine_ore_vein`, {
+        method: 'POST',
+        headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+        body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: String(key) }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(result => {
+          if (result?.ok) {
+            _doMineYield();
+          } else {
+            // Another player mined this vein; roll back stamina + cooldown
+            player.mineStamina = Math.min(100, (player.mineStamina || 0) + 15);
+            const msLeft = result?.cooldown_remaining_ms || 30000;
+            player.mineCooldown[key] = stateTime + msLeft;
+            toast(`Another miner just worked this vein — try again in ${Math.ceil(msLeft / 1000)}s.`, 2.5);
+          }
+        })
+        .catch(() => {
+          // Network failure: apply yield optimistically
+          _doMineYield();
+        });
+    } else {
+      _doMineYield();
+    }
     return true;
   }
 
@@ -7972,6 +8422,7 @@ function drawNpcBubble() {
     travel: 0,
     cooldown: 0,
     dayCarry: 0, // accumulates fractional day progress from movement
+    lastPatrolDay: -99, // tracks last patrol encounter day
   };
 
   // Cache POIs (tile 13) are single-use per save.
@@ -8049,28 +8500,55 @@ function drawNpcBubble() {
         text: 'A half-buried stash sits beneath loose stones. Open it?',
         choices: [
           { label: 'Open it', run: () => {
-              openedCaches.add(key);
-
-              // Deterministic reward via rand01 (seeded), so QA is stable.
-              const r = rand01();
-              if (r < 0.55) {
-                const g = 6 + Math.floor(rand01() * 15);
-                player.gold += g;
-                toast(`Cache: +${g}g`, 2.2);
-              } else if (r < 0.85) {
-                const pool = ['food','ore','herbs'];
-                const itId = pool[Math.floor(rand01() * pool.length)];
-                const n = 1 + (rand01() < 0.35 ? 1 : 0);
-                player.inv[itId] = (player.inv[itId] || 0) + n;
-                const it = ITEMS.find(x => x.id === itId);
-                toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
-              } else {
-                // Light risk/cost: lose a day (and upkeep will apply elsewhere as normal)
-                advanceDays(1, 'cache');
-                toast('Trap! You waste a day dealing with it.', 2.6);
+              // Compute loot before the RPC so it's ready to apply on success
+              const _r = rand01();
+              function _applyLoot() {
+                if (_r < 0.55) {
+                  const g = 6 + Math.floor(rand01() * 15);
+                  player.gold += g;
+                  toast(`Cache: +${g}g`, 2.2);
+                } else if (_r < 0.85) {
+                  const pool = ['food','ore','herbs'];
+                  const itId = pool[Math.floor(rand01() * pool.length)];
+                  const n = 1 + (rand01() < 0.35 ? 1 : 0);
+                  player.inv[itId] = (player.inv[itId] || 0) + n;
+                  const it = ITEMS.find(x => x.id === itId);
+                  toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
+                } else {
+                  advanceDays(1, 'cache');
+                  toast('Trap! You waste a day dealing with it.', 2.6);
+                }
               }
-
-              scheduleAutoSave();
+              // Claim cache globally (first-come-first-served via DB lock)
+              if (!__QA.enabled && ECONOMY.enabled) {
+                fetch(`${ECONOMY.url}/rest/v1/rpc/open_cache`, {
+                  method: 'POST',
+                  headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
+                  body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: key }),
+                })
+                  .then(r => r.ok ? r.json() : null)
+                  .then(result => {
+                    if (result?.ok) {
+                      openedCaches.add(key);
+                      _applyLoot();
+                    } else {
+                      openedCaches.add(key); // don't prompt again locally
+                      toast('Already looted — empty crate.', 2.2);
+                    }
+                    scheduleAutoSave();
+                  })
+                  .catch(() => {
+                    // Network failure: apply loot optimistically, cache locally
+                    openedCaches.add(key);
+                    _applyLoot();
+                    scheduleAutoSave();
+                  });
+              } else {
+                // QA / offline: local-only
+                openedCaches.add(key);
+                _applyLoot();
+                scheduleAutoSave();
+              }
               closeEvent();
             }
           },
@@ -8166,10 +8644,13 @@ function drawNpcBubble() {
     road.travel = 0;
     road.cooldown = 6.0;
 
+    const patrolCooldownOk = Math.floor(time.day) - road.lastPatrolDay >= 3;
     const kind = randChoice([
       'bandits', 'toll', 'storm', 'omen', 'escort',
       'wandering_merchant', 'wounded_soldier', 'plague_cart',
       'lost_cargo', 'wild_animal',
+      'hermit', 'waystone',
+      ...(patrolCooldownOk ? ['patrol'] : []),
     ]);
 
     if (kind === 'bandits') {
@@ -8407,6 +8888,190 @@ function drawNpcBubble() {
           },
         ],
       });
+    } else if (kind === 'hermit') {
+      openEvent({
+        title: 'Roadside Hermit',
+        text: 'An old figure sits beside a smoking fire, wrapped in a patchwork cloak. They look up with bright eyes.',
+        choices: [
+          { label: 'Share a meal (1 food)', run: () => {
+              if ((player.inv['food'] || 0) >= 1) {
+                player.inv['food'] -= 1;
+                // Hermit shares a trade secret — free intel card
+                const npcProxy = { id: 'hermit_npc' };
+                const nearCity = world.cities.reduce((best, c2) => {
+                  const d = Math.hypot(player.x - (c2.x+c2.w/2)*TILE, player.y - (c2.y+c2.h/2)*TILE);
+                  return !best || d < best.d ? { c: c2, d } : best;
+                }, null)?.c;
+                if (nearCity && player.intelLedger.filter(ic => !ic.sold).length < 6) {
+                  const card = generateIntel(npcProxy, nearCity.id);
+                  player.intelLedger.push(card);
+                  toast(`The hermit shares a tip: ${card.itemName} is ${card.direction} in ${card.cityName}.`, 4);
+                } else {
+                  player.mineStamina = Math.min(100, player.mineStamina + 30);
+                  toast('They share a tonic. Stamina restored.', 2.8);
+                }
+              } else {
+                toast('You have no food to share. They wave you on.', 2.4);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Ask for road news (free)', run: () => {
+              const tips = [
+                'Patrol activity is heavy near the capital lately.',
+                'A merchant told me the river market has fine herbs this season.',
+                'Bandits have been spotted on the northern stretch.',
+                'The mining town pays well for food this time of year.',
+                'Safe travels. The road gives back what you put in.',
+              ];
+              toast(tips[Math.floor(rand01() * tips.length)], 4);
+              closeEvent();
+            }
+          },
+          { label: 'Move on', run: closeEvent },
+        ],
+      });
+
+    } else if (kind === 'waystone') {
+      openEvent({
+        title: 'Ancient Waystone',
+        text: 'A moss-covered stone pillar stands at a crossroads, carved with old trade-route symbols.',
+        choices: [
+          { label: 'Study the markings', run: () => {
+              const nearCity = world.cities.reduce((best, c2) => {
+                const d = Math.hypot(player.x - (c2.x+c2.w/2)*TILE, player.y - (c2.y+c2.h/2)*TILE);
+                return !best || d < best.d ? { c: c2, d } : best;
+              }, null)?.c;
+              const dist = nearCity ? Math.round(Math.hypot(player.x - (nearCity.x+nearCity.w/2)*TILE, player.y - (nearCity.y+nearCity.h/2)*TILE) / TILE) : '?';
+              toast(`Waystone: ${nearCity?.name || 'Unknown'} is ~${dist} tiles away. The symbol suggests it is a trading hub.`, 4.5);
+              closeEvent();
+            }
+          },
+          { label: 'Leave an offering (3g)', run: () => {
+              if (player.gold >= 3) {
+                player.gold -= 3;
+                // Small road speed boost for next journey
+                road.cooldown = Math.max(0, road.cooldown - 3);
+                toast('You leave a coin. The road feels lighter under your feet.', 3);
+              } else {
+                toast('Not enough gold. You move on.', 2);
+              }
+              closeEvent();
+            }
+          },
+          { label: 'Pass by', run: closeEvent },
+        ],
+      });
+
+    } else if (kind === 'patrol') {
+      road.lastPatrolDay = Math.floor(time.day);
+      // Find nearest city to determine which guard force this is
+      let nearestCity = world.cities[0];
+      let nearestDist = Infinity;
+      for (const city of world.cities) {
+        const cx = (city.x + city.w / 2) * TILE;
+        const cy = (city.y + city.h / 2) * TILE;
+        const d = Math.hypot(player.x - cx, player.y - cy);
+        if (d < nearestDist) { nearestDist = d; nearestCity = city; }
+      }
+      const cid = nearestCity.id;
+      const hasPermit = !!player.permits[cid];
+      const rep = player.rep?.[cid] || 0;
+
+      if (hasPermit) {
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: `A ${nearestCity.name} guard patrol stops you. They check your papers — your city permit is in order.`,
+          choices: [
+            { label: 'Show permit', run: () => {
+                player.rep[cid] = (player.rep[cid] || 0) + 1;
+                toast(`Permit accepted. Rep +1 in ${nearestCity.name}.`, 2.4);
+                closeEvent();
+              }
+            },
+          ],
+        });
+      } else if (rep >= 4) {
+        const fine = 8;
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: `Guards stop you for a spot check. One recognises your face from ${nearestCity.name}.`,
+          choices: [
+            { label: `Pay reduced toll (${fine}g)`, run: () => {
+                const paid = Math.min(player.gold, fine);
+                player.gold -= paid;
+                toast(`Familiar face helps — reduced toll ${paid}g.`, 2.4);
+                closeEvent();
+              }
+            },
+            { label: 'Explain your business', run: () => {
+                if (rand01() < 0.6) {
+                  toast('They let you through. Your reputation precedes you.', 2.8);
+                } else {
+                  const paid = Math.min(player.gold, 15);
+                  player.gold -= paid;
+                  toast(`They're unconvinced. Standard toll ${paid}g.`, 2.8);
+                }
+                closeEvent();
+              }
+            },
+          ],
+        });
+      } else {
+        const fine = 18;
+        const contrabandItems = ITEMS.filter(it => {
+          const cityRules = CITY_RULES[cid];
+          return cityRules && it.contrabandName && cityRules.contraband.includes(it.contrabandName) && (player.inv[it.id] || 0) > 0;
+        });
+        openEvent({
+          title: `${nearestCity.name} Road Patrol`,
+          text: contrabandItems.length > 0
+            ? `Guards stop you and demand a cargo inspection. They eye your pack suspiciously — you're carrying restricted goods.`
+            : `Guards stop you for a routine check. No permit, no exception.`,
+          choices: [
+            { label: `Pay toll (${fine}g)`, run: () => {
+                const paid = Math.min(player.gold, fine);
+                player.gold -= paid;
+                toast(`Paid ${paid}g road toll.`, 2.4);
+                closeEvent();
+              }
+            },
+            ...(contrabandItems.length > 0 ? [
+              { label: 'Bribe to look away (25g)', run: () => {
+                  if (rand01() < 0.65) {
+                    const paid = Math.min(player.gold, 25);
+                    player.gold -= paid;
+                    toast(`Guard pockets the coin and walks away. Paid ${paid}g.`, 3);
+                  } else {
+                    const it = contrabandItems[0];
+                    const seized = Math.min(player.inv[it.id], 2);
+                    player.inv[it.id] -= seized;
+                    const fine2 = Math.min(player.gold, 20);
+                    player.gold -= fine2;
+                    player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 1);
+                    toast(`Bribe refused! Seized ${seized} ${it.name}, fined ${fine2}g, rep -1.`, 3.5);
+                  }
+                  closeEvent();
+                }
+              },
+            ] : []),
+            { label: 'Slip past on foot (risk)', run: () => {
+                if (rand01() < 0.45) {
+                  road.cooldown = 8.0;
+                  toast('You duck off the road and circle around. Lost some time.', 2.8);
+                } else {
+                  const d = dropRandomCargo(2);
+                  const penalty = Math.min(player.gold, 25);
+                  player.gold -= penalty;
+                  player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 2);
+                  toast(`Caught! Dropped ${d} item(s), fined ${penalty}g, rep -2.`, 3.5);
+                }
+                closeEvent();
+              }
+            },
+          ],
+        });
+      }
     }
   }
 
@@ -8464,17 +9129,19 @@ function drawNpcBubble() {
   // Building tile IDs that get a 3D raised top face drawn above their grid row.
   const BUILDING_TILE_IDS = new Set([6, 7, 8, 12, 14, 15, 16]);
 
-  // Label + accent color for each building type — used for the facade banner sign
+  // Icon + accent color for each building type — used for the facade plaque
   const BUILDING_META = {
-    6:  { label: 'Market',     accent: '#fbbf24', signBg: '#92400e' },
-    7:  { label: 'Tavern',     accent: '#fdba74', signBg: '#7c2d12' },
-    8:  { label: 'Warehouse',  accent: '#c4b5fd', signBg: '#3730a3' },
-    12: { label: 'Contracts',  accent: '#93c5fd', signBg: '#1e3a5f' },
-    13: { label: 'Bank',       accent: '#fde68a', signBg: '#78350f' },
-    14: { label: 'Inn',        accent: '#fca5a5', signBg: '#7f1d1d' },
-    15: { label: 'Guild Hall', accent: '#86efac', signBg: '#14532d' },
-    16: { label: 'Vacant',     accent: '#9ca3af', signBg: '#374151' },
+    6:  { icon: '🛒', accent: '#f0a830', ribbon: '#d18816' }, // Market — honey
+    7:  { icon: '🍺', accent: '#e57389', ribbon: '#a8485e' }, // Tavern — berry
+    8:  { icon: '📦', accent: '#a87a3e', ribbon: '#7d5230' }, // Warehouse — oak
+    12: { icon: '📜', accent: '#7fbf83', ribbon: '#4f9e5b' }, // Contracts — sage
+    13: { icon: '💰', accent: '#d18816', ribbon: '#a8753a' }, // Bank — honey-deep
+    14: { icon: '🛏️', accent: '#e57389', ribbon: '#a8485e' }, // Inn — berry
+    15: { icon: '⚒️', accent: '#b07ec3', ribbon: '#8a5aa3' }, // Guild — plum
+    16: { icon: '🏚️', accent: '#a89e8a', ribbon: '#6b5e4a' }, // Vacant — muted
   };
+  // Slot-key icon overrides (when multiple slots share a tile type)
+  const SLOT_KEY_ICON = { granary: '🌾', barracks: '🛡️' };
 
   // Draw the raised "wall face" above a building tile so buildings look taller
   // than the player. Only called for the top row of a building block (no tile
@@ -8584,21 +9251,21 @@ function drawNpcBubble() {
     }
 
     if (id === 3) {
-      // Stone wall - with battlements on top, beveled blocks
+      // Stone wall — cream dressed stone with chunky ink mortar and battlements
       const n = hash2(tx, ty);
-      const wallBase = n < 0.5 ? '#484e5c' : '#404654';
+      const wallBase = n < 0.5 ? '#e6d4b0' : '#d8c9a2';
       ctx.fillStyle = wallBase;
       ctx.fillRect(x, y, TILE, TILE);
       // Horizontal mortar line
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillStyle = 'rgba(140,100,60,0.32)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
       // Block highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fillRect(x+1, y+1, TILE-2, 2);
       ctx.fillRect(x+1, y+Math.floor(TILE/2)+1, TILE-2, 2);
       // Battlements on top row of walls (decorative notch)
       if (tileAt(tx, ty-1) !== 3) {
-        ctx.fillStyle = '#2e333d';
+        ctx.fillStyle = '#3b2a1d';
         ctx.fillRect(x, y, Math.floor(TILE/3), 3);
         ctx.fillRect(x+Math.floor(TILE*2/3), y, Math.floor(TILE/3)+1, 3);
       }
@@ -8606,39 +9273,39 @@ function drawNpcBubble() {
     }
 
     if (id === 4) {
-      // City floor - cobblestone with mortar lines
+      // City floor - cream cobblestone with soft mortar lines (Plumberry)
       const n = hash2(tx, ty);
-      const base = n < 0.33 ? '#6b5642' : (n < 0.66 ? '#5f4e3c' : '#645446');
+      const base = n < 0.33 ? '#f0e2c4' : (n < 0.66 ? '#e8d8b4' : '#ecdebc');
       ctx.fillStyle = base;
       ctx.fillRect(x, y, TILE, TILE);
       // mortar grid
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillStyle = 'rgba(140,100,60,0.20)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
       ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
       // stone highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillRect(x + 1, y + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
       ctx.fillRect(x + Math.floor(TILE/2) + 1, y + Math.floor(TILE/2) + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
       return;
     }
 
     if (id === 5) {
-      // Gate arch - stone archway with portcullis bars
-      ctx.fillStyle = '#4a3f2e';
+      // Gate arch — cream stone with honey portcullis bars
+      ctx.fillStyle = '#c8b08a';
       ctx.fillRect(x, y, TILE, TILE);
       // arch body
-      ctx.fillStyle = '#8b7355';
+      ctx.fillStyle = '#e6d4b0';
       ctx.fillRect(x+1, y+2, TILE-2, TILE-4);
       // arch opening (dark passage)
-      ctx.fillStyle = '#1a1208';
+      ctx.fillStyle = '#3b2a1d';
       ctx.fillRect(x+4, y+4, TILE-8, TILE-6);
-      // portcullis bars
-      ctx.fillStyle = '#5a4a30';
+      // portcullis bars (honey)
+      ctx.fillStyle = '#d18816';
       for (let bx = x+5; bx < x+TILE-4; bx += 3) {
         ctx.fillRect(bx, y+4, 1, TILE-7);
       }
       // stone highlight top
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fillRect(x+1, y+2, TILE-2, 1);
       return;
     }
@@ -8740,18 +9407,18 @@ function drawNpcBubble() {
     }
 
     if (id === 9) {
-      // Cobblestone plaza / courtyard - premium city floor
+      // Cobblestone plaza / courtyard — cream premium floor (Plumberry)
       const n = hash2(tx, ty);
-      ctx.fillStyle = n < 0.4 ? '#5c4d3c' : '#503f2e';
+      ctx.fillStyle = n < 0.4 ? '#f5e6c8' : '#eedeb8';
       ctx.fillRect(x, y, TILE, TILE);
       // Large cobble pattern
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillStyle = 'rgba(140,100,60,0.22)';
       ctx.fillRect(x,   y + Math.floor(TILE/3),     TILE, 1);
       ctx.fillRect(x,   y + Math.floor(TILE*2/3),   TILE, 1);
       ctx.fillRect(x + Math.floor(TILE/3),   y,     1, TILE);
       ctx.fillRect(x + Math.floor(TILE*2/3), y,     1, TILE);
       // Stone highlights
-      ctx.fillStyle = 'rgba(255,255,255,0.09)';
+      ctx.fillStyle = 'rgba(255,255,255,0.40)';
       ctx.fillRect(x+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
       ctx.fillRect(x+Math.floor(TILE/3)+1, y+Math.floor(TILE/3)+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
       ctx.fillRect(x+Math.floor(TILE*2/3)+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
@@ -9030,30 +9697,13 @@ function drawNpcBubble() {
     }
 
     if (id === 16) {
-      // Vacant building lot - rubble / bare dirt
-      const n = hash2(tx, ty);
-      ctx.fillStyle = '#4a3820';
+      // Vacant building lot — cream foundation pad with faint blueprint grid
+      // (mostly covered by the construction-site sprite; this is the fallback)
+      ctx.fillStyle = '#fff5d8';
       ctx.fillRect(x, y, TILE, TILE);
-      // Dirt texture variation
-      ctx.fillStyle = '#3d2f18';
-      if (n > 0.5) ctx.fillRect(x+2, y+3, TILE-4, TILE-6);
-      // Scattered rubble stones
-      ctx.fillStyle = '#6a6058';
-      ctx.fillRect(x+2, y+2, 3, 2);
-      ctx.fillRect(x+TILE-5, y+TILE-5, 4, 3);
-      ctx.fillStyle = '#7a7068';
-      ctx.fillRect(x+TILE-6, y+3, 3, 2);
-      ctx.fillRect(x+3, y+TILE-5, 3, 3);
-      ctx.fillRect(x+6, y+7, 2, 2);
-      // Highlight fleck on stones
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x+2, y+2, 2, 1);
-      ctx.fillRect(x+TILE-5, y+3, 2, 1);
-      // Small construction stake
-      ctx.fillStyle = '#8b5e2a';
-      ctx.fillRect(x+TILE/2-1, y+4, 2, 5);
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(x+TILE/2-2, y+3, 4, 2);
+      ctx.fillStyle = 'rgba(208,136,22,0.22)';
+      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
+      ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
       return;
     }
 
@@ -9071,6 +9721,79 @@ function drawNpcBubble() {
     }
   }
 
+  function _drawConstructionSite(key, slot, bx, by, bw, bh) {
+    ctx.save();
+
+    // Foundation pad — cream paper with a faint honey blueprint grid
+    ctx.fillStyle = '#fff5d8';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = 'rgba(208,136,22,0.32)';
+    ctx.lineWidth = 1;
+    const gridStep = Math.max(6, Math.round(TILE / 2));
+    for (let gx = bx + gridStep; gx < bx + bw; gx += gridStep) {
+      ctx.beginPath(); ctx.moveTo(gx + 0.5, by + 2); ctx.lineTo(gx + 0.5, by + bh - 2); ctx.stroke();
+    }
+    for (let gy = by + gridStep; gy < by + bh; gy += gridStep) {
+      ctx.beginPath(); ctx.moveTo(bx + 2, gy + 0.5); ctx.lineTo(bx + bw - 2, gy + 0.5); ctx.stroke();
+    }
+
+    // Scaffolding poles at the four corners with two crossbeams
+    ctx.fillStyle = '#8a5a2e';
+    const poleH = Math.max(8, Math.round(Math.min(bh, TILE * 1.5)));
+    const poleW = 2;
+    ctx.fillRect(bx + 2,           by + 2,            poleW, poleH);
+    ctx.fillRect(bx + bw - 4,      by + 2,            poleW, poleH);
+    ctx.fillRect(bx + 2,           by + bh - poleH - 2, poleW, poleH);
+    ctx.fillRect(bx + bw - 4,      by + bh - poleH - 2, poleW, poleH);
+    ctx.fillStyle = 'rgba(138,90,46,0.85)';
+    ctx.fillRect(bx + 2, by + 2, bw - 4, 1);
+    ctx.fillRect(bx + 2, by + 2 + Math.round(poleH * 0.55), bw - 4, 1);
+
+    // Pulsing dashed honey border — the build hitbox itself, made obvious
+    const pulse = 0.65 + 0.35 * (Math.sin(stateTime * 0.003 + slot.tileX) * 0.5 + 0.5);
+    ctx.strokeStyle = `rgba(208,136,22,${pulse.toFixed(2)})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([5, 4]);
+    ctx.lineDashOffset = -stateTime * 0.012;
+    ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+
+    // Centered plaque showing the icon of the building that will go here
+    const meta = BUILDING_META[slot.tileType];
+    const icon = SLOT_KEY_ICON[key] || (meta && meta.icon) || '🏗️';
+    const plaqueSize = Math.max(14, Math.min(Math.round(TILE * 1.2), Math.round(Math.min(bw, bh) * 0.6)));
+    const plaqueX = bx + Math.round((bw - plaqueSize) / 2);
+    const plaqueY = by + Math.round((bh - plaqueSize) / 2);
+
+    ctx.fillStyle = 'rgba(59,42,29,0.30)';
+    ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
+    ctx.fillStyle = '#fffaef';
+    ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
+    const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
+    ctx.fillStyle = '#f0a830';
+    ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
+    ctx.strokeStyle = '#3b2a1d';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
+
+    const iconPx = Math.max(9, Math.round(plaqueSize * 0.68));
+    ctx.font = `${iconPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, plaqueX + plaqueSize / 2, plaqueY + ribbonH + (plaqueSize - ribbonH) / 2 + 1);
+
+    // Bobbing hammer above the plaque for an unmistakable "build me" cue
+    const bobY = Math.sin(stateTime * 0.004 + slot.tileX) * 2;
+    const hammerPx = Math.max(11, Math.round(TILE * 0.85));
+    ctx.font = `${hammerPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+    ctx.fillText('🔨', plaqueX + plaqueSize - 2, plaqueY - 4 + bobY);
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
   function _drawCityBuildingSprites(slots, camX, camY) {
     for (const [key, slot] of Object.entries(slots)) {
       if (!slot || slot.tileX <= 0) continue;
@@ -9084,6 +9807,13 @@ function drawNpcBubble() {
       // Skip if completely off-screen
       if (bx + bw < 0 || bx > VIEW_W || by + bh < -BUILDING_RISE * 2 || by > VIEW_H) continue;
 
+      // Unbuilt slot → draw a clear construction-site marker instead of a
+      // finished building sprite. Makes the build hitbox findable.
+      if (!slot.built) {
+        _drawConstructionSite(key, slot, bx, by, bw, bh);
+        continue;
+      }
+
       ctx.save();
 
       // ── 3D raised top face (above the building footprint) ──────────────────
@@ -9093,51 +9823,52 @@ function drawNpcBubble() {
       const rise = Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55));
       let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
 
+      // Plumberry cottage-core palette — cream walls + colorful roofs per use
       switch (type) {
-        case 7: case 14: // Inn / Tavern
-          roofTop   = '#6b1f0f'; roofFace  = '#8b2a12';
-          wallMain  = '#c9a97a'; wallDark  = '#a07850'; wallLight = '#e0c898';
-          doorColor = '#3d1f0a'; windowColor = 'rgba(251,191,36,0.85)';
+        case 7: case 14: // Inn / Tavern — berry roof
+          roofTop   = '#a8485e'; roofFace  = '#c66479';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.90)';
           break;
-        case 6: // Market
-          roofTop   = '#92400e'; roofFace  = '#b45309';
-          wallMain  = '#d97706'; wallDark  = '#a05706'; wallLight = '#fbbf24';
-          doorColor = '#1c1409'; windowColor = 'rgba(255,220,100,0.7)';
+        case 6: // Market — honey roof
+          roofTop   = '#d18816'; roofFace  = '#f0a830';
+          wallMain  = '#fffaef'; wallDark  = '#e8d5a8'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,100,0.85)';
           break;
-        case 8: // Warehouse / Granary
-          roofTop   = '#2a2420'; roofFace  = '#3a3028';
-          wallMain  = '#5a4e3e'; wallDark  = '#3a3028'; wallLight = '#7a6a56';
-          doorColor = '#1a1208'; windowColor = 'rgba(180,140,80,0.5)';
+        case 8: // Warehouse / Granary — oak roof on cream-tan walls
+          roofTop   = '#7d5230'; roofFace  = '#a87a3e';
+          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(180,140,80,0.65)';
           break;
-        case 15: // Guild
-          roofTop   = '#3b1f00'; roofFace  = '#5a2f00';
-          wallMain  = '#8b5a2a'; wallDark  = '#5a3518'; wallLight = '#b07840';
-          doorColor = '#1e0e00'; windowColor = 'rgba(255,160,60,0.75)';
+        case 15: // Guild — plum roof
+          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(176,126,195,0.75)';
           break;
-        case 12: // Contracts
-          roofTop   = '#1a2a3a'; roofFace  = '#2a3f5a';
-          wallMain  = '#4a6a8a'; wallDark  = '#2a4a6a'; wallLight = '#6a8aaa';
-          doorColor = '#0e1820'; windowColor = 'rgba(100,180,255,0.65)';
+        case 12: // Contracts — sage roof
+          roofTop   = '#4f9e5b'; roofFace  = '#7fbf83';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.75)';
           break;
-        case 13: // Bank — pale dressed stone + gilded trim
-          roofTop   = '#3a3328'; roofFace  = '#4a4030';
-          wallMain  = '#cfb98a'; wallDark  = '#8a7a52'; wallLight = '#e6d4a8';
-          doorColor = '#241608'; windowColor = 'rgba(255,200,90,0.72)';
+        case 13: // Bank — honey-deep roof on creamy stone
+          roofTop   = '#a8753a'; roofFace  = '#d18816';
+          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.85)';
           break;
-        case 4: // Foreman HQ / Barracks-style — slate fort with iron trim
-          roofTop   = '#1e242c'; roofFace  = '#2a323c';
-          wallMain  = '#646e7a'; wallDark  = '#3e4650'; wallLight = '#828c96';
-          doorColor = '#181c22'; windowColor = 'rgba(251,191,36,0.55)';
+        case 4: // Foreman HQ / Barracks — slate roof, cream walls
+          roofTop   = '#5b6b78'; roofFace  = '#7a8a96';
+          wallMain  = '#fffaef'; wallDark  = '#d8d2c4'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.65)';
           break;
-        case 19: // Mine — dark stone with warm lantern glow
-          roofTop   = '#1b1612'; roofFace  = '#2a221c';
-          wallMain  = '#4a3e34'; wallDark  = '#2a2218'; wallLight = '#6a5a48';
-          doorColor = '#0e0a06'; windowColor = 'rgba(251,191,36,0.85)';
+        case 19: // Mine — slate roof, warm tan walls (kept earthier)
+          roofTop   = '#3a322a'; roofFace  = '#5c5247';
+          wallMain  = '#c8a878'; wallDark  = '#9a7a4a'; wallLight = '#e6c898';
+          doorColor = '#2a1f14'; windowColor = 'rgba(240,168,48,0.85)';
           break;
         default:
-          roofTop   = '#2a2a2a'; roofFace  = '#3a3a3a';
-          wallMain  = '#6a6060'; wallDark  = '#4a4040'; wallLight = '#8a8080';
-          doorColor = '#1a1818'; windowColor = 'rgba(200,180,140,0.5)';
+          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
+          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,140,0.55)';
       }
 
       // ── Top face (isometric-ish roof on top of rise) ──
@@ -9254,67 +9985,61 @@ function drawNpcBubble() {
         ctx.fillRect(dx + dw - 5, dy + Math.round(dh * 0.55), 3, 3);
       }
 
-      // ── Hanging sign / banner with building name ──────────────────────
-      // Use the slot key for labels where multiple slots share a tile type
-      // (e.g. granary and warehouse both use tile 8). Falls back to the
-      // tile-type label otherwise so unknown slot keys still render.
+      // ── Hanging plaque with building icon ─────────────────────────────
+      // Slot-key icons override tile-type icon when multiple slots share a
+      // tile (e.g. granary and warehouse both use tile 8).
       const meta = BUILDING_META[type];
-      const SLOT_KEY_LABEL = { granary: 'Granary', barracks: 'Barracks' };
-      const slotLabel = SLOT_KEY_LABEL[key] || (meta && meta.label);
-      if (meta) {
-        const signH    = Math.max(10, Math.round(TILE * 0.85));
-        const signPadX = Math.round(TILE * 0.35);
-        const signW    = Math.min(bw - signPadX * 2, bw * 0.82);
-        const signX    = bx + Math.round((bw - signW) / 2);
-        // Hang the sign from the top of the wall face (just below the roof rise)
-        const signY    = by + Math.round(TILE * 0.18);
+      const slotIcon = SLOT_KEY_ICON[key] || (meta && meta.icon);
+      if (meta && slotIcon) {
+        // Square-ish plaque — large enough for a legible emoji
+        const plaqueSize = Math.max(14, Math.round(TILE * 1.05));
+        const plaqueX    = bx + Math.round((bw - plaqueSize) / 2);
+        const plaqueY    = by + Math.round(TILE * 0.18);
 
-        // Hanging rope/chains (two short lines from roof to sign corners)
-        ctx.strokeStyle = 'rgba(100,80,40,0.7)';
-        ctx.lineWidth = 1;
+        // Two short hanging ropes from roof to plaque corners
+        ctx.strokeStyle = '#3b2a1d';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(signX + signW * 0.2, signY);
-        ctx.lineTo(signX + signW * 0.2, signY - 4);
-        ctx.moveTo(signX + signW * 0.8, signY);
-        ctx.lineTo(signX + signW * 0.8, signY - 4);
+        ctx.moveTo(plaqueX + plaqueSize * 0.22, plaqueY);
+        ctx.lineTo(plaqueX + plaqueSize * 0.22, plaqueY - 5);
+        ctx.moveTo(plaqueX + plaqueSize * 0.78, plaqueY);
+        ctx.lineTo(plaqueX + plaqueSize * 0.78, plaqueY - 5);
         ctx.stroke();
 
-        // Sign board background
-        ctx.fillStyle = meta.signBg;
-        ctx.fillRect(signX, signY, signW, signH);
+        // Plaque drop shadow
+        ctx.fillStyle = 'rgba(59,42,29,0.30)';
+        ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
 
-        // Sign board inner bevel (lighter top-left, darker bottom-right)
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.fillRect(signX + 1, signY + 1, signW - 2, 2);
-        ctx.fillRect(signX + 1, signY + 1, 2, signH - 2);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(signX + 1, signY + signH - 2, signW - 2, 1);
-        ctx.fillRect(signX + signW - 2, signY + 1, 1, signH - 2);
+        // Cream paper plaque
+        ctx.fillStyle = '#fffaef';
+        ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
 
-        // Sign text
-        const fontSize = Math.max(7, Math.min(11, Math.round(signH * 0.62)));
-        ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+        // Accent ribbon strip across top of plaque
+        const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
+        ctx.fillStyle = meta.ribbon;
+        ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
+
+        // Ink border (chunky outline)
+        ctx.strokeStyle = '#3b2a1d';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
+
+        // Emoji icon centered in plaque (below ribbon)
+        const iconSize = Math.max(9, Math.round(plaqueSize * 0.72));
+        ctx.font = `${iconSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-
-        // Text shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillText(slotLabel, signX + signW / 2 + 1, signY + signH / 2 + 1);
-        // Text
-        ctx.fillStyle = meta.accent;
-        ctx.fillText(slotLabel, signX + signW / 2, signY + signH / 2);
-
+        ctx.fillText(
+          slotIcon,
+          plaqueX + plaqueSize / 2,
+          plaqueY + ribbonH + (plaqueSize - ribbonH) / 2 + 1
+        );
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
-
-        // Sign border
-        ctx.strokeStyle = 'rgba(180,140,60,0.55)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(signX + 0.5, signY + 0.5, signW - 1, signH - 1);
       }
 
-      // ── Outer wall border ──
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      // ── Outer wall border (chunky ink) ──
+      ctx.strokeStyle = '#3b2a1d';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
 
@@ -9361,15 +10086,16 @@ function drawBuildingLabels() {
   if (!currentCity()) return;
 
   const INTERACT = {
-    6:  { label: 'Market',     color: '#fbbf24', nearDist: 6 },
-    12: { label: 'Contracts',  color: '#60a5fa', nearDist: 6 },
-    7:  { label: 'Tavern',     color: '#f97316', nearDist: 5 },
-    8:  { label: 'Warehouse',  color: '#a78bfa', nearDist: 5 },
-    13: { label: 'Bank',       color: '#fbbf24', nearDist: 6 },
-    14: { label: 'Inn',        color: '#f97316', nearDist: 6 },
-    15: { label: 'Guild Hall', color: '#a78bfa', nearDist: 6 },
-    18: { label: 'Ore Vein',   color: '#cbd5e1', nearDist: 2 },
-    19: { label: 'Mine',       color: '#94a3b8', nearDist: 6 },
+    6:  { icon: '🛒', color: '#f0a830', nearDist: 6 }, // Market
+    12: { icon: '📜', color: '#7fbf83', nearDist: 6 }, // Contracts
+    7:  { icon: '🍺', color: '#e57389', nearDist: 5 }, // Tavern
+    8:  { icon: '📦', color: '#a87a3e', nearDist: 5 }, // Warehouse
+    13: { icon: '💰', color: '#d18816', nearDist: 6 }, // Bank
+    14: { icon: '🛏️', color: '#e57389', nearDist: 6 }, // Inn
+    15: { icon: '⚒️', color: '#b07ec3', nearDist: 6 }, // Guild
+    16: { icon: '🔨', color: '#f0a830', nearDist: 8 }, // Construction site (vacant)
+    18: { icon: '⛏️', color: '#8a7a52', nearDist: 2 }, // Ore Vein
+    19: { icon: '⛏️', color: '#5c5247', nearDist: 6 }, // Mine
   };
 
   const px = player.x, py = player.y;
@@ -9476,39 +10202,58 @@ function drawBuildingLabels() {
       ctx.restore();
     }
 
-    // ── Single label above the cluster when close ─────────────────────
+    // ── Icon chip above the cluster when close ────────────────────────
     if (isNear) {
       const labelAlpha = Math.min(1, (info.nearDist + 2 - distTiles) / 2);
       const bobY = Math.sin(stateTime * 0.004 + cTx + cTy) * 1.5;
-      // Place label above the top-most tile of the cluster
+      // Place chip above the top-most tile of the cluster
       const topTileY = Math.min(...tiles.map(t => t.ty));
       const labelScreenY = topTileY * TILE - camY - 4 + bobY;
 
       ctx.save();
-      ctx.globalAlpha = Math.max(0, labelAlpha * 0.92);
-      ctx.font = `700 ${Math.round(9 * UI_SCALE)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
+      ctx.globalAlpha = Math.max(0, labelAlpha);
+      const chipSize = Math.round(18 * UI_SCALE);
+      const cx2 = clamp(scx, chipSize / 2 + 4, VIEW_W - chipSize / 2 - 4);
+      const cy2 = Math.max(4 + chipSize, labelScreenY) - chipSize;
+      const chipX = cx2 - chipSize / 2;
+      const chipY = cy2;
 
-      const lw = ctx.measureText(info.label).width + Math.round(10 * UI_SCALE);
-      const lh = Math.round(12 * UI_SCALE);
-      const lx = clamp(scx - lw / 2, 4, VIEW_W - lw - 4);
-      const ly = Math.max(4, labelScreenY - lh);
+      // Drop shadow
+      ctx.fillStyle = 'rgba(59,42,29,0.30)';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX + 1, chipY + 2, chipSize, chipSize, 6); ctx.fill(); }
+      else ctx.fillRect(chipX + 1, chipY + 2, chipSize, chipSize);
 
-      ctx.fillStyle = `rgba(${pillR},${pillG},${pillB},0.22)`;
-      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-      else ctx.fillRect(lx, ly, lw, lh);
-      ctx.fill();
-      ctx.strokeStyle = `rgba(${pillR},${pillG},${pillB},0.55)`;
-      ctx.lineWidth = 1;
-      if (ctx.roundRect) ctx.roundRect(lx, ly, lw, lh, 4);
-      else ctx.strokeRect(lx, ly, lw, lh);
-      ctx.stroke();
+      // Cream paper chip
+      ctx.fillStyle = '#fffaef';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX, chipY, chipSize, chipSize, 6); ctx.fill(); }
+      else ctx.fillRect(chipX, chipY, chipSize, chipSize);
 
-      ctx.shadowColor = 'rgba(0,0,0,0.9)';
-      ctx.shadowBlur = 3;
+      // Accent ribbon top stripe
+      const ribbonH = Math.max(2, Math.round(chipSize * 0.18));
       ctx.fillStyle = info.color;
-      ctx.fillText(info.label, lx + lw / 2, ly + lh - Math.round(3 * UI_SCALE));
-      ctx.shadowBlur = 0;
+      if (ctx.roundRect) {
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(chipX, chipY, chipSize, chipSize, 6); ctx.clip();
+        ctx.fillRect(chipX, chipY, chipSize, ribbonH);
+        ctx.restore();
+      } else {
+        ctx.fillRect(chipX, chipY, chipSize, ribbonH);
+      }
+
+      // Ink border
+      ctx.strokeStyle = '#3b2a1d';
+      ctx.lineWidth = 1.5;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1, 6); ctx.stroke(); }
+      else ctx.strokeRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1);
+
+      // Emoji icon centered (below ribbon)
+      const iconPx = Math.max(10, Math.round(chipSize * 0.72));
+      ctx.font = `${iconPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(info.icon, cx2, chipY + ribbonH + (chipSize - ribbonH) / 2 + 1);
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
       ctx.restore();
     }
   }
@@ -9936,157 +10681,28 @@ function drawEntities() {
     }
   }
 
+  // Plum-shirted merchant chibi with a wide-brim travel hat.
+  const _PLAYER_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#b07ec3', hat: 'travelhat' };
+
   function drawPlayer() {
     const x = player.x - camera.x;
     const y = player.y - camera.y;
 
-    // Draw carriage when on the road (outside city)
+    // Carriage when on the road (outside city)
     if (playerOnRoad()) {
       drawPlayerCarriage(x, y);
       return;
     }
 
-    // shadow
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 8, 10, 5, 0, 0, Math.PI*2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Sprite draw (disabled - sprite sheet is a palette catalog, not animation sheet)
-    if (false && playerSprite && playerSprite.ready) {
-      // Map facing vector -> 8-way direction index in the order:
-      // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW
-      const fx = player.facing?.x ?? 0;
-      const fy = player.facing?.y ?? 1;
-      const ang = Math.atan2(fy, fx); // -pi..pi
-      const step = Math.PI / 4;
-      // Compute E-based index, then rotate to make 0=N.
-      const eBased = ((Math.round(ang / step) % 8) + 8) % 8; // 0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
-      const dir = (eBased + 6) % 8; // rotate so 0=N
-      playerSprite.dir = dir;
-
-      const moving = Math.hypot(player.vx, player.vy) > 0.01;
-      playerSprite.anim = moving ? 'walk' : 'idle';
-
-      const frames = (playerSprite.anim === 'walk') ? playerSprite.walkFrames : playerSprite.idleFrames;
-      const fw = playerSprite.frameW;
-      const fh = playerSprite.frameH;
-      const col = clamp(playerSprite.frame, 0, Math.max(0, frames - 1));
-      const row = clamp((playerSprite.anim === 'walk' ? playerSprite.walkRowBase : playerSprite.idleRowBase) + playerSprite.dir, 0, playerSprite.rows - 1);
-
-      const sx = col * fw;
-      const sy = row * fh;
-
-      // Draw scaled to match old marker size; keep pixel crisp.
-      const scale = (TILE >= 16) ? 1 : 0.75;
-      const dw = Math.round(fw * scale);
-      const dh = Math.round(fh * scale);
-      const dx = Math.round(x - dw / 2);
-      const dy = Math.round(y - dh + 10); // feet near shadow
-
-      const prevSmooth = ctx.imageSmoothingEnabled;
-      ctx.imageSmoothingEnabled = false;
-      try {
-        ctx.drawImage(playerSprite.img, sx, sy, fw, fh, dx, dy, dw, dh);
-      } catch (e) {
-        // If drawImage fails for any reason, fall back to marker.
-        playerSprite.ready = false;
-      }
-      ctx.imageSmoothingEnabled = prevSmooth;
-
-      return;
-    }
-
-    // Player character: top-down merchant figure
-    const facing = player.facing || { x: 0, y: 1 };
-    const moving = Math.hypot(player.vx, player.vy) > 0.01;
-    const legSwing = moving ? Math.sin(stateTime * 0.015) * 2 : 0;
-
-    // Dominant direction for facing
-    const facingDown  = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y >= 0;
-    const facingUp    = Math.abs(facing.y) >= Math.abs(facing.x) && facing.y < 0;
-    const facingRight = !facingDown && !facingUp && facing.x > 0;
-    // (facingLeft is default)
+    const r = player.r || 8;
+    const scale = r / 12;
+    const moving = Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
+    const bob = moving ? Math.sin(stateTime * 0.018) * 1.2 : 0;
+    const flip = (player.facing && typeof player.facing.x === 'number') ? player.facing.x < -0.1 : false;
 
     ctx.save();
-    ctx.translate(x, y);
-
-    // Shadow
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.ellipse(0, 6, 8, 3, 0, 0, Math.PI*2); ctx.fill();
-    ctx.globalAlpha = 1;
-
-    if (facingDown) {
-      // Legs
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-4, 2 + legSwing, 3, 6);
-      ctx.fillRect(1,  2 - legSwing, 3, 6);
-      // Cloak body
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-5, -4, 10, 9);
-      // Belt
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-5, 1, 10, 2);
-      // Head
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
-      // Hat brim
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-6, -11, 12, 2);
-      ctx.fillRect(-4, -15, 8, 5);
-      // Eyes
-      ctx.fillStyle = '#1a0a00';
-      ctx.fillRect(-2, -9, 2, 2);
-      ctx.fillRect(1,  -9, 2, 2);
-    } else if (facingUp) {
-      // Legs
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-4, 2 + legSwing, 3, 6);
-      ctx.fillRect(1,  2 - legSwing, 3, 6);
-      // Cloak body (back view)
-      ctx.fillStyle = '#5b26c9';
-      ctx.fillRect(-5, -4, 10, 9);
-      // Hood/back of hat
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-6, -11, 12, 2);
-      ctx.fillRect(-4, -15, 8, 5);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-4, -15, 8, 5);
-    } else if (facingRight) {
-      // Side profile right
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(2, 2 + legSwing, 3, 6);
-      ctx.fillRect(2, 2 - legSwing, 3, 6);
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-3, -4, 8, 9);
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-3, 1, 8, 2);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(4, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-2, -11, 12, 2);
-      ctx.fillRect(1, -15, 8, 5);
-    } else {
-      // Side profile left
-      ctx.fillStyle = '#3b2a1a';
-      ctx.fillRect(-5, 2 + legSwing, 3, 6);
-      ctx.fillRect(-5, 2 - legSwing, 3, 6);
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(-5, -4, 8, 9);
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(-5, 1, 8, 2);
-      ctx.fillStyle = '#c8a87a';
-      ctx.beginPath(); ctx.arc(-4, -8, 5, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#4a2c0a';
-      ctx.fillRect(-10, -11, 12, 2);
-      ctx.fillRect(-9, -15, 8, 5);
-    }
-
+    ctx.translate(x, y + bob);
+    _drawChibi(_PLAYER_OPTS, scale, flip);
     ctx.restore();
   }
 
@@ -10186,14 +10802,28 @@ function drawEntities() {
       _mmCtx.textAlign = 'left';
       _mmCtx.fillText(c2.name.slice(0,4), cx2 + 4, cy2 + 3);
     }
-    // Active contract destination ring
+    // Active contract destination ring + compass arrow
     if (contracts.active) {
       const dest = getCityById(contracts.active.toId);
       if (dest) {
         const dx = ((dest.x + dest.w/2) / MAP_W) * S;
         const dy = ((dest.y + dest.h/2) / MAP_H) * S;
+        // Destination ring
         _mmCtx.strokeStyle = '#60a5fa'; _mmCtx.lineWidth = 1.5;
         _mmCtx.beginPath(); _mmCtx.arc(dx, dy, 6, 0, Math.PI*2); _mmCtx.stroke();
+        // Compass arrow in top-right corner pointing toward destination
+        const tx = (dest.x + dest.w/2) * TILE;
+        const ty = (dest.y + dest.h/2) * TILE;
+        const ang = Math.atan2(ty - player.y, tx - player.x);
+        const ax = S - 12, ay = 12, r = 8;
+        _mmCtx.save();
+        _mmCtx.translate(ax, ay);
+        _mmCtx.rotate(ang);
+        _mmCtx.fillStyle = 'rgba(0,0,0,0.65)';
+        _mmCtx.beginPath(); _mmCtx.moveTo(r,0); _mmCtx.lineTo(-r*0.65,r*0.65); _mmCtx.lineTo(-r*0.65,-r*0.65); _mmCtx.closePath(); _mmCtx.fill();
+        _mmCtx.fillStyle = '#60a5fa';
+        _mmCtx.beginPath(); _mmCtx.moveTo(r-1,0); _mmCtx.lineTo(-r*0.55,r*0.55); _mmCtx.lineTo(-r*0.55,-r*0.55); _mmCtx.closePath(); _mmCtx.fill();
+        _mmCtx.restore();
       }
     }
     // Auto-nav route line
@@ -10213,6 +10843,16 @@ function drawEntities() {
       _mmCtx.lineTo((last.x / (MAP_W * TILE)) * S, (last.y / (MAP_H * TILE)) * S);
       _mmCtx.stroke();
       _mmCtx.setLineDash([]);
+    }
+    // Road POI markers (camps=🏕, ruins=🏛, caches=💰)
+    if (world.pois) {
+      const poiColor = { 8: 'rgba(229,115,57,0.75)', 9: 'rgba(140,120,90,0.75)', 13: 'rgba(209,136,22,0.9)' };
+      for (const poi of world.pois) {
+        const px2 = (poi.x / MAP_W) * S;
+        const py2 = (poi.y / MAP_H) * S;
+        _mmCtx.fillStyle = poiColor[poi.type] || 'rgba(180,160,100,0.7)';
+        _mmCtx.beginPath(); _mmCtx.arc(px2, py2, poi.type === 13 ? 2.5 : 1.5, 0, Math.PI*2); _mmCtx.fill();
+      }
     }
     // Player dot (on top of everything)
     const px = (player.x / (MAP_W * TILE)) * S;
@@ -10272,6 +10912,9 @@ function drawEntities() {
     const nearTrader = findNearestTrader(player.x, player.y);
     const atMine = nearMineTile();
 
+    const today = Math.floor(time.day);
+    const activeIntel = (player.intelLedger || []).filter(ic => !ic.sold && ic.expiryDay >= today);
+
     // Build key to avoid unnecessary DOM thrashing
     const key = [
       c?.id || 'road',
@@ -10281,6 +10924,7 @@ function drawEntities() {
       nearTrader?.id || '',
       autoNav.active ? 'nav' : '',
       atMine ? `mine:${atMine.tx},${atMine.ty}` : '',
+      activeIntel.length,
     ].join('|');
 
     if (key === _fabLastKey) return;
@@ -10352,6 +10996,12 @@ function drawEntities() {
       // Only show Navigate when there's nothing else to do (avoids crowding)
       actions.push(['🗺️', 'Navigate', () => showNavPicker()]);
     }
+    if (activeIntel.length > 0) {
+      actions.push(['📒', `Ledger (${activeIntel.length})`, () => {
+        openIntelUI(null, c?.id || null, 'ledger');
+        _fabLastKey = '';
+      }]);
+    }
     if (!c && !IS_MOBILE) {
       // Desktop save button; mobile uses autosave so no need to show
       actions.push(['💾', 'Save', () => { saveGame(); ui._lastSavedDay = time.day; toast('Game saved.', 1.5); }]);
@@ -10392,8 +11042,9 @@ if (IS_MOBILE) {
   ctx.lineTo(VIEW_W, topH + 0.5);
   ctx.stroke();
 
-  // Left: location name
-  const title = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '...'}` : 'Road');
+  // Left: location name (+ guild badge if earned)
+  const titleBase = c ? c.name : (autoNav.active ? `→ ${getCityById(autoNav.destCityId)?.name || '...'}` : 'Road');
+  const title = player.guildMember ? `⚜️ ${titleBase}` : titleBase;
   ctx.fillStyle = c ? '#e8edf2' : '#94a3b8';
   ctx.font = `700 ${Math.round(13 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
   const maxTitleW = Math.round(VIEW_W * 0.45);
@@ -10417,6 +11068,7 @@ if (IS_MOBILE) {
   ctx.textAlign = 'left';
 
   // Active contract mini-indicator (small dot + destination)
+  ui._hudContractTap = null;
   if (contracts.active) {
     const dest = getCityById(contracts.active.toId);
     if (dest) {
@@ -10426,6 +11078,8 @@ if (IS_MOBILE) {
       ctx.textAlign = 'center';
       ctx.fillText(`📦 → ${dest.name} (${prog})`, VIEW_W / 2, topH - Math.round(4 * UI_SCALE));
       ctx.textAlign = 'left';
+      // tap zone covers the full-width bottom strip of the HUD bar
+      ui._hudContractTap = { x: 0, y: topH - Math.round(16 * UI_SCALE), w: VIEW_W, h: Math.round(16 * UI_SCALE), toId: contracts.active.toId };
     }
   }
 
@@ -10881,7 +11535,7 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       const showTabs = buyHasItems && sellHasItems;
       if (buyHasItems && !sellHasItems) ui.mode = 'buy';
       if (sellHasItems && !buyHasItems) ui.mode = 'sell';
-      const headerH = showTabs ? 94 : 64;
+      const headerH = showTabs ? 120 : 100;
       const innerX = sheetX + 16;
       const innerW = sheetW - 32;
 
@@ -10894,11 +11548,11 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.fillText(rules.vibe, innerX, sheetTop + Math.round(50 * UI_SCALE));
 
 
-      // close button (tap)
-      const closeW = Math.round(72 * UI_SCALE);
-      const closeH = Math.round(30 * UI_SCALE);
+      // close button (tap) — ≥44 CSS px tap target on typical phones
+      const closeW = Math.round(80 * UI_SCALE);
+      const closeH = Math.round(36 * UI_SCALE);
       const closeX = sheetX + sheetW - closeW - Math.round(10 * UI_SCALE);
-      const closeY = sheetTop + Math.round(14 * UI_SCALE);
+      const closeY = sheetTop + Math.round(12 * UI_SCALE);
       ui._marketClose = { x: closeX, y: closeY, w: closeW, h: closeH };
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       ctx.strokeStyle = 'rgba(120, 92, 60, 0.55)';
@@ -10910,7 +11564,9 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.stroke();
       ctx.fillStyle = '#2a1f14';
       ctx.font = `900 ${Math.round(13*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-      ctx.fillText('CLOSE', closeX + Math.round(12*T_SCALE), closeY + Math.round(20*T_SCALE));
+      ctx.textAlign = 'center';
+      ctx.fillText('CLOSE', closeX + closeW / 2, closeY + Math.round(24 * T_SCALE));
+      ctx.textAlign = 'left';
 // BUY/SELL tabs (auto-switch/hide empty)
 if (showTabs) {
   const tabY = sheetTop + 58;
@@ -10950,8 +11606,8 @@ if (showTabs) {
       const listTop = sheetTop + headerH;
       const listBottom = sheetTop + sheetH - 12 - footerH;
       const listH = Math.max(40, listBottom - listTop);
-      const rowH = 90; // card height
-      const visibleN = Math.max(2, Math.floor(listH / rowH));
+      const rowH = 120; // card height — larger for mobile tap targets
+      const visibleN = Math.max(1, Math.floor(listH / rowH));
 
       const totalN = ITEMS.length + 1; // +1 permit row
       const scrollMax = Math.max(0, totalN - visibleN);
@@ -10960,8 +11616,8 @@ if (showTabs) {
       // expose list rect for touch scrolling
       const cardPad = 8;
       const cardH = rowH - cardPad * 2;
-      const btnH = Math.round(26 * UI_SCALE);
-      const btnPad = 6;
+      const btnH = Math.round(36 * UI_SCALE);
+      const btnPad = 8;
       const btnInset = Math.round(24 * UI_SCALE);
       ui._marketList = { x: sheetX, y: listTop, w: sheetW, h: listH, rowH, scrollMax, cols: 1, cardPad, cardH, btnH, btnPad, btnInset };
 
@@ -11002,17 +11658,29 @@ if (showTabs) {
         // name
         ctx.fillStyle = notAvailHereCanvas ? '#888' : '#2a1f14';
         ctx.font = `900 ${Math.round(15*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 20);
+        ctx.fillText(isPermitRow ? (hasPermit ? 'City Permit (owned)' : 'City Permit') : it.name, innerX, cardY + 22);
 
-        // price (right)
+        // price + drift indicator (right-aligned on same line)
         ctx.textAlign = 'right';
-        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 20);
+        ctx.fillText(isPermitRow ? (hasPermit ? 'Owned' : `${price}g`) : (notAvailHereCanvas && ui.mode === 'buy' ? 'N/A' : `${price}g`), sheetX + sheetW - 16, cardY + 22);
+        if (!isPermitRow && !notAvailHereCanvas) {
+          const d = (marketDrift[c.id]?.[it.id]) ?? 1;
+          if (d > 1.05) {
+            ctx.fillStyle = '#16a34a';
+            ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
+            ctx.fillText(' ▲', sheetX + sheetW - 16, cardY + 38);
+          } else if (d < 0.95) {
+            ctx.fillStyle = '#dc2626';
+            ctx.font = `700 ${Math.round(10*T_SCALE)}px system-ui, -apple-system, sans-serif`;
+            ctx.fillText(' ▼', sheetX + sheetW - 16, cardY + 38);
+          }
+        }
         ctx.textAlign = 'left';
 
         // subline
         ctx.fillStyle = '#4a3b2a';
         ctx.font = `${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : (notAvailHereCanvas ? 'Not stocked here · Sell only' : `You have: ${have} · Weight: ${it.weight}`), innerX, cardY + 42);
+        ctx.fillText(isPermitRow ? 'Reduces inspections in this city' : (notAvailHereCanvas ? 'Not stocked here · Sell only' : `You have: ${have} · Weight: ${it.weight}`), innerX, cardY + 38);
 
 // action button
 const btnY = cardY + cardH - btnH - btnPad;
@@ -11030,7 +11698,7 @@ ctx.fillStyle = btnDisabled ? '#888' : (ui.mode === 'buy' ? '#166534' : '#1d4ed8
 ctx.font = `900 ${Math.round(12*T_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
 const actLabel = btnDisabled ? 'N/A' : (ui.mode === 'buy' ? 'BUY' : 'SELL');
 const actW = ctx.measureText(actLabel).width;
-ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(18 * UI_SCALE));
+ctx.fillText(actLabel, btnX + (btnW - actW) / 2, btnY + Math.round(22 * UI_SCALE));
 
         if (contra) {
           ctx.fillStyle = 'rgba(249,115,22,0.18)';
@@ -11328,15 +11996,15 @@ function drawEvent() {
 
     // choices start after body text (with padding)
     const startY = Math.max(by + Math.round(140 * UI_SCALE), yy + Math.round(12 * UI_SCALE));
-    const choiceRowH = Math.round(30 * UI_SCALE);
+    const choiceRowH = Math.round(40 * UI_SCALE);
     const footerPad = Math.round(34 * UI_SCALE);
     const listH = (by + boxH - footerPad) - startY;
     const visibleN = Math.max(1, Math.floor(listH / choiceRowH));
     const maxScroll = Math.max(0, ui.eventChoices.length - visibleN);
     ui.eventScroll = clamp(ui.eventScroll, 0, maxScroll);
 
-    // expose choice rect for touch scrolling
-    ui._eventList = { x: bx + 12, y: startY - Math.round(18 * UI_SCALE), w: boxW - 24, h: visibleN * choiceRowH, rowH: choiceRowH, scrollMax: maxScroll };
+    // expose choice rect for touch scrolling + tap-to-select
+    ui._eventList = { x: bx + 12, y: startY - Math.round(22 * UI_SCALE), w: boxW - 24, h: visibleN * choiceRowH, rowH: choiceRowH, scrollMax: maxScroll };
 
 
     for (let vi = 0; vi < visibleN; vi++) {
@@ -11344,9 +12012,16 @@ function drawEvent() {
       if (i >= ui.eventChoices.length) break;
       const y = startY + vi * choiceRowH;
       const selected = i === ui.eventSel;
+      // highlight spans the full row for clear tap feedback
+      ctx.fillStyle = selected ? 'rgba(120, 92, 60, 0.20)' : 'rgba(120, 92, 60, 0.04)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx + 12, y - Math.round(22 * UI_SCALE), boxW - 24, Math.round(38 * UI_SCALE), 8);
+      else ctx.rect(bx + 12, y - Math.round(22 * UI_SCALE), boxW - 24, Math.round(38 * UI_SCALE));
+      ctx.fill();
       if (selected) {
-        ctx.fillStyle = 'rgba(120, 92, 60, 0.14)';
-        ctx.fillRect(bx + 12, y - Math.round(18 * UI_SCALE), boxW - 24, Math.round(26 * UI_SCALE));
+        ctx.strokeStyle = 'rgba(120, 92, 60, 0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
       ctx.fillStyle = selected ? '#1f2937' : '#2a1f14';
       ctx.font = selected ? `600 ${Math.round(14*T_SCALE)}px system-ui` : `${Math.round(14*T_SCALE)}px system-ui`;
@@ -11496,6 +12171,16 @@ function drawEvent() {
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
+    // Biome entry notification — once per tile-type transition
+    {
+      const _nt = tileAt(Math.floor(player.x / TILE), Math.floor(player.y / TILE));
+      if (_nt !== player._lastTile) {
+        player._lastTile = _nt;
+        if (_nt === 10) toast('Entering forest — slower going', 2);
+        else if (_nt === 11) toast('Entering swamp — treacherous ground', 2.5);
+      }
+    }
+
     // Push own presence + fetch other players every frame (rate-limited internally)
     pushPlayerPresence();
     syncOtherPlayers();
