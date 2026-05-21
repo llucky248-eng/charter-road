@@ -6017,12 +6017,15 @@ function drawNpcBubble() {
     const nextCost = slot.costPerLevel[slot.level];
     if (nextCost === undefined) { toast('Already maxed.', 2); return; }
     bdLog('DONATE-START', `${cityId}.${key} +${amount}g (nextCost=${nextCost}, currentFunded=${slot.playerFunded||0}, built=${slot.built})`, null);
+    // Optimistic: deduct gold and bump playerFunded only.
+    // Completion (level++, built, paint, cityBonus, investLog) is deferred to the RPC response
+    // so a failed RPC can't leave a phantom built building in local memory.
     player.gold -= amount;
     slot.playerFunded = Math.min((slot.playerFunded || 0) + amount, nextCost);
     const slotLabel = key.charAt(0).toUpperCase() + key.slice(1);
     toast(`You donated ${amount}g toward the ${slotLabel}!`, 2.5);
-    // If player fully funded → build immediately
-    if (slot.playerFunded >= nextCost) {
+    // In QA mode there's no RPC — apply completion locally so tests still pass.
+    if (__QA.enabled && slot.playerFunded >= nextCost) {
       slot.level += 1;
       slot.built = true;
       slot.playerFunded = 0;
@@ -6061,21 +6064,38 @@ function drawNpcBubble() {
         .then(result => {
           bdLog('DONATE-RPC-RESPONSE', `ok=${result.ok} completed=${result.completed}`, result);
           if (!result.ok) {
+            // Server rejected — revert the optimistic gold + playerFunded change
             player.gold += amount;
             slot.playerFunded = Math.max(0, (slot.playerFunded || 0) - amount);
             toast(`Donation failed: ${result.error || 'server error'}`, 3);
             return;
           }
-          // Merge authoritative buildings state back (captures concurrent donations from other players)
+          // Merge authoritative buildings state back. The server is the source of truth
+          // for completion — if it reports level++, we apply level/built/paint/cityBonus/investLog here.
           if (result.buildings && typeof result.buildings === 'object') {
             for (const [k, saved] of Object.entries(result.buildings)) {
               if (!cityBuildings[cityId]?.[k]) continue;
               const s = cityBuildings[cityId][k];
               if (saved.level > s.level) {
+                const prevLevel = s.level;
                 s.level = saved.level;
                 s.built = saved.built ?? s.built;
                 s.playerFunded = saved.playerFunded ?? 0;
                 if (s.built) buildSlotOnMap(cityId, k, s);
+                // Apply cityBonus + investLog for the upgrade(s) the server just confirmed
+                if (cityBonus[cityId] && s.effect && cityBonus[cityId][s.effect] !== undefined) {
+                  const levels = s.level - prevLevel;
+                  cityBonus[cityId][s.effect] = Math.min(
+                    (cityBonus[cityId][s.effect] || 0) + s.gain * levels,
+                    s.gain * s.maxLevel
+                  );
+                }
+                if (k === key && cityTreasury[cityId]) {
+                  const lbl = k.charAt(0).toUpperCase() + k.slice(1);
+                  cityTreasury[cityId].investLog.push({ day: Math.floor(time.day), project: `${lbl} Lv${s.level} (player-funded)`, effect: s.effect });
+                  if (cityTreasury[cityId].investLog.length > 8) cityTreasury[cityId].investLog.shift();
+                  toast(`🏛 ${lbl} built! The city cheers!`, 4);
+                }
               } else {
                 s.playerFunded = saved.playerFunded ?? s.playerFunded;
               }
@@ -6089,11 +6109,10 @@ function drawNpcBubble() {
         .catch(e => {
           bdLog('ERR-DONATE-RPC', `RPC failed: ${String(e).slice(0,200)}`, null);
           console.warn('[donateToSlot] RPC failed:', e);
-          if (slot.playerFunded > 0 && !slot.built) {
-            player.gold += amount;
-            slot.playerFunded = Math.max(0, slot.playerFunded - amount);
-            toast('Network error — donation refunded.', 3);
-          }
+          // Network failure — always refund (no optimistic completion to worry about now)
+          player.gold += amount;
+          slot.playerFunded = Math.max(0, (slot.playerFunded || 0) - amount);
+          toast('Network error — donation refunded.', 3);
         });
     }
     ui.buildingDonateOpen = false;
