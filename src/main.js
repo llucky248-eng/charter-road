@@ -2973,8 +2973,24 @@ const NPC_INTERACT_RADIUS = 18;
   // Push full city treasury (gold, invest_log, city_bonus, buildings) after invest tick.
   // Only slots that have been touched (built or partially funded) are pushed so that
   // default-state entries never overwrite a valid built:true row in the DB.
+  // Per-city dirty set + single trailing-edge flush. During day-catchup,
+  // cityMineTick and cityInvestTick can call pushCityTreasuryToDb() many times
+  // per city in one JS tick — this collapses those bursts into one upsert per city.
+  const _ctDirty = new Set();
+  let _ctFlushTimer = null;
   function pushCityTreasuryToDb(cid) {
     if (__QA.enabled || !ECONOMY.enabled) return;
+    if (!cityTreasury[cid]) return;
+    _ctDirty.add(cid);
+    if (_ctFlushTimer) return;
+    _ctFlushTimer = setTimeout(() => {
+      _ctFlushTimer = null;
+      const cities = [..._ctDirty];
+      _ctDirty.clear();
+      for (const c of cities) _doPushCityTreasuryToDb(c);
+    }, 1500);
+  }
+  function _doPushCityTreasuryToDb(cid) {
     const t = cityTreasury[cid]; if (!t) return;
     const touchedBuildings = Object.fromEntries(
       Object.entries(cityBuildings[cid] || {})
