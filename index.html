@@ -691,6 +691,56 @@
       font-size: 14px;
     }
 
+    /* ── Cloud sync loading overlay ── */
+    #loading-overlay {
+      position: fixed; inset: 0; z-index: 99998;
+      background:
+        radial-gradient(circle at 20% 10%, #fff3d2 0%, transparent 40%),
+        radial-gradient(circle at 80% 90%, #ffe6f0 0%, transparent 45%),
+        linear-gradient(180deg, #ffe7c2 0%, #fbd9b3 100%);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      transition: opacity 0.4s;
+    }
+    #loading-overlay.hidden { display: none; }
+    .loading-box {
+      width: min(340px, 92vw);
+      border-radius: 28px;
+      background: var(--paper);
+      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff;
+      padding: 36px 26px 30px;
+      text-align: center;
+    }
+    .loading-box h2 {
+      font-family: 'Fredoka', system-ui, sans-serif;
+      font-size: 22px; font-weight: 700;
+      color: var(--ink);
+      margin: 10px 0 6px;
+    }
+    .loading-icon { font-size: 40px; animation: loadingPulse 1.8s ease-in-out infinite; }
+    @keyframes loadingPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+    .loading-sub {
+      color: var(--ink-soft);
+      font-size: 13px; font-weight: 700;
+      margin: 0 0 20px;
+    }
+    .loading-dots { display: flex; justify-content: center; gap: 7px; }
+    .loading-dots span {
+      width: 9px; height: 9px;
+      background: var(--honey);
+      border-radius: 50%;
+      animation: loadingDot 1.2s ease-in-out infinite;
+    }
+    .loading-dots span:nth-child(2) { animation-delay: 0.18s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes loadingDot {
+      0%, 80%, 100% { transform: scale(0.55); opacity: 0.35; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
     /* Legacy touch-ui (hidden, kept for reference) */
     #touch-ui { display: none !important; }
     #touch-ui .pad { display: none; align-content: start; }
@@ -740,6 +790,16 @@
     </div>
   </div>
 
+  <!-- Cloud sync loading overlay — shown after login until world state + save are fetched -->
+  <div id="loading-overlay" class="hidden">
+    <div class="loading-box">
+      <div class="loading-icon">⚔️</div>
+      <h2>Entering the world…</h2>
+      <p class="loading-sub">Fetching latest world state</p>
+      <div class="loading-dots"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+
   <div id="wrap">
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Amber Road game canvas"></canvas>
@@ -786,6 +846,7 @@
       function launch(playerId) {
         window.__PLAYER_ID = String(playerId).toUpperCase();
         document.getElementById('login-overlay').classList.add('hidden');
+        document.getElementById('loading-overlay').classList.remove('hidden');
         if (typeof window.__launchGame === 'function') {
           window.__launchGame();
           window.__launchGame = null;

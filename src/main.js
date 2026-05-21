@@ -6162,8 +6162,10 @@ function drawNpcBubble() {
     if (typeof drawMinimap === 'function') try { drawMinimap(); } catch(_) {}
   }
 
-  // Initial world sync - safe to call now that buildSlotOnMap is defined
-  syncWorldState();
+  // Initial world sync — reset throttle so this always fires even if the earlier
+  // syncTradersFromServer-adjacent call already consumed the 3s window.
+  _lastWorldSyncT = 0;
+  const _initWorldSyncP = ECONOMY.enabled ? syncWorldState() : Promise.resolve();
 
   function cityInvestTick() {
     for (const [cid, treasury] of Object.entries(cityTreasury)) {
@@ -13407,10 +13409,19 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   // Apply gear stats on fresh start (load already calls applyGearStats)
   applyGearStats();
 
-  // Auto-load save on startup: real players try DB first, guests use localStorage
-  loadGameAsync().then(loaded => {
-    if (loaded) console.log('[BOOT] Save loaded');
-    else console.log('[BOOT] No save - fresh start');
+  // Auto-load save + initial world sync in parallel.
+  // Dismiss the loading overlay only when both resolve so the player never
+  // interacts with an unsynced world.
+  const _loadSaveP = loadGameAsync().then(loaded => {
+    console.log(loaded ? '[BOOT] Save loaded' : '[BOOT] No save - fresh start');
+  });
+  Promise.all([_loadSaveP, _initWorldSyncP]).finally(() => {
+    const el = document.getElementById('loading-overlay');
+    if (el && !el.classList.contains('hidden')) {
+      el.style.transition = 'opacity 0.4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.classList.add('hidden'), 400);
+    }
   });
 
   tick();
