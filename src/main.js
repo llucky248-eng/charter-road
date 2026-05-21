@@ -10481,6 +10481,9 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const INK = '#3b2a1d';
 
     const t = stateTime;
     const phase = t * 0.014;
@@ -10492,20 +10495,20 @@ function drawEntities() {
     // ── Wheel spin angle ────────────────────────────────────────────────
     const wheelSpin = moving ? t * 0.022 : 0;
 
-    // ── Color palettes ──────────────────────────────────────────────────
+    // ── Color palettes (chibi/paper aesthetic: warm pastels + ink outlines) ──
     const HORSE_PAL = [
-      { body:'#c8aa7a', belly:'#b09060', dark:'#7a5a30', mane:'#4a2e10', nose:'#c87a60', glow:false },
-      { body:'#7a5230', belly:'#5a3a1c', dark:'#3a2010', mane:'#1a0c04', nose:'#9a6a40', glow:false },
-      { body:'#c04818', belly:'#903410', dark:'#601800', mane:'#200800', nose:'#e06030', glow:false },
-      { body:'#181828', belly:'#101018', dark:'#080810', mane:'#d4a800', nose:'#303040', glow:false },
-      { body:'#d0eeff', belly:'#b0d8f8', dark:'#80b0e0', mane:'#ffffff', nose:'#e8f8ff', glow:true  },
+      { body:'#d6b27e', belly:'#bf9560', dark:'#7a5230', mane:'#5a3818', nose:'#e3a890', glow:false },
+      { body:'#8c6238', belly:'#6e4a26', dark:'#3a2010', mane:'#1f0e04', nose:'#b48060', glow:false },
+      { body:'#d05a28', belly:'#a6401a', dark:'#6e2208', mane:'#3a1008', nose:'#f4845c', glow:false },
+      { body:'#2a2a3a', belly:'#1c1c2a', dark:'#0a0a14', mane:'#e8c040', nose:'#444458', glow:false },
+      { body:'#e8f6ff', belly:'#c8e0f4', dark:'#88b4d8', mane:'#ffffff', nose:'#f4faff', glow:true  },
     ];
     const WAGON_PAL = [
-      { body:'#5a3c18', roof:'#6a4820', trim:'#8a6040', wheel:'#3a2408', spoke:'#6a4820' },
-      { body:'#6a4828', roof:'#d4c08a', trim:'#c09050', wheel:'#2a1808', spoke:'#7a5830' },
-      { body:'#7a3010', roof:'#e07820', trim:'#f09030', wheel:'#3a1808', spoke:'#904020' },
-      { body:'#2a1c08', roof:'#c8a020', trim:'#d4af37', wheel:'#1a1008', spoke:'#806010' },
-      { body:'#1a1008', roof:'#ffd700', trim:'#ffd700', wheel:'#0a0804', spoke:'#b08800' },
+      { body:'#b08358', roof:'#c9a578', trim:'#7a5230', wheel:'#7a5230', spoke:'#3b2a1d' },
+      { body:'#c89464', roof:'#fff5d6', trim:'#b07ec3', wheel:'#8a5aa3', spoke:'#3b2a1d' },
+      { body:'#c87a2c', roof:'#f0a830', trim:'#d18816', wheel:'#7a4810', spoke:'#3b2a1d' },
+      { body:'#6e4824', roof:'#fdecc4', trim:'#b07ec3', wheel:'#8a5aa3', spoke:'#3b2a1d' },
+      { body:'#c89464', roof:'#f0c040', trim:'#d18816', wheel:'#806010', spoke:'#3b2a1d' },
     ];
     const hc = HORSE_PAL[Math.min(bootsTier, 4)];
     const bc = WAGON_PAL[Math.min(packTier, 4)];
@@ -10526,83 +10529,113 @@ function drawEntities() {
     // ── Shared helpers ─────────────────────────────────────────────────
 
     const drawWheel = (wx, wy) => {
-      // Tyre
-      ctx.strokeStyle = bc.wheel;
+      // Tyre — wood-toned fill with thick ink outline
+      ctx.fillStyle = bc.wheel;
+      ctx.strokeStyle = INK;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.stroke();
-      // Hub
-      ctx.fillStyle = bc.spoke;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.28, 0, Math.PI*2); ctx.fill();
-      // Spokes
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      // Spokes (4, simpler) — ink lines
       ctx.strokeStyle = bc.spoke;
-      ctx.lineWidth = 1;
-      for (let s = 0; s < spokes; s++) {
-        const a = wheelSpin + (s / spokes) * Math.PI * 2;
+      ctx.lineWidth = 1.4;
+      const spokeCount = 4;
+      for (let s = 0; s < spokeCount; s++) {
+        const a = wheelSpin + (s / spokeCount) * Math.PI * 2;
         ctx.beginPath();
-        ctx.moveTo(wx + Math.cos(a) * wheelR * 0.28, wy + Math.sin(a) * wheelR * 0.28);
-        ctx.lineTo(wx + Math.cos(a) * wheelR * 0.88, wy + Math.sin(a) * wheelR * 0.88);
+        ctx.moveTo(wx + Math.cos(a) * wheelR * 0.32, wy + Math.sin(a) * wheelR * 0.32);
+        ctx.lineTo(wx + Math.cos(a) * wheelR * 0.86, wy + Math.sin(a) * wheelR * 0.86);
         ctx.stroke();
       }
-      // Rim highlight
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(wx - 1, wy - 1, wheelR * 0.9, Math.PI*1.1, Math.PI*1.8); ctx.stroke();
+      // Hub — cream highlight in the middle
+      ctx.fillStyle = bc.trim;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.32, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    };
+
+    // Rounded-rectangle helper for chibi-style wagon body
+    const roundRect = (rx, ry, rw, rh, rr) => {
+      ctx.beginPath();
+      ctx.moveTo(rx + rr, ry);
+      ctx.lineTo(rx + rw - rr, ry);
+      ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rr);
+      ctx.lineTo(rx + rw, ry + rh - rr);
+      ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rr, ry + rh);
+      ctx.lineTo(rx + rr, ry + rh);
+      ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rr);
+      ctx.lineTo(rx, ry + rr);
+      ctx.quadraticCurveTo(rx, ry, rx + rr, ry);
+      ctx.closePath();
     };
 
     const drawWagonBody = (wx, wy) => {
       if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
       const by = wy + bounce;
-      // Side shading (left darker)
+      // Wagon body — rounded paper-style with thick ink outline
       ctx.fillStyle = bc.body;
-      ctx.fillRect(wx, by, wW, wH);
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(wx, by, 3, wH);
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      ctx.fillRect(wx + wW - 3, by, 3, wH);
-      // Plank lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-      ctx.lineWidth = 0.5;
-      for (let pl = 3; pl < wH - 1; pl += 3) {
-        ctx.beginPath(); ctx.moveTo(wx+1, by+pl); ctx.lineTo(wx+wW-1, by+pl); ctx.stroke();
-      }
-      // Roof/canopy
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
+      roundRect(wx, by, wW, wH, 2);
+      ctx.fill();
+      ctx.stroke();
+      // Soft pencil plank line (single gentle curve, not hard rulings)
+      ctx.strokeStyle = 'rgba(59,42,29,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(wx + 2, by + wH * 0.6);
+      ctx.quadraticCurveTo(wx + wW / 2, by + wH * 0.6 - 0.4, wx + wW - 2, by + wH * 0.6);
+      ctx.stroke();
+      // Roof/canopy — thick ink outline, soft fill
       ctx.fillStyle = bc.roof;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
       if (packTier === 0) {
-        // Flat plank roof
-        ctx.fillRect(wx - 1, by - wRoofH, wW + 2, wRoofH);
-        ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
-        ctx.strokeRect(wx - 1, by - wRoofH, wW + 2, wRoofH);
+        // Flat plank roof — rounded
+        roundRect(wx - 1, by - wRoofH, wW + 2, wRoofH + 0.5, 1.5);
+        ctx.fill();
+        ctx.stroke();
       } else {
         // Arched canvas canopy
         ctx.beginPath();
         ctx.moveTo(wx - 1, by);
         ctx.bezierCurveTo(wx - 1, by - wRoofH * 1.6, wx + wW + 1, by - wRoofH * 1.6, wx + wW + 1, by);
-        ctx.fillStyle = bc.roof;
+        ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = bc.trim; ctx.lineWidth = 1;
         ctx.stroke();
+        // Two faint vertical canopy ribs (pencil-style)
+        ctx.strokeStyle = 'rgba(59,42,29,0.18)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i <= 2; i++) {
+          const sx = wx - 1 + (wW + 2) * (i / 3);
+          ctx.beginPath();
+          ctx.moveTo(sx, by);
+          ctx.quadraticCurveTo(sx, by - wRoofH * 0.9, sx, by - wRoofH * 0.4);
+          ctx.stroke();
+        }
       }
-      // Cargo pack on top (T2+)
+      // Cargo pack on top (T2+) — rounded + ink outline
       if (packTier >= 2) {
-        ctx.fillStyle = 'rgba(100,70,30,0.6)';
-        ctx.fillRect(wx + 2, by - wRoofH - 3, wW - 4, 3);
-        ctx.strokeStyle = bc.trim; ctx.lineWidth = 0.5;
-        ctx.strokeRect(wx + 2, by - wRoofH - 3, wW - 4, 3);
+        ctx.fillStyle = bc.trim;
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 1.4;
+        roundRect(wx + 2, by - wRoofH - 3, wW - 4, 3.2, 1);
+        ctx.fill();
+        ctx.stroke();
       }
       // T4 gold side rails
       if (packTier === 4) {
-        ctx.fillStyle = 'rgba(255,215,0,0.5)';
+        ctx.fillStyle = '#f0c040';
         ctx.fillRect(wx, by + 2, 2, wH - 4);
         ctx.fillRect(wx + wW - 2, by + 2, 2, wH - 4);
       }
-      // Player identity stripe
-      ctx.fillStyle = '#7c3aed';
-      ctx.fillRect(wx + wW/2 - 2, by + wH - 3, 4, 3);
-      // Trim border
+      // Player identity stripe (plum) — small banner at the front
+      ctx.fillStyle = '#b07ec3';
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.rect(wx + wW/2 - 2.5, by + wH - 3.5, 5, 3);
+      ctx.fill();
+      ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = bc.trim;
-      ctx.lineWidth = packTier >= 3 ? 1.5 : 1;
-      ctx.strokeRect(wx, by, wW, wH);
     };
 
     const drawHarness = (x1, y1, x2, y2) => {
@@ -10633,30 +10666,38 @@ function drawEntities() {
       if (hc.glow) { ctx.shadowColor = '#a0d8ff'; ctx.shadowBlur = 10; }
 
       if (horiz) {
-        // Side-view horse
-        // Body ellipse
+        // Side-view horse — chibi style: thick ink outlines on every shape
+        // Body
         ctx.fillStyle = hc.belly;
-        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.9, hH * 0.45, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.9, hH * 0.45, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        // Body top shading (no stroke, soft overlay)
         ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(-1, -1, hW * 0.82, hH * 0.38, -0.15, 0, Math.PI*2); ctx.fill();
-        // Neck + head
+        ctx.beginPath(); ctx.ellipse(-1, -1.5, hW * 0.78, hH * 0.32, -0.15, 0, Math.PI*2); ctx.fill();
+        // Neck + head silhouette (single outlined shape)
         ctx.fillStyle = hc.body;
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(hW * 0.6, -hH * 0.3);
         ctx.bezierCurveTo(hW * 0.9, -hH * 0.7, hW * 1.3, -hH * 0.8, hW * 1.5, -hH * 0.5);
         ctx.bezierCurveTo(hW * 1.4, -hH * 0.2, hW * 0.9, -hH * 0.1, hW * 0.6, -hH * 0.1);
+        ctx.closePath();
         ctx.fill();
+        ctx.stroke();
         // Head
         ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(hW * 1.55, -hH * 0.55, hW * 0.32, hH * 0.22, -0.3, 0, Math.PI*2); ctx.fill();
-        // Nose/muzzle
+        ctx.beginPath(); ctx.ellipse(hW * 1.55, -hH * 0.55, hW * 0.32, hH * 0.22, -0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        // Nose/muzzle (cheek-blush palette)
         ctx.fillStyle = hc.nose;
-        ctx.beginPath(); ctx.ellipse(hW * 1.75, -hH * 0.48, hW * 0.14, hH * 0.12, 0.2, 0, Math.PI*2); ctx.fill();
-        // Eye
-        ctx.fillStyle = '#1a0a00';
-        ctx.beginPath(); ctx.arc(hW * 1.45, -hH * 0.65, 1.2, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.beginPath(); ctx.arc(hW * 1.45 + 0.4, -hH * 0.65 - 0.4, 0.4, 0, Math.PI*2); ctx.fill();
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.ellipse(hW * 1.75, -hH * 0.48, hW * 0.14, hH * 0.12, 0.2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        // Chibi eye (bigger, with bright white highlight)
+        ctx.fillStyle = INK;
+        ctx.beginPath(); ctx.arc(hW * 1.46, -hH * 0.62, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(hW * 1.5, -hH * 0.66, 0.55, 0, Math.PI*2); ctx.fill();
         // Mane
         ctx.fillStyle = hc.mane;
         ctx.beginPath();
@@ -10696,22 +10737,26 @@ function drawEntities() {
         ctx.lineCap = 'butt';
 
       } else {
-        // Top-down / rear view horse (UP/DOWN)
+        // Top-down / rear view horse (UP/DOWN) — chibi outline style
         const yscale = dir === 'DOWN' ? 1 : -1;
         ctx.scale(1, yscale);
         // Body oval
         ctx.fillStyle = hc.belly;
-        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.45, hH * 0.5, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.45, hH * 0.5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        // Body top shading (no stroke)
         ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(0, -hH * 0.05, hW * 0.38, hH * 0.44, 0, 0, Math.PI*2); ctx.fill();
-        // Neck/head (pointing down = toward viewer)
+        ctx.beginPath(); ctx.ellipse(0, -hH * 0.1, hW * 0.36, hH * 0.38, 0, 0, Math.PI*2); ctx.fill();
+        // Head
         ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(0, hH * 0.5, hW * 0.25, hH * 0.18, 0, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, hH * 0.5, hW * 0.25, hH * 0.18, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
         // Muzzle
         ctx.fillStyle = hc.nose;
-        ctx.beginPath(); ctx.ellipse(0, hH * 0.65, hW * 0.16, hH * 0.1, 0, 0, Math.PI*2); ctx.fill();
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.ellipse(0, hH * 0.65, hW * 0.16, hH * 0.1, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
         // Mane line
-        ctx.strokeStyle = hc.mane; ctx.lineWidth = 3;
+        ctx.strokeStyle = hc.mane; ctx.lineWidth = 3; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(0, -hH*0.42); ctx.lineTo(0, hH*0.2); ctx.stroke();
         // Legs (4 corners)
         ctx.strokeStyle = hc.dark; ctx.lineWidth = 2; ctx.lineCap = 'round';
