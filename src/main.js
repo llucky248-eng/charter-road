@@ -6082,9 +6082,6 @@ function drawNpcBubble() {
             }
             bdLog('DONATE-MERGE-DONE', `Final mem state: ${cityId}.${key} built=${slot.built} L=${slot.level} funded=${slot.playerFunded}`, null);
           }
-          // Refresh full city treasury + world state so gold, hunger, and other
-          // players' concurrent changes are reflected immediately after donation.
-          syncWorldStateOnAction();
         })
         .catch(e => {
           bdLog('ERR-DONATE-RPC', `RPC failed: ${String(e).slice(0,200)}`, null);
