@@ -5577,18 +5577,47 @@ function isNpcBlocking(px, py) {
 //   opts: { skin, hair, shirt, hat }
 //   scale: design pixel → canvas pixel (typically r/12 so total height ≈ 4r)
 //   flip:  true to mirror horizontally (facing left)
-function _drawChibi(opts, scale, flip) {
+function _drawChibi(opts, scale, flip, walkPhase = 0) {
   const ink = '#3b2a1d';
   ctx.scale(scale * (flip ? -1 : 1), scale);
   ctx.translate(-20, -36);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // Drop shadow (under feet)
+  // Drop shadow (under boots)
   ctx.fillStyle = 'rgba(59,42,29,0.32)';
   ctx.beginPath();
-  ctx.ellipse(20, 47, 11, 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(20, 53, 11, 2.5, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // Legs & boots (drawn before shirt so hem overlaps cleanly)
+  const leftLegX  = 15 + walkPhase * 2.5;
+  const rightLegX = 25 - walkPhase * 2.5;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.8;
+
+  // Pants
+  ctx.fillStyle = '#7a5a3a';
+  ctx.beginPath();
+  ctx.moveTo(leftLegX - 3.5, 44);
+  ctx.lineTo(leftLegX - 3, 50);
+  ctx.quadraticCurveTo(leftLegX, 53, leftLegX + 3, 50);
+  ctx.lineTo(leftLegX + 3.5, 44);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(rightLegX - 3.5, 44);
+  ctx.lineTo(rightLegX - 3, 50);
+  ctx.quadraticCurveTo(rightLegX, 53, rightLegX + 3, 50);
+  ctx.lineTo(rightLegX + 3.5, 44);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Boots
+  ctx.fillStyle = '#3b2a1d';
+  ctx.beginPath(); ctx.ellipse(leftLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(rightLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
 
   // Body / shirt
   ctx.fillStyle = opts.shirt;
@@ -5606,11 +5635,13 @@ function _drawChibi(opts, scale, flip) {
   ctx.fill();
   ctx.stroke();
 
-  // Arms (skin ellipses)
+  // Arms (skin ellipses, swing opposite to legs when walking)
+  const leftArmY  = 36 + walkPhase * 1.5;
+  const rightArmY = 36 - walkPhase * 1.5;
   ctx.fillStyle = opts.skin;
   ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.ellipse(7, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(33, 36, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(7, leftArmY, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(33, rightArmY, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
   // Collar V
   ctx.strokeStyle = ink;
@@ -5807,14 +5838,15 @@ function drawNpcEntity(e) {
 
   const opts = _NPC_STYLE_OPTS[e.style] || _NPC_DEFAULT_OPTS;
   const scale = r / 12;
-  // Idle bob — phase varies per NPC so they don't all bob in sync
+  // Phase offset per NPC so they don't all animate in sync
   const phase = (typeof e.id === 'string') ? e.id.charCodeAt(0) * 0.37 : 0;
-  const bob = Math.sin(stateTime * 0.0024 + phase) * (r * 0.10);
+  const walkPhase = Math.sin(stateTime * 0.016 + phase);
+  const bob = walkPhase * (r * 0.08);
   const flip = (e.facing && typeof e.facing.x === 'number') ? e.facing.x < -0.1 : false;
 
   ctx.save();
   ctx.translate(sx, sy + bob);
-  _drawChibi(opts, scale, flip);
+  _drawChibi(opts, scale, flip, walkPhase);
   ctx.restore();
 }
 
@@ -10888,12 +10920,13 @@ function drawEntities() {
     const r = player.r || 8;
     const scale = r / 12;
     const moving = Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
-    const bob = moving ? Math.sin(stateTime * 0.018) * 1.2 : 0;
+    const walkPhase = moving ? Math.sin(stateTime * 0.018) : 0;
+    const bob = walkPhase * 1.2;
     const flip = (player.facing && typeof player.facing.x === 'number') ? player.facing.x < -0.1 : false;
 
     ctx.save();
     ctx.translate(x, y + bob);
-    _drawChibi(_PLAYER_OPTS, scale, flip);
+    _drawChibi(_PLAYER_OPTS, scale, flip, walkPhase);
     ctx.restore();
   }
 
