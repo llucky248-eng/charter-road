@@ -10966,6 +10966,7 @@ function drawEntities() {
     if (bootsTier >= 4) { ctx.shadowColor = '#ffd84d'; ctx.shadowBlur = 7; }
     _drawChibi(opts, scale, flip, walkPhase);
     ctx.restore();
+  }
 
 
 
