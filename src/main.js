@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.2'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.3'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5597,7 +5597,7 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.lineWidth = 1.8;
 
   // Pants
-  ctx.fillStyle = '#7a5a3a';
+  ctx.fillStyle = opts.pants || '#7a5a3a';
   ctx.beginPath();
   ctx.moveTo(leftLegX - 3.5, 44);
   ctx.lineTo(leftLegX - 3, 50);
@@ -5615,7 +5615,7 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.fill(); ctx.stroke();
 
   // Boots
-  ctx.fillStyle = '#3b2a1d';
+  ctx.fillStyle = opts.boots || '#3b2a1d';
   ctx.beginPath(); ctx.ellipse(leftLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.ellipse(rightLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
 
@@ -5817,6 +5817,22 @@ function _drawChibiHat(kind, ink) {
     ctx.moveTo(26, 3);
     ctx.quadraticCurveTo(33, -3, 33, 4);
     ctx.stroke();
+  } else if (kind === 'tophat') {
+    // Tall merchant top hat with gold band — high-tier pack reward
+    ctx.fillStyle = '#2a1e14';
+    ctx.beginPath(); ctx.ellipse(20, 10, 13, 2.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a2a1c';
+    ctx.beginPath();
+    ctx.moveTo(12, 10); ctx.lineTo(12, 1);
+    ctx.quadraticCurveTo(12, -1, 20, -1);
+    ctx.quadraticCurveTo(28, -1, 28, 1);
+    ctx.lineTo(28, 10);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // Gold band
+    ctx.strokeStyle = '#d4a020';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(12, 8); ctx.lineTo(28, 8); ctx.stroke();
   }
 }
 
@@ -6150,9 +6166,6 @@ function drawNpcBubble() {
             }
             bdLog('DONATE-MERGE-DONE', `Final mem state: ${cityId}.${key} built=${slot.built} L=${slot.level} funded=${slot.playerFunded}`, null);
           }
-          // Refresh full city treasury + world state so gold, hunger, and other
-          // players' concurrent changes are reflected immediately after donation.
-          syncWorldStateOnAction();
         })
         .catch(e => {
           bdLog('ERR-DONATE-RPC', `RPC failed: ${String(e).slice(0,200)}`, null);
@@ -6322,7 +6335,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.2',
+    version: 'v0.5.3',
     whatsNew: [
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
@@ -7715,7 +7728,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.2',
+      buildVersion: 'v0.5.3',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10907,8 +10920,26 @@ function drawEntities() {
     }
   }
 
-  // Plum-shirted merchant chibi with a wide-brim travel hat.
-  const _PLAYER_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#b07ec3', hat: 'travelhat' };
+  // Compute chibi appearance from current gear tiers.
+  function _playerChibiOpts() {
+    const packTier  = player.gear?.pack  ?? 0;
+    const bootsTier = player.gear?.boots ?? 0;
+    const toolTier  = player.gear?.tool  ?? 0;
+
+    const hat   = packTier  >= 4 ? 'tophat'    : packTier  >= 1 ? 'travelhat' : 'straw';
+    const shirt = toolTier  >= 6 ? '#c04040'   // crimson — master trader
+                : toolTier  >= 4 ? '#d4a020'   // gold silk
+                : toolTier  >= 2 ? '#9060b0'   // rich purple
+                : toolTier  >= 1 ? '#b07ec3'   // lavender
+                :                  '#c7b9a5';  // plain linen
+    const boots = bootsTier >= 4 ? '#d4a020'   // golden — phantom mare
+                : bootsTier >= 3 ? '#4a3828'   // dark war-horse leather
+                : bootsTier >= 2 ? '#9a6840'   // oiled road leather
+                : bootsTier >= 1 ? '#8a5a30'   // sturdy road boots
+                :                  '#5a3018';  // worn, beaten boots
+
+    return { skin: '#f5d2b8', hair: '#5a3a1a', shirt, hat, boots };
+  }
 
   function drawPlayer() {
     const x = player.x - camera.x;
@@ -10927,9 +10958,13 @@ function drawEntities() {
     const bob = walkPhase * 1.2;
     const flip = (player.facing && typeof player.facing.x === 'number') ? player.facing.x < -0.1 : false;
 
+    const opts = _playerChibiOpts();
+    const bootsTier = player.gear?.boots ?? 0;
+
     ctx.save();
     ctx.translate(x, y + bob);
-    _drawChibi(_PLAYER_OPTS, scale, flip, walkPhase);
+    if (bootsTier >= 4) { ctx.shadowColor = '#ffd84d'; ctx.shadowBlur = 7; }
+    _drawChibi(opts, scale, flip, walkPhase);
     ctx.restore();
   }
 
