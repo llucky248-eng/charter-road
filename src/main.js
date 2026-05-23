@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.3'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.4'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6335,7 +6335,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.3',
+    version: 'v0.5.4',
     whatsNew: [
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
@@ -7728,7 +7728,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.3',
+      buildVersion: 'v0.5.4',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10014,7 +10014,9 @@ function drawNpcBubble() {
       // Cap rise at TILE-2 so a sprite never reaches into the building one row
       // above it; otherwise a 3-tall building (26px proportional rise) clips
       // into the bottom row of any building directly to its north.
-      const rise = Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55));
+      const lv = slot.level || 1;
+      const riseBase = Math.round(slot.tileH * TILE * 0.55);
+      const rise = Math.min(TILE + (lv >= 3 ? 2 : -2), Math.round(riseBase * (lv >= 3 ? 1.45 : lv >= 2 ? 1.22 : 1.0)));
       let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
 
       // Plumberry cottage-core palette — cream walls + colorful roofs per use
@@ -10086,6 +10088,12 @@ function drawNpcBubble() {
       // Fascia highlight
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
       ctx.fillRect(bx + 2, by - 6, bw - 4, 1);
+      // Gold trim strip at max level
+      if (lv >= 3) {
+        ctx.fillStyle = '#d4a020';
+        ctx.fillRect(bx, by - rise, bw, 2);
+        ctx.fillRect(bx, by - 7, bw, 2);
+      }
       // Inn chimney (type 7/14 only)
       if (type === 7 || type === 14) {
         const chX = bx + Math.round(bw * 0.75);
@@ -10101,6 +10109,29 @@ function drawNpcBubble() {
         ctx.beginPath();
         ctx.arc(chX + chW / 2, by - rise - chH - 4, 3, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // ── Pennant flags at level 2+ ──────────────────────────────────────────
+      if (lv >= 2) {
+        const poleH = Math.round(TILE * 0.48);
+        const positions = lv >= 3 ? [bw * 0.28, bw * 0.72] : [bw * 0.5];
+        ctx.lineJoin = 'round';
+        for (const px of positions) {
+          const fpx = bx + Math.round(px);
+          const fpy = by - rise;
+          ctx.fillStyle = '#3b2a1d';
+          ctx.fillRect(fpx - 1, fpy - poleH, 2, poleH);
+          ctx.fillStyle = roofTop;
+          ctx.beginPath();
+          ctx.moveTo(fpx + 1, fpy - poleH);
+          ctx.lineTo(fpx + 8, fpy - poleH + 3);
+          ctx.lineTo(fpx + 1, fpy - poleH + 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#3b2a1d';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
       }
 
       // ── Front wall (full footprint) ──
@@ -10212,6 +10243,17 @@ function drawNpcBubble() {
         const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
         ctx.fillStyle = meta.ribbon;
         ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
+
+        // Level pips in ribbon (right-aligned dots: 1=white, 2=white×2, 3=gold×3)
+        const pipR = Math.max(1.5, ribbonH * 0.25);
+        const pipY2 = plaqueY + ribbonH / 2;
+        ctx.fillStyle = lv >= 3 ? '#d4a020' : 'rgba(255,255,255,0.85)';
+        for (let p = 0; p < lv; p++) {
+          const pipX = plaqueX + plaqueSize - (lv - p) * (pipR * 2 + 2) - 2;
+          ctx.beginPath();
+          ctx.arc(pipX, pipY2, pipR, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // Ink border (chunky outline)
         ctx.strokeStyle = '#3b2a1d';
