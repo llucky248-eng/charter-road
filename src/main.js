@@ -2002,10 +2002,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // ── ROAD NETWORK ────────────────────────────────────────────────────────
     // Map doubled to 280×180. All junction coords scaled ×2.
-    // Valdenmere gate: gateA.gx=31, gateA.gy=38 (city 30×22, gate y=16+22=38)
-    // Ironholt gate:   gateD.gx=220, gateD.gy=46 (city 20×18, gate y=28+18=46)
-    // Crosshaven gate: gateC.gx=117, gateC.gy=146 (city 14×16, gate y=130+16=146)
-    // Ashport gate:    gateB.gx=196, gateB.gy=132 (city 24×22, gate y=110+22=132)
+    // Valdenmere gate: gateA.gx=34, gateA.gy=42 (city 36×26, gate y=16+26=42)
+    // Ironholt gate:   gateD.gx=222, gateD.gy=50 (city 24×22, gate y=28+22=50)
+    // Crosshaven gate: gateC.gx=120, gateC.gy=150 (city 20×20, gate y=130+20=150)
+    // Ashport gate:    gateB.gx=198, gateB.gy=134 (city 28×24, gate y=110+24=134)
 
     // ── Valdenmere → Ironholt (N highway, runs south of north river at y=12-14) ──
     // Gate(31,39) → junction(64,64) → east(136,64) → north(136,18) → east(230,18) → Ironholt
