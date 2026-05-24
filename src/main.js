@@ -1820,13 +1820,18 @@ function handleGlobalHudTap(clientX, clientY, e) {
         m[yy*MAP_W+(x0+W)] = 3;
       }
 
-      // 3. Gate (south center, wide) - 7 tiles wide to match 3-wide road + margin
+      // 3. Gate — opening matches internal road width; 3-wide external buffer for carveRoad junction
       const gx = x0 + Math.floor(W/2);
       const gy = y0 + H;
-      for (let ox=-3; ox<=3; ox++) {
-        m[gy*MAP_W+(gx+ox)] = 5;           // gate tile (walkable)
-        m[(gy+1)*MAP_W+(gx+ox)] = 1;       // road tile immediately outside
-        m[(gy+2)*MAP_W+(gx+ox)] = 1;       // extra buffer row to join road network
+      // Valdenmere has a 3-wide boulevard (gx-1..gx+1); all others have a 2-wide road (gx-1..gx)
+      const gateR = c.id === 'valdenmere' ? gx + 1 : gx;
+      for (let tx = gx-1; tx <= gateR; tx++) {
+        m[gy*MAP_W + tx] = 5;             // gate tile (walkable), flanked by wall pillars
+      }
+      // 3-wide road buffer outside gate so carveRoad's paint3v connects cleanly
+      for (let tx = gx-1; tx <= gx+1; tx++) {
+        m[(gy+1)*MAP_W + tx] = 1;
+        m[(gy+2)*MAP_W + tx] = 1;
       }
 
       // 4. LAYOUT by city identity
