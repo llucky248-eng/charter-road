@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.6'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.7'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2061,60 +2061,75 @@ function handleGlobalHudTap(clientX, clientY, e) {
       }
     };
 
-    // Mountains (tile 17, solid) — strategic barriers that channel players onto roads
-    // Roads are tile 1 (not tile 0), so paintPatch can't overwrite them — mountains
-    // naturally gap where roads run, creating clear passes through the ranges.
+    // paintRidge: chains overlapping patches along a polyline to form continuous ranges
+    const paintRidge = (pts, r, tileId, density = 0.80) => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i+1];
+        const steps = Math.max(1, Math.round(Math.hypot(bx-ax, by-ay) / (r * 0.5)));
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          paintPatch(ax + (bx-ax)*t | 0, ay + (by-ay)*t | 0, r, tileId, density);
+        }
+      }
+    };
 
-    // ── North range (barrier between Valdenmere and the north river / Ironholt highway) ──
-    paintPatch(100, 8, 24, 17, 0.82);    // Wide N barrier (above river, W of bridge gap)
-    paintPatch(180, 8, 20, 17, 0.80);    // NE barrier (between bridge and Ironholt)
-    paintPatch(250, 10, 16, 17, 0.78);   // Far NE peaks near Ironholt
+    // Mountains (tile 17, solid) — continuous ranges, not isolated blobs.
+    // paintPatch only overwrites tile 0, so roads (tile 1) pass through naturally.
 
-    // ── Central mountain spine (divides north highway from south valley roads) ──
-    paintPatch(110, 85, 22, 17, 0.80);   // W-central spine
-    paintPatch(155, 90, 20, 17, 0.78);   // Central spine (road passes below at y=112)
-    paintPatch(200, 80, 18, 17, 0.76);   // E-central ridge (between detour and main roads)
+    // ── North barrier: two wings flanking the bridge gap at x≈130-146 ──
+    paintRidge([[12,9],[58,7],[100,10],[126,13]], 9, 17, 0.82);
+    paintRidge([[148,10],[176,9],[196,7]], 8, 17, 0.80);
 
-    // ── Eastern wall (forces IH→A traffic through the eastern loop road) ──
-    paintPatch(268, 70, 10, 17, 0.85);   // Far-east cliffs (impassable wall)
-    paintPatch(268, 110, 10, 17, 0.82);  // SE coastal cliffs (above Ashport approach)
+    // ── NE highlands — dramatic peaks rising behind Ironholt ──
+    paintRidge([[200,7],[232,9],[255,14],[276,22]], 7, 17, 0.80);
 
-    // ── Southern highlands (below CH→A and IH→A southern approach roads) ──
-    paintPatch(140, 172, 18, 17, 0.72);  // S highlands barrier
-    paintPatch(220, 170, 14, 17, 0.68);  // SE corner peaks
-    paintPatch(60, 170, 14, 17, 0.65);   // SW corner peaks
+    // ── Central spine — divides N highway from S valley; junction at (64,64) stays clear ──
+    paintRidge([[92,82],[120,85],[152,81],[188,77],[216,84]], 10, 17, 0.78);
+    paintPatch(238, 68, 13, 17, 0.75);   // pocket range filling gap to NE highlands
 
-    // ── Pocket ranges (visual variety + discourage off-road shortcuts) ──
-    paintPatch(10, 60, 8, 17, 0.70);     // NW corner crags
-    paintPatch(10, 140, 8, 17, 0.68);    // W edge crags
+    // ── Eastern wall — forces Ironholt→Ashport traffic through x=260 loop ──
+    paintRidge([[268,46],[271,88],[270,130]], 8, 17, 0.85);
 
-    // Forests (tile 10) — slow terrain (45% speed) that discourages off-road travel
-    paintPatch(92, 76, 22, 10, 0.85);    // Central forest (between N and S highways)
-    paintPatch(164, 144, 22, 10, 0.80);  // SE forest (around CH→A route)
-    paintPatch(36, 100, 16, 10, 0.78);   // W forest (between V and CH)
-    paintPatch(130, 50, 18, 10, 0.75);   // N-central forest (between highways)
-    paintPatch(50, 155, 14, 10, 0.72);   // SW forest
-    paintPatch(200, 90, 14, 10, 0.70);   // Mid-east forest (near detour)
-    paintPatch(70, 50, 10, 10, 0.68);    // NW pocket forest
-    paintPatch(240, 135, 14, 10, 0.72);  // Far-east forest
-    paintPatch(115, 160, 12, 10, 0.68);  // South forest
-    paintPatch(30, 75, 10, 10, 0.65);    // Far-west forest
+    // ── Southern highlands — world border ──
+    paintRidge([[22,172],[72,174],[142,176],[210,173],[260,168]], 8, 17, 0.70);
+
+    // ── Western crags — natural world edge ──
+    paintRidge([[5,48],[7,108],[5,158]], 6, 17, 0.72);
+
+    // Forests (tile 10) — coherent woodland areas, not scattered dots
+
+    // Western forest (between Valdenmere and Crosshaven, west of main junction)
+    paintPatch(38,  98, 18, 10, 0.80);
+    paintPatch(52,  80, 13, 10, 0.72);
+    paintPatch(22, 118, 12, 10, 0.68);
+
+    // Central forest (flanking main junction at 64,64)
+    paintPatch(88,  66, 20, 10, 0.82);
+    paintPatch(72,  52, 12, 10, 0.72);
+
+    // North-central forest (between the two northern highways)
+    paintPatch(132, 42, 15, 10, 0.75);
+    paintPatch(158, 55, 13, 10, 0.70);
+
+    // Eastern foothills (below Ironholt, along highlands edge)
+    paintPatch(222, 94, 14, 10, 0.72);
+    paintPatch(248, 112, 12, 10, 0.70);
+
+    // Southeast forest (flanking Crosshaven→Ashport corridor)
+    paintPatch(148, 148, 16, 10, 0.78);
+    paintPatch(174, 152, 14, 10, 0.74);
+
+    // Pocket forests
+    paintPatch(62,  128, 10, 10, 0.68);
+    paintPatch(102, 155, 10, 10, 0.65);
 
     // Swamps (tile 11)
-    paintPatch(180, 72, 16, 11, 0.75);   // NE swamp
-    paintPatch(88, 140, 12, 11, 0.80);   // S swamp near Crosshaven
-    paintPatch(40, 165, 10, 11, 0.70);   // SW wetlands
-    paintPatch(142, 108, 8, 11, 0.65);   // Central lowland bog
-    paintPatch(50, 110, 12, 11, 0.75);   // West swamp
-    paintPatch(200, 150, 10, 11, 0.68);  // SE swamp
-
-    // scatter a few rocks for flavor
-    for (let i = 0; i < 2600; i++) {
-      const x = 1 + (Math.random() * (MAP_W-2) | 0);
-      const y = 1 + (Math.random() * (MAP_H-2) | 0);
-      const idx = y*MAP_W + x;
-      if (m[idx] === 0 && Math.random() < 0.08) m[idx] = 3;
-    }
+    paintPatch(170,  88, 14, 11, 0.72);   // NE lowland below central spine
+    paintPatch( 88, 140, 12, 11, 0.80);   // S swamp near Crosshaven
+    paintPatch( 42, 162, 10, 11, 0.70);   // SW wetlands
+    paintPatch(142, 108,  8, 11, 0.65);   // Central lowland bog
+    paintPatch( 50, 110, 12, 11, 0.75);   // West swamp
+    paintPatch(202, 148, 10, 11, 0.68);   // SE swamp
 
     // Mine nodes (tile 18) — walkable ore veins. Painted on grass tiles adjacent
     // to mountains (tile 17) inside an Ironholt-vicinity bbox so mining is a
@@ -6303,7 +6318,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.6',
+    version: 'v0.5.7',
     whatsNew: [
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
@@ -7696,7 +7711,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.6',
+      buildVersion: 'v0.5.7',
       savedAt: Date.now(),
       player: {
         x: player.x,
