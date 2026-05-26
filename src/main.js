@@ -4229,7 +4229,7 @@ function openTraderUI(trader) {
       <div style="color:#666;font-size:11px;margin-bottom:8px">Items offered at 12% below market rate:</div>
       ${content}
       <div style="text-align:center;margin-top:8px">
-        <button id="cr-trader-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:12px">Close [Esc]</button>
+        <button id="cr-trader-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
       </div>
     </div>`;
 
@@ -5441,7 +5441,7 @@ function renderIntelModal() {
         ${ledgerRows}
       `}
       <div style="text-align:center;margin-top:10px">
-        <button id="cr-intel-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:12px">Close [Esc]</button>
+        <button id="cr-intel-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
       </div>
     </div>
   `;
@@ -6750,7 +6750,7 @@ function drawNpcBubble() {
                 <div class="cr-title">${htmlEscape(c.name)} Market</div>
                 <div class="cr-sub">${htmlEscape(rules.vibe)}</div>
               </div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>${showTabs ? `
             <div class="cr-tabs" role="tablist" aria-label="Buy or sell">
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
@@ -6828,7 +6828,7 @@ function drawNpcBubble() {
       `;
 
       // Bind events (re-bound on re-render)
-      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; toast('Market closed', 2); }));
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }));
       uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => { ui.mode = el.getAttribute('data-mode'); toast(ui.mode.toUpperCase(), 0.7); }));
       uiRoot.querySelectorAll('[data-idx]').forEach(el => {
         el.addEventListener('click', (ev) => {
@@ -6925,7 +6925,7 @@ function drawNpcBubble() {
                 <div class="cr-title">${htmlEscape(c.name)} Contracts</div>
                 <div class="cr-sub">${activeLine}</div>
               </div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               <div class="cr-list" aria-label="Jobs">
@@ -6940,7 +6940,7 @@ function drawNpcBubble() {
         </div>
       `;
 
-      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.contractsOpen = false; toast('Contracts board closed', 2); }));
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.contractsOpen = false; domCloseAll(); toast('Contracts board closed', 2); }));
       uiRoot.querySelectorAll('[data-cidx]').forEach(el => {
         el.addEventListener('click', () => { const idx = Number(el.getAttribute('data-cidx')); if (Number.isFinite(idx)) ui.contractsSel = idx; });
         el.addEventListener('keydown', (ev) => {
@@ -6984,7 +6984,7 @@ function drawNpcBubble() {
                 <div class="cr-title">${htmlEscape(ui.eventTitle || 'On the road')}</div>
                 <div class="cr-sub">${htmlEscape(ui.eventText || '')}</div>
               </div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               <div class="cr-list" aria-label="Choices">
@@ -6998,7 +6998,7 @@ function drawNpcBubble() {
         </div>
       `;
 
-      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { closeEvent(); toast('You move on.', 2); }));
+      uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { closeEvent(); domCloseAll(); toast('You move on.', 2); }));
       uiRoot.querySelectorAll('[data-eidx]').forEach(el => {
         el.addEventListener('click', () => { const idx = Number(el.getAttribute('data-eidx')); if (Number.isFinite(idx)) ui.eventSel = idx; });
         el.addEventListener('keydown', (ev) => {
@@ -7114,7 +7114,7 @@ function drawNpcBubble() {
                 <div class="cr-title">🏦 Bank of ${htmlEscape(c.name)}</div>
                 <div class="cr-sub">Your gold: ${player.gold}g · Vault: <span style="color:${vaultHealthColor}">${vault.reserve}g (${vaultHealthLabel})</span></div>
               </div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               ${isBankrupt ? bodyHtml : `<div style="display:flex;gap:8px;margin-bottom:12px;">${tabBtns}</div>${bodyHtml}`}
@@ -7258,7 +7258,7 @@ function drawNpcBubble() {
             ${bannerHtml}
             <div class="cr-head">
               <div><div class="cr-title">🏨 ${htmlEscape(c.name)} Inn</div><div class="cr-sub">Gold: ${player.gold}g · Day ${Math.floor(time.day)}, Hour ${Math.floor(time.hour)}</div></div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               <div class="cr-card"><div><div class="cr-card-title">Rest (5g)</div><div class="cr-sub">Advance time 8 hours. Rested well.</div></div><div class="cr-right"><button class="cr-tab" data-action="rest">Rest</button></div></div>
@@ -7323,7 +7323,7 @@ function drawNpcBubble() {
             ${bannerHtml}
             <div class="cr-head">
               <div><div class="cr-title">🏛 Merchants Guild</div><div class="cr-sub">Rank: <b>${tierNames[playerGuild.tier]}</b> · Sell bonus: +${bonuses[playerGuild.tier]}% · Gold: ${player.gold}g · Rep here: ${rep}</div></div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">${actionHtml}</div>
             <div class="cr-foot"><div class="cr-hint">Esc close</div></div>
@@ -7369,7 +7369,7 @@ function drawNpcBubble() {
             ${bannerHtml}
             <div class="cr-head">
               <div><div class="cr-title">📦 Warehouse - ${htmlEscape(c.name)}</div><div class="cr-sub">Free storage. Items stay in this city.</div></div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               ${stashRows ? `<div class="cr-sub" style="margin-bottom:4px;font-weight:bold;">Stored here:</div>${stashRows}` : '<div class="cr-sub">Nothing stored here.</div>'}
@@ -7419,7 +7419,7 @@ function drawNpcBubble() {
             <div class="cr-head">
               <div><div class="cr-title">🏗 Build ${htmlEscape(slotLabel)}${levelLabel}</div>
                    <div class="cr-sub">${htmlEscape(effectDesc)}</div></div>
-              <button class="cr-close" data-action="close">CLOSE</button>
+              <button class="cr-close" data-action="close" aria-label="Close">✕</button>
             </div>
             <div class="cr-body">
               <div class="cr-card">
@@ -8644,6 +8644,7 @@ function drawNpcBubble() {
   function closeEvent() {
     ui.eventOpen = false;
     ui.eventChoices = [];
+    domCloseAll();
   }
 
 
@@ -9269,7 +9270,7 @@ function drawNpcBubble() {
 
     if (ui.marketOpen) {
       const totalN = ITEMS.length + 1; // +1 permit row
-      if (e.code === 'Escape') { ui.marketOpen = false; toast('Market closed', 2); }
+      if (e.code === 'Escape') { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }
       if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
       if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + totalN - 1) % totalN;
       if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % totalN;
@@ -9282,7 +9283,7 @@ function drawNpcBubble() {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
       const jobs = c ? (contracts.byCity[c.id] || []) : [];
       const n = Math.max(1, jobs.length);
-      if (e.code === 'Escape') { ui.contractsOpen = false; toast('Contracts board closed', 2); }
+      if (e.code === 'Escape') { ui.contractsOpen = false; domCloseAll(); toast('Contracts board closed', 2); }
       if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.contractsSel = (ui.contractsSel + n - 1) % n;
       if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.contractsSel = (ui.contractsSel + 1) % n;
       if (e.code === 'Enter' || e.code === 'Space') contractsAccept(ui.contractsSel);
