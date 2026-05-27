@@ -14,7 +14,7 @@ Every mechanic added must be expressible as a **deterministic function of world 
 - Player UI is a layer on top; the simulation layer beneath must be browser-free
 
 Current headless infrastructure:
-- `ops/scripts/world_service.mjs` — cron-style world ticker (**Supabase-backed**: requires `SUPABASE_URL` + `SUPABASE_KEY` env vars and network egress; cannot run in an offline container). Hardcoded anon key at line 13 — verify RLS is enabled on the Supabase project before treating this as safe to commit.
+- `ops/scripts/world_service.mjs` — cron-style world ticker (**Supabase-backed**: requires `SUPABASE_URL` + `SUPABASE_KEY` env vars and network egress; cannot run in an offline container). Hardcoded anon key (the `SUPABASE_KEY` default near the top of the file) — verify RLS is enabled on the Supabase project before treating this as safe to commit.
 - `ops/scripts/trade_sim.mjs` — AI trader simulation (also Supabase-backed)
 - `ops/scripts/qa_gameplay_sim.mjs` — automated player sim
 
@@ -99,7 +99,7 @@ These scripts **cannot run in an offline container**. All require `SUPABASE_URL`
 
 | Script | What it does |
 |---|---|
-| `ops/scripts/world_service.mjs` | Cron world ticker: ticks AI traders, market drift, hunger, bank solvency, events, contracts. Exports economy constants consumed by `economy_parity_test.mjs`. **Hardcoded anon key at line 13 — confirm RLS is on before committing.** |
+| `ops/scripts/world_service.mjs` | Cron world ticker: ticks AI traders, market drift, hunger, bank solvency, events, contracts. Exports economy constants consumed by `economy_parity_test.mjs`. **Hardcoded anon key (`SUPABASE_KEY` default near the top of the file) — confirm RLS is on before committing.** |
 | `ops/scripts/trade_sim.mjs` | Tests trading strategies over N days, finds profitable routes, flags balance issues |
 
 ### Code generation (optional network)
@@ -121,7 +121,7 @@ These scripts **cannot run in an offline container**. All require `SUPABASE_URL`
 
 ## Version source of truth
 
-`NPC_DIAG_BUILD` in `src/main.js:37` is the authoritative version.
+`NPC_DIAG_BUILD` in `src/main.js` is the authoritative version.
 `ops/scripts/bump_version.mjs` updates all three locations atomically:
 - `src/main.js` — `NPC_DIAG_BUILD` + `version:`
 - `index.html` — `HTML build:` tag + dynamic loader fallback `'?v=X.Y.Z'`

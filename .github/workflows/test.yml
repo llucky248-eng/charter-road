@@ -23,7 +23,9 @@ jobs:
           node-version: '24'
 
       - name: Lint (syntax check)
-        run: node --check src/main.js
+        run: |
+          node --check src/main.js
+          find ops/scripts -name "*.mjs" -exec node --check {} \;
 
       - name: Run unit and parity tests
         run: npm run test:unit
