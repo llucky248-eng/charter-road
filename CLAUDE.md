@@ -31,13 +31,16 @@ Every feature must have a **failing test written before implementation** (red �
 | Economy / balance / price curves | `ops/scripts/economy_parity_test.mjs` |
 | UI / interaction / visual | `ops/scripts/qa_selftest.mjs` |
 
-## Feature implementation checklist
+## Review-before-done rule
 
-After implementing any new feature (any change to `src/main.js` or game logic):
+**Run `/code-review` on the current diff before reporting ANY task as done**, then
+address the findings. This applies to every kind of change, not just game features:
 
-1. Write the failing test first (see Test-first rule above)
-2. Implement until green
-3. **Run `/code-review` before reporting done** — invoke the `code-review` skill on the current diff and address any findings before closing the task
+- **Game logic** (`src/main.js`, economy, simulation) — also write the failing test first, then implement until green (see Test-first rule above)
+- **Harness / ops / tooling** (`ops/scripts/**`, `.github/workflows/**`, `deploy.sh`, git hooks, `package.json`) — these have no game-logic test to catch regressions, so the review is the only safety net. Review with the same rigor as a feature.
+- **Docs / config** (`CLAUDE.md`, `RUNBOOK.md`) — a lighter review still applies: check the claims are accurate and not stale.
+
+The review is not optional and not a formality: if it surfaces a real issue, fix it before closing the task.
 
 ## Workflow quick reference
 
