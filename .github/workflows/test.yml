@@ -20,3 +20,19 @@ jobs:
 
       - name: Run unit and parity tests
         run: npm run test:unit
+
+  qa:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run QA self-test (Playwright)
+        run: npm run qa:selftest

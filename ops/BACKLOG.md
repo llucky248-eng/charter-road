@@ -5,6 +5,25 @@ Items within a tier are roughly ordered; tiers are strict.
 
 ---
 
+## LONG-TERM VISION
+
+Charter Road is designed to become a **fully autonomous, self-running world simulation**. Markets, cities, AI traders, economy, events, hunger, and banking must operate without a human player present. This enables:
+
+- **AI-driven playtesting:** agents boot the world, run N game-days, and report economy metrics without a browser
+- **Emergent-behaviour research:** watch market equilibria form, break, and recover under AI trader pressure
+- **Balance tuning at scale:** run 1000 simulated merchant lifetimes overnight to find gear-ladder cliffs
+
+**Headless constraint:** every mechanic added must be expressible as a deterministic function of world state — no `prompt()`, no modal-blocking UI, no `Date.now()` in core logic. Player UI is a layer on top; the simulation layer beneath must be safe to run without a browser.
+
+**Current headless infrastructure:**
+- `ops/scripts/world_service.mjs` — cron-style world ticker
+- `ops/scripts/trade_sim.mjs` — AI trader simulation
+- `ops/scripts/qa_gameplay_sim.mjs` — automated player sim
+
+**Next headless milestone:** an AI agent can `node ops/scripts/world_service.mjs --days 30` and get a JSON economy report back.
+
+---
+
 ## TIER 0 — Ship immediately (tiny, unblocking)
 
 ### 1. Boot self-test overlay
@@ -103,22 +122,18 @@ pause the game for real-world days return to stale prices with no way to reset.
 
 ## TECH
 
-### T1. Pages version-checker automation
-- `ops/scripts/pages_check.mjs` fetches the live URL, reads the version string
-  from the devlog, and exits non-zero if it doesn't match the expected version.
-- Acceptance: runnable as `node ops/scripts/pages_check.mjs vX.Y.Z` from CI or
-  manually after deploy.
+### T1. Pages version-checker automation — ✅ done (bug fixed)
+- `ops/scripts/pages_check.mjs` fetches the live URL, checks HTML build tag and
+  loader form (supports both static and dynamic loader).
+- Runnable as `node ops/scripts/pages_check.mjs vX.Y.Z` or `npm run pages:check vX.Y.Z`.
 
-### T2. Playwright CI (qa_selftest in GitHub Actions)
-- Add `npx playwright install --with-deps chromium` step before `npm test` in a
-  separate `qa` CI job. Keep `test` job (unit-only) fast; `qa` job runs on
-  push to main only.
-- Acceptance: qa_selftest passes green on a PR targeting main.
+### T2. Playwright CI (qa_selftest in GitHub Actions) — ✅ done
+- Separate `qa` job in `.github/workflows/test.yml`; runs on push to main only.
+- `test` job stays fast (unit-only); `qa` job installs Playwright + runs qa_selftest.
 
-### T3. Lint step in CI
-- Add `node --check src/main.js` (syntax only) as a pre-step in the test job.
-  Catches malformed JS before Playwright even runs.
-- Acceptance: lint step runs in < 5s; a deliberate syntax error causes red CI.
+### T3. Lint step in CI — ✅ done
+- `node --check src/main.js` runs as first step in the `test` job.
+- Catches malformed JS before Playwright even runs.
 
 ---
 

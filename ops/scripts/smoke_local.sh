@@ -47,7 +47,7 @@ echo "${HTML}" | grep -q "HTML build: v${EXPECTED}" || {
 # - dynamic: encodeURIComponent(v) (and fallback '?v=EXPECTED')
 (
   echo "${HTML}" | grep -Eq "src/main\\.js\\?v=${EXPECTED}(['\"])"? \
-  || (echo "${HTML}" | grep -q "encodeURIComponent(v)" && echo "${HTML}" | grep -q "'?v=${EXPECTED}'")
+  || (echo "${HTML}" | grep -q "encodeURIComponent(v)" && echo "${HTML}" | grep -q "'?v=${EXPECTED}")
 ) || {
   echo "ERROR: index.html main.js loader mismatch (expected v=${EXPECTED} or dynamic loader w/ fallback)" >&2
   exit 1

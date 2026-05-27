@@ -5,6 +5,10 @@
   "main": "index.js",
   "scripts": {
     "serve": "bash ops/scripts/serve_local.sh",
+    "smoke": "node ops/scripts/smoke_local.mjs",
+    "deploy": "bash ops/scripts/deploy.sh",
+    "pages:check": "node ops/scripts/pages_check.mjs",
+    "setup": "cp ops/scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
     "qa:selftest": "node ops/scripts/qa_selftest.mjs",
     "qa:city-walk": "node ops/scripts/qa_city_walk.mjs",
     "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs",

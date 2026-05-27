@@ -3,33 +3,37 @@
 This runbook is optimized for **fast iteration without breaking GitHub Pages**.
 Rule: **No change ships without closing the loop**.
 
-## The Gated Loop (every change)
-1) **Define** (1–3 min)
-   - Goal (1 sentence)
-   - Success check (what proves it worked)
-   - Rollback plan (what version to revert to)
-2) **Implement**
-3) **Validate locally** (Gate)
-   - `bash ops/scripts/smoke_local.sh`
-4) **Deploy** (Gate)
-   - bump version + cache-bust
-   - commit + push
-5) **Verify Pages** (Gate)
-   - open Pages (mobile + desktop)
-   - confirm Iteration Notes shows expected version
-   - **take a screenshot of the new build** (for regression tracking)
-   - **check for visible errors**:
-     - fatal overlay box present?
-     - devlog stuck on “Loading…”?
-     - blank canvas?
+## Setup (first time)
 
-If any gate fails: **stop and fix** (or rollback).
+```
+npm run setup   # installs the pre-commit version-guard hook
+```
+
+## The TDD Loop (every change)
+
+```
+1) Define       — goal (1 sentence), success check, rollback plan
+2) Write test   — add a failing test BEFORE editing src/main.js
+3) Run test     — confirm it fails (red); commit test file alone
+4) Implement    — edit src/main.js until the test goes green
+5) Run test     — confirm it passes (green)
+6) Validate     — npm run smoke
+7) Deploy       — npm run deploy   ← bump + commit + push + pages check
+8) Screenshot   — node ops/scripts/screenshot_pages.mjs vX.Y.Z (best-effort)
+```
+
+**Test placement guide:**
+- Pure logic → `ops/scripts/unit_tests.mjs`
+- Economy / balance → `ops/scripts/economy_parity_test.mjs`
+- UI / interaction → `ops/scripts/qa_selftest.mjs`
+
+If any step fails: **stop and fix** (or rollback).
+
+`npm run deploy` prints the rollback command automatically if `pages_check` fails.
 
 ## Local smoke test (minimum)
-- `node -c src/main.js`
-- Load `index.html` locally (optional) and confirm:
-  - canvas renders
-  - Iteration Notes is not stuck on “Loading…”
+- `npm run smoke` — starts embedded Node server, checks build tag + loader form
+- No python3 required; no separate serve step needed
 
 ## Screenshot validation (required)
 After deploy + Pages verification:

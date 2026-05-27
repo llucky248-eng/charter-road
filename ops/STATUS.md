@@ -11,8 +11,7 @@
 - [ ] GitHub Pages serves new version and renders
 
 ## Last shipped
-- Version: v0.4.50
-- Commit: (pending push)
+- Version: v0.5.8
 - URL: https://llucky248-eng.github.io/charter-road/
 
 ## Notes
