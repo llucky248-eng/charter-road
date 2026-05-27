@@ -42,17 +42,82 @@ address the findings. This applies to every kind of change, not just game featur
 
 The review is not optional and not a formality: if it surfaces a real issue, fix it before closing the task.
 
-## Workflow quick reference
+## Harness
+
+### Quick reference
 
 ```
-npm run setup        # install pre-commit version-guard hook (first time)
-npm run smoke        # local smoke check (no python3 needed)
-npm run deploy       # bump version + commit + push + verify Pages
-npm run test:unit    # unit + parity tests only (fast, no browser)
-npm run qa:selftest  # Playwright end-to-end
+npm run setup        # install pre-commit version-guard hook (one-time)
+npm run smoke        # local smoke check — no Python, no browser
+npm run test:unit    # unit + parity tests (fast, offline, no browser)
+npm run qa:selftest  # Playwright end-to-end (desktop + mobile)
+npm run deploy       # bump version + commit + push + poll Pages live
 ```
 
 See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
+
+### Local dev
+
+| Script | What it does | Constraints |
+|---|---|---|
+| `ops/scripts/serve_local.sh` | Starts static HTTP server, writes PID to `.server.pid` | Requires Python 3; reads `PORT`/`HOST` env (defaults 8080 / 127.0.0.1) |
+| `ops/scripts/kill_local_server.sh` | Kills server from `.server.pid` | Needs `.server.pid` to exist |
+| `ops/scripts/smoke_local.sh` | Starts server, validates HTML build tag + loader match `src/main.js` version | Requires Python 3 + curl |
+| `ops/scripts/smoke_local.mjs` | Same smoke check, embedded Node server | **Offline, no Python** — this is what `npm run smoke` calls |
+| `ops/scripts/iterate.sh` | Bumps patch, runs smoke, prints next steps | Calls bump_version + smoke_local.mjs |
+
+### Version management
+
+| Script | What it does |
+|---|---|
+| `ops/scripts/bump_version.mjs` | Atomically updates version in `src/main.js` (`NPC_DIAG_BUILD`, `version:`) and `index.html` (`HTML build:`, `?v=` loader). Arg: `+patch` (default) or explicit `vX.Y.Z`. **Never edit versions manually.** |
+| `ops/scripts/read_expected_version.mjs` | Reads current version from `src/main.js`, prints to stdout. Used by deploy pipeline. |
+
+### Testing
+
+| Script | What it does | Constraints |
+|---|---|---|
+| `ops/scripts/unit_tests.mjs` | Pure-function unit tests: hash, price, save validation/migration, DB mock, smoothing | **Fully offline, no browser** |
+| `ops/scripts/economy_parity_test.mjs` | Validates client (`src/main.js`) and server (`world_service.mjs`) economy constants match | Imports `world_service.mjs`; offline but reads both files |
+| `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'` | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
+| `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
+| `ops/scripts/qa_gameplay_sim.mjs` | Measures trade cycles to reach endgame (gear maxed + rep 7 + 500g) | Requires Playwright + `window.__QA.api` |
+| `ops/scripts/qa_mobile_dialog_layout.mjs` | Checks modal proportions on iPhone 12; saves screenshots to `ops/screenshots/` | Requires Playwright |
+| `ops/scripts/qa_player_speed.mjs` | Verifies player move speed ≈90 px/sec ±20%, faster than fastest trader | Requires Playwright |
+
+### Deploy pipeline
+
+| Script | What it does | Constraints |
+|---|---|---|
+| `ops/scripts/deploy.sh` | `bump_version` → commit → `git push -u origin <branch>` (3-retry backoff) → poll `pages_check` up to 90s | Requires network + git push access |
+| `ops/scripts/pages_check.mjs` | Fetches live GitHub Pages, validates version in HTML build tag + loader. Arg: version string (required). | Requires network; queries `https://llucky248-eng.github.io/charter-road/` |
+| `ops/scripts/screenshot_pages.mjs` | Takes desktop + mobile screenshots of live Pages → `ops/artifacts/v<version>/` | Requires Playwright + network; arg: version string (required) |
+
+### Simulation (Supabase-backed — requires network)
+
+These scripts **cannot run in an offline container**. All require `SUPABASE_URL` + `SUPABASE_KEY` env vars.
+
+| Script | What it does |
+|---|---|
+| `ops/scripts/world_service.mjs` | Cron world ticker: ticks AI traders, market drift, hunger, bank solvency, events, contracts. Exports economy constants consumed by `economy_parity_test.mjs`. **Hardcoded anon key at line 13 — confirm RLS is on before committing.** |
+| `ops/scripts/trade_sim.mjs` | Tests trading strategies over N days, finds profitable routes, flags balance issues |
+
+### Code generation (optional network)
+
+| Script | What it does | Constraints |
+|---|---|---|
+| `ops/scripts/generate_npc_dialogue.mjs` | Generates `assets/npc_dialogue.json` via OpenAI API; falls back to hardcoded lines if no key. Args: `--date YYYY-MM-DD`, `--out <path>`. | `OPENAI_API_KEY` env optional; `NPC_MODEL` env (default `gpt-5.2-mini`) |
+
+### CI workflows
+
+| File | Triggers | Jobs |
+|---|---|---|
+| `.github/workflows/test.yml` | `push` (all branches), `pull_request` | **test**: Node 24, lint + `npm run test:unit`; **enforce-test-first**: PR-only, blocks merge if `src/main.js` changed without touching a test file; **qa**: PR + main, Playwright chromium |
+| `.github/workflows/world-sim.yml` | Cron every 5 min + manual dispatch | **tick**: runs `world_service.mjs` with Supabase secrets |
+
+### Git hook
+
+`ops/scripts/hooks/pre-commit` — blocks a commit where `src/main.js` is staged but `index.html` version doesn't match. Install once with `npm run setup`. Uses POSIX `sed` (works on macOS + Linux).
 
 ## Version source of truth
 
