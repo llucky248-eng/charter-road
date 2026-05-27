@@ -34,13 +34,22 @@ async function runOnce({ name, contextOptions }) {
   await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
   // Wait for the QA harness to report pass/fail.
-  const result = await page.waitForFunction(() => {
-    // @ts-ignore
-    return window.__QA && window.__QA.status && (window.__QA.status === 'pass' || window.__QA.status === 'fail');
-  }, { timeout: 30_000 }).then(() => page.evaluate(() => {
-    // @ts-ignore
-    return window.__QA;
-  }));
+  let result;
+  try {
+    result = await page.waitForFunction(() => {
+      // @ts-ignore
+      return window.__QA && window.__QA.status && (window.__QA.status === 'pass' || window.__QA.status === 'fail');
+    }, { timeout: 30_000 }).then(() => page.evaluate(() => {
+      // @ts-ignore
+      return window.__QA;
+    }));
+  } catch (waitErr) {
+    await browser.close();
+    const errSummary = errors.length
+      ? `\nPage errors captured:\n- ${errors.join('\n- ')}`
+      : '\n(no page errors captured; __QA.status never changed from pending)';
+    die(`${name}: waitForFunction timed out — window.__QA.status never reached pass/fail.${errSummary}`);
+  }
 
   await browser.close();
 
