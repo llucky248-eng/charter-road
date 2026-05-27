@@ -4,7 +4,7 @@
 
 Charter Road is designed to be a **fully autonomous, self-running world simulation**. Markets, cities, AI traders, economy, events, hunger, and banking must operate without a human player present. This enables AI agents to play the game for testing, balance tuning, and emergent-behaviour research.
 
-**Next headless milestone:** an AI agent can run `node ops/scripts/world_service.mjs --days 30` and receive a JSON economy report — no browser required.
+**Next headless milestone (not yet reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. This path does not yet exist — see below.
 
 ## Headless constraint
 
@@ -14,9 +14,11 @@ Every mechanic added must be expressible as a **deterministic function of world 
 - Player UI is a layer on top; the simulation layer beneath must be browser-free
 
 Current headless infrastructure:
-- `ops/scripts/world_service.mjs` — cron-style world ticker
-- `ops/scripts/trade_sim.mjs` — AI trader simulation
+- `ops/scripts/world_service.mjs` — cron-style world ticker (**Supabase-backed**: requires `SUPABASE_URL` + `SUPABASE_KEY` env vars and network egress; cannot run in an offline container). Hardcoded anon key at line 13 — verify RLS is enabled on the Supabase project before treating this as safe to commit.
+- `ops/scripts/trade_sim.mjs` — AI trader simulation (also Supabase-backed)
 - `ops/scripts/qa_gameplay_sim.mjs` — automated player sim
+
+**What's missing for the milestone:** an in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. `world_service.mjs` would need a local-state mode (e.g. a JSON file as the state store) to get there.
 
 ## Test-first rule
 
