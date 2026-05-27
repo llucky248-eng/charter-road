@@ -31,6 +31,14 @@ Every feature must have a **failing test written before implementation** (red â†
 | Economy / balance / price curves | `ops/scripts/economy_parity_test.mjs` |
 | UI / interaction / visual | `ops/scripts/qa_selftest.mjs` |
 
+## Feature implementation checklist
+
+After implementing any new feature (any change to `src/main.js` or game logic):
+
+1. Write the failing test first (see Test-first rule above)
+2. Implement until green
+3. **Run `/code-review` before reporting done** â€” invoke the `code-review` skill on the current diff and address any findings before closing the task
+
 ## Workflow quick reference
 
 ```
