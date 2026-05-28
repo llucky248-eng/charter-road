@@ -20,6 +20,21 @@ Current headless infrastructure:
 
 **What's missing for the milestone:** an in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. `world_service.mjs` would need a local-state mode (e.g. a JSON file as the state store) to get there.
 
+## Goal-alignment check
+
+**Before implementing any feature, verify it aligns with the long-term goal:**
+
+> Charter Road must be a fully autonomous, self-running world simulation — no human player required.
+
+Ask: _does this feature work headlessly?_ Specifically:
+- Can it run without a browser or UI?
+- Is it a deterministic function of world state (no `Date.now()`, no `prompt()`)?
+- Does it make the simulation more autonomous, or does it only add player-facing UI?
+
+If a feature is UI-only, it must not couple the simulation layer to the browser. If it touches economy, trading, events, hunger, or banking, it must also work in the headless tick path (`world_service.mjs`).
+
+**Flag and discuss with the user before proceeding** if a proposed feature would move away from the headless goal.
+
 ## Test-first rule
 
 Every feature must have a **failing test written before implementation** (red → green → ship).
