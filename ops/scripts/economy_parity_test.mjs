@@ -147,6 +147,17 @@ test('ink source restriction matches the client economy', () => {
   assertEqual(ITEMS.find(item => item.id === 'ink')?.sourceCities, ['ironholt', 'crosshaven']);
 });
 
+test('metal variants are mirrored client⇄server with rarity-based prices', () => {
+  const sCopper = ITEMS.find(item => item.id === 'copper');
+  const sSilver = ITEMS.find(item => item.id === 'silver');
+  assert(sCopper && sSilver, 'server ITEMS must include copper and silver');
+  assertEqual(sCopper.sourceCities, ['crosshaven']);
+  assertEqual(sSilver.sourceCities, ['ironholt']);
+  assert(sSilver.base > sCopper.base, `rarer silver (${sSilver.base}) must cost more than copper (${sCopper.base})`);
+  assert(/id:\s*'copper'/.test(mainSource), 'client ITEMS missing copper');
+  assert(/id:\s*'silver'/.test(mainSource), 'client ITEMS missing silver');
+});
+
 test('server buy/sell quotes match client formula for representative markets', () => {
   resetMutableState();
   const cases = [
@@ -155,6 +166,9 @@ test('server buy/sell quotes match client formula for representative markets', (
     ['ironholt', 'ore'],
     ['crosshaven', 'potion'],
     ['ironholt', 'ink'],
+    ['crosshaven', 'copper'],
+    ['ironholt', 'silver'],
+    ['ashport', 'silver'],
   ];
 
   for (const [cityId, itemId] of cases) {

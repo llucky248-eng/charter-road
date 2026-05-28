@@ -630,11 +630,27 @@ ${line4}`;
         if (typeof buildSlotOnMap === 'function' && slot.tileX > 0) buildSlotOnMap('ironholt', 'mine', slot);
         return true;
       },
-      /** Find the first mine_node tile (id 18) in the world. */
+      /** Find the first legacy ore mine_node (tile 18, untagged). Falls back to any node. */
       qaMineNodeAt: () => {
+        let fallback = null;
         for (let y = 0; y < MAP_H; y++) {
           for (let x = 0; x < MAP_W; x++) {
-            if (tileAt(x, y) === 18) return { tx: x, ty: y };
+            if (tileAt(x, y) === 18) {
+              const idx = y * MAP_W + x;
+              if (!MINE_SITE_NODES[idx]) return { tx: x, ty: y };
+              if (!fallback) fallback = { tx: x, ty: y };
+            }
+          }
+        }
+        return fallback;
+      },
+      /** Find the first mine_node tagged with the given metal variant. */
+      qaMineSiteNodeAt: (metal) => {
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            if (tileAt(x, y) === 18 && MINE_SITE_NODES[y * MAP_W + x] === metal) {
+              return { tx: x, ty: y };
+            }
           }
         }
         return null;
@@ -1682,7 +1698,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
 
   // --- Tiles
-  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid), 18 mine-node (walkable ore vein near Ironholt), 19 mine-floor (built mine interior)
+  // 0 grass, 1 road, 2 water, 3 wall/rock, 4 city-floor, 5 gate, 6 market, 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts, 13 cache, 14 inn-alt, 15 guildhall, 16 vacant-lot (walkable), 17 mountain (solid), 18 mine-node (walkable ore vein; Ironholt iron + the copper/silver mining sites), 19 mine-floor (built mine interior)
   const SOLID = new Set([2, 3, 17]);
 
   // Terrain speed multiplier — forest slows, swamp slows more, road is full speed
@@ -1697,6 +1713,18 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   // Live reference to the map array - set by makeMap(), used by buildSlotOnMap()
   let mapData = null;
+
+  // Redesigned mining: two sites, each yielding a different metal variant.
+  // Coordinates + metals mirror ops/scripts/lib/mining.mjs (MINE_SITES). Each
+  // site's hub city is where its metal is cheapest (the source market/warehouse);
+  // traders + the player buy there and ship to dearer cities for profit.
+  const MINE_SITES = [
+    { id: 'coppervein_hollow', name: 'Coppervein Hollow', metal: 'copper', hub: 'crosshaven', x: 82,  y: 140 },
+    { id: 'argent_reach',      name: 'Argent Reach',      metal: 'silver', hub: 'ironholt',   x: 116, y: 30  },
+  ];
+  // tileIndex -> metalId, populated by makeMap() so playerMineNode drops the
+  // variant that belongs to the site the vein sits in (legacy Ironholt = ore).
+  const MINE_SITE_NODES = {};
 
   function makeMap() {
     const m = new Uint8Array(MAP_W * MAP_H);
@@ -2156,6 +2184,31 @@ function handleGlobalHudTap(clientX, clientY, e) {
       candidates.sort((a, b) => (b.adj - a.adj) || (b.h - a.h));
       for (let i = 0; i < Math.min(wanted, candidates.length); i++) {
         m[candidates[i].idx] = 18;
+      }
+    }
+
+    // Redesigned mining sites: carve a small walkable ore-vein cluster (tile 18)
+    // around each site centre and tag every node with the metal it yields.
+    // Strictly grass-only (m[idx]===0) so we never overwrite water/roads/cities/
+    // mountains; rings widen outward so the cluster still forms if the centre is
+    // occupied — and if no grass is reachable, the site simply gets no nodes
+    // rather than corrupting terrain (the QA self-test asserts both sites exist).
+    for (const site of MINE_SITES) {
+      const want = 5;
+      let placed = 0;
+      for (let r = 0; r <= 40 && placed < want; r++) {
+        for (let oy = -r; oy <= r && placed < want; oy++) {
+          for (let ox = -r; ox <= r && placed < want; ox++) {
+            if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue; // ring at radius r
+            const tx = site.x + ox, ty = site.y + oy;
+            if (tx < 1 || ty < 1 || tx >= MAP_W - 1 || ty >= MAP_H - 1) continue;
+            const idx = ty * MAP_W + tx;
+            if (m[idx] !== 0) continue; // only carve grass
+            m[idx] = 18;
+            MINE_SITE_NODES[idx] = site.metal;
+            placed++;
+          }
+        }
       }
     }
 
@@ -2754,6 +2807,8 @@ const NPC_INTERACT_RADIUS = 18;
     { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy - late-game route
     { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink', sourceCities: ['ironholt','crosshaven'] },  // contraband; only profitable when sourced from ironholt/crosshaven
     { id: 'gem',    name: 'Gemstones',     base: 80, weight: 1, rare: true },  // rare drop from mining; high value, low weight
+    { id: 'copper', name: 'Copper Ore',    base: 14, weight: 2, rarity: 'common', sourceCities: ['crosshaven'] },  // mined at Coppervein Hollow; common, cheap
+    { id: 'silver', name: 'Silver Ore',    base: 58, weight: 1, rarity: 'rare',   sourceCities: ['ironholt']   },  // mined at Argent Reach; rare, dear
   ];
 
   // --- Market model (minimal, deterministic)
@@ -3300,10 +3355,10 @@ const NPC_INTERACT_RADIUS = 18;
     // Get the city multiplier from the hardcoded mults table in priceFor.
     // We inline the mults here to keep them consistent.
     const CITY_MULTS = {
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10 },
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40 },
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70 },
+      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20 },
+      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28 },
+      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66 },
     };
     const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
@@ -8171,12 +8226,16 @@ function drawNpcBubble() {
     player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
 
     function _doMineYield() {
-      const oreQty = 2 + (Math.random() * 3 | 0); // 2..4
-      player.inv.ore = (player.inv.ore || 0) + oreQty;
+      // Veins inside a redesigned mining site drop that site's metal variant;
+      // legacy Ironholt veins still drop iron ore.
+      const metalId = MINE_SITE_NODES[key] || 'ore';
+      const metal = ITEMS.find(it => it.id === metalId);
+      const qty = 2 + (Math.random() * 3 | 0); // 2..4
+      player.inv[metalId] = (player.inv[metalId] || 0) + qty;
       let bonus = '';
       if (Math.random() < 0.10) { player.inv.coal = (player.inv.coal || 0) + 1; bonus += ' +1 coal'; }
       if (Math.random() < 0.05) { player.inv.gem  = (player.inv.gem  || 0) + 1; bonus += ' +1 GEM!'; }
-      toast(`Mined ${oreQty} ore${bonus}`, 2.5);
+      toast(`Mined ${qty} ${metal?.name || metalId}${bonus}`, 2.5);
       saveGame(true);
     }
 
@@ -13529,6 +13588,18 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         const ok2 = api.qaPlayerMine(node.tx, node.ty);
         assert(ok2 === false, 'mine: 2nd swing within 30s blocked by cooldown');
 
+        // Redesigned mining sites: both metal variants exist on the map, and a
+        // site vein drops its own metal (copper here) rather than iron ore.
+        const copperNode = api.qaMineSiteNodeAt('copper');
+        const silverNode = api.qaMineSiteNodeAt('silver');
+        assert(copperNode && silverNode, 'mine: both copper and silver sites exist on the map');
+        api.teleportToTile(copperNode.tx, copperNode.ty);
+        api.qaSetStamina(100);
+        const copperBefore = player.inv.copper || 0;
+        const okCu = api.qaPlayerMine(copperNode.tx, copperNode.ty);
+        assert(okCu === true, 'mine: copper-site swing succeeds');
+        assert((player.inv.copper || 0) >= copperBefore + 2, 'mine: copper site drops copper, not ore');
+
         // Save round-trip preserves stamina + cooldown.
         api.qaSetStamina(42);
         saveGame(true);
@@ -13538,7 +13609,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(typeof player.mineCooldown === 'object', 'mine: mineCooldown survives save/load');
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining');
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

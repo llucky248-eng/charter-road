@@ -31,6 +31,8 @@ const ITEMS = [
   { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },
   { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },
   { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, sourceCities: ['ironholt', 'crosshaven'] },
+  { id: 'copper', name: 'Copper Ore',    base: 14, weight: 2, rarity: 'common', sourceCities: ['crosshaven'] },
+  { id: 'silver', name: 'Silver Ore',    base: 58, weight: 1, rarity: 'rare',   sourceCities: ['ironholt'] },
 ];
 
 const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
@@ -261,10 +263,10 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
 // ── Price model (mirrors main.js) ───────────────────────────────────────────
 
 const CITY_MULTS = {
-  valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05 },
-  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20 },
-  crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00 },
-  ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90 },
+  valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, copper: 1.20, silver: 1.20 },
+  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, copper: 1.22, silver: 1.30 },
+  crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, copper: 0.68, silver: 1.28 },
+  ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, copper: 1.05, silver: 0.66 },
 };
 
 const WORLD_STATE = {
