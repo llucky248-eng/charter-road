@@ -25,7 +25,7 @@ jobs:
       - name: Lint (syntax check)
         run: |
           node --check src/main.js
-          find ops/scripts -name "*.mjs" -exec node --check {} \;
+          find ops/scripts -name "*.mjs" -print0 | xargs -0 -n1 node --check
 
       - name: Run unit and parity tests
         run: npm run test:unit

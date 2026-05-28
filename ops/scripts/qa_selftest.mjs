@@ -11,6 +11,7 @@
 
 import { chromium, devices } from 'playwright';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { startServer } from './lib/static_server.mjs';
 
 function die(msg) {
@@ -73,7 +74,7 @@ async function runOnce({ name, contextOptions }) {
   if (!process.argv[2] && !process.env.QA_URL) {
     const PORT = 8080;
     // Resolve repo root: ops/scripts/qa_selftest.mjs → ../../.. = repo root
-    const ROOT = resolve(new URL(import.meta.url).pathname, '../../..');
+    const ROOT = resolve(fileURLToPath(import.meta.url), '../../..');
     try {
       server = await startServer(ROOT, PORT);
     } catch (e) {

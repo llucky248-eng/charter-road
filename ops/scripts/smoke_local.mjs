@@ -7,11 +7,12 @@
  */
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { startServer } from './lib/static_server.mjs';
 
 function die(msg) { console.error('SMOKE FAIL:', msg); process.exit(1); }
 
-const ROOT = resolve(new URL(import.meta.url).pathname, '../../..');
+const ROOT = resolve(fileURLToPath(import.meta.url), '../../..');
 const PORT = Number(process.env.PORT) || 4173;
 
 const mainJs = readFileSync(`${ROOT}/src/main.js`, 'utf8');
