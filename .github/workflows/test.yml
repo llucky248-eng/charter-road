@@ -5,6 +5,13 @@ on:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,7 +23,52 @@ jobs:
           node-version: '24'
 
       - name: Lint (syntax check)
-        run: node --check src/main.js
+        run: |
+          node --check src/main.js
+          find ops/scripts -name "*.mjs" -print0 | xargs -0 -n1 node --check
 
       - name: Run unit and parity tests
         run: npm run test:unit
+
+  enforce-test-first:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if src/main.js changed without a test file
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          if echo "$CHANGED" | grep -q "^src/main\.js$"; then
+            if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|qa_selftest)\.mjs$"; then
+              echo "ERROR: src/main.js changed without a corresponding test file update."
+              echo ""
+              echo "Test-first rule (CLAUDE.md): add or update a test in the same PR."
+              echo "Touch one of:"
+              echo "  ops/scripts/unit_tests.mjs"
+              echo "  ops/scripts/economy_parity_test.mjs"
+              echo "  ops/scripts/qa_selftest.mjs"
+              exit 1
+            fi
+          fi
+
+  qa:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run QA self-test (Playwright)
+        run: npm run qa:selftest

@@ -10,36 +10,9 @@
  */
 
 import { chromium, devices } from 'playwright';
-import { spawn, execSync } from 'child_process';
-import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
-import { extname, join, resolve } from 'path';
-
-// ── Embedded static server (no python3 dependency) ────────────────────────
-const MIME = {
-  '.html': 'text/html', '.js': 'application/javascript',
-  '.mjs': 'application/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.png': 'image/png',
-  '.ico': 'image/x-icon', '.txt': 'text/plain',
-};
-
-function startServer(root, port) {
-  return new Promise((resolve, reject) => {
-    const server = createServer((req, res) => {
-      try {
-        let p = req.url.split('?')[0];
-        if (p === '/' || p === '') p = '/index.html';
-        const file = join(root, p);
-        if (!existsSync(file)) { res.writeHead(404); res.end('Not found'); return; }
-        const ext = extname(file);
-        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
-        res.end(readFileSync(file));
-      } catch { res.writeHead(500); res.end('Error'); }
-    });
-    server.listen(port, '127.0.0.1', () => resolve(server));
-    server.on('error', reject);
-  });
-}
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { startServer } from './lib/static_server.mjs';
 
 function die(msg) {
   console.error('QA_FAIL:', msg);
@@ -62,13 +35,22 @@ async function runOnce({ name, contextOptions }) {
   await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
   // Wait for the QA harness to report pass/fail.
-  const result = await page.waitForFunction(() => {
-    // @ts-ignore
-    return window.__QA && window.__QA.status && (window.__QA.status === 'pass' || window.__QA.status === 'fail');
-  }, { timeout: 30_000 }).then(() => page.evaluate(() => {
-    // @ts-ignore
-    return window.__QA;
-  }));
+  let result;
+  try {
+    result = await page.waitForFunction(() => {
+      // @ts-ignore
+      return window.__QA && window.__QA.status && (window.__QA.status === 'pass' || window.__QA.status === 'fail');
+    }, { timeout: 30_000 }).then(() => page.evaluate(() => {
+      // @ts-ignore
+      return window.__QA;
+    }));
+  } catch (waitErr) {
+    await browser.close();
+    const errSummary = errors.length
+      ? `\nPage errors captured:\n- ${errors.join('\n- ')}`
+      : '\n(no page errors captured; __QA.status never changed from pending)';
+    die(`${name}: waitForFunction timed out — window.__QA.status never reached pass/fail.${errSummary}`);
+  }
 
   await browser.close();
 
@@ -92,7 +74,7 @@ async function runOnce({ name, contextOptions }) {
   if (!process.argv[2] && !process.env.QA_URL) {
     const PORT = 8080;
     // Resolve repo root: ops/scripts/qa_selftest.mjs → ../../.. = repo root
-    const ROOT = resolve(new URL(import.meta.url).pathname, '../../..');
+    const ROOT = resolve(fileURLToPath(import.meta.url), '../../..');
     try {
       server = await startServer(ROOT, PORT);
     } catch (e) {

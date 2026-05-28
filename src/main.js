@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.8'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.10'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2131,35 +2131,33 @@ function handleGlobalHudTap(clientX, clientY, e) {
     paintPatch( 50, 110, 12, 11, 0.75);   // West swamp
     paintPatch(202, 148, 10, 11, 0.68);   // SE swamp
 
-    // Mine nodes (tile 18) — walkable ore veins. Painted on grass tiles adjacent
-    // to mountains (tile 17) inside an Ironholt-vicinity bbox so mining is a
-    // local-to-Ironholt activity that reinforces city specialization.
+    // Mine nodes (tile 18) — walkable ore veins in the Ironholt vicinity.
+    // Rank grass candidates (mountain-adjacent first, stable hash2 tiebreak) and
+    // place the top `wanted`. Ranking instead of filtering guarantees nodes always
+    // exist: a hard mountain-adjacency filter placed zero once the ranges became
+    // continuous and no grass tile inside the old bbox bordered a peak.
     {
-      const bbox = { x0: 200, y0: 18, x1: 240, y1: 50 };
+      const bbox = { x0: 198, y0: 14, x1: 256, y1: 52 };
       const wanted = 6;
-      let placed = 0;
-      for (let ty = bbox.y0; ty < bbox.y1 && placed < wanted; ty++) {
-        for (let tx = bbox.x0; tx < bbox.x1 && placed < wanted; tx++) {
+      const candidates = [];
+      for (let ty = bbox.y0; ty < bbox.y1; ty++) {
+        for (let tx = bbox.x0; tx < bbox.x1; tx++) {
           const idx = ty * MAP_W + tx;
           if (m[idx] !== 0) continue;
-          // must be adjacent to a mountain
+          // skip if inside cityD (Ironholt) bounds
+          if (tx >= 210 && tx < 230 && ty >= 28 && ty < 46) continue;
           const adj = (
             m[idx-1] === 17 || m[idx+1] === 17 ||
             m[idx-MAP_W] === 17 || m[idx+MAP_W] === 17
-          );
-          if (!adj) continue;
-          // skip if inside cityD (Ironholt) bounds
-          if (tx >= 210 && tx < 230 && ty >= 28 && ty < 46) continue;
-          // deterministic placement via hash2 to keep nodes stable across loads
-          if (hash2(tx, ty) > 0.55) {
-            m[idx] = 18;
-            placed += 1;
-          }
+          ) ? 1 : 0;
+          candidates.push({ idx, adj, h: hash2(tx, ty) });
         }
       }
+      candidates.sort((a, b) => (b.adj - a.adj) || (b.h - a.h));
+      for (let i = 0; i < Math.min(wanted, candidates.length); i++) {
+        m[candidates[i].idx] = 18;
+      }
     }
-
-
 
     // map landmarks between cities (non-solid POIs)
     // 7 shrine, 8 camp, 9 ruins, 10 forest, 11 swamp, 12 contracts
@@ -6318,7 +6316,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.8',
+    version: 'v0.5.10',
     whatsNew: [
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
@@ -7711,7 +7709,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.8',
+      buildVersion: 'v0.5.10',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -13506,6 +13504,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
       // ── Mining: city-side production + player-active mining ──────────────
       {
+        const api = __QA.api;
         // Force-build mine, run cityMineTick, treasury should rise.
         api.qaForceBuildMine(1);
         const t0 = (cityTreasury.ironholt?.gold) || 0;
