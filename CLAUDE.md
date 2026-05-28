@@ -4,7 +4,6 @@
 
 Charter Road is designed to be a **fully autonomous, self-running world simulation**. Markets, cities, AI traders, economy, events, hunger, and banking must operate without a human player present. This enables AI agents to play the game for testing, balance tuning, and emergent-behaviour research.
 
-**Next headless milestone (not yet reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. This path does not yet exist — see below.
 
 ## Headless constraint
 
