@@ -58,65 +58,42 @@ jobs:
 
   qa:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # The chromium binary can't be fetched on the hosted runner — cdn.playwright.dev
+    # egress is blocked (403 'Host not in allowlist' locally; a full connect hang on
+    # the runner). No timeout/retry/cache tuning can reach a blocked host, so run
+    # inside the official Playwright image instead: it ships chromium + all system
+    # libs pre-installed at $PLAYWRIGHT_BROWSERS_PATH (/ms-playwright), so there is
+    # no browser download at all. The image tag MUST match the `playwright` version
+    # in package.json (guarded below) or the bundled browser revision won't match.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Resolve Playwright version
-        id: pw
-        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      # Restore-only: the previous failed run's post-step poisoned the old key
-      # with a partial download, so the combined cache action can't be trusted
-      # (it saves even on job failure). The -v2- salt sidesteps that stale entry.
-      - name: Restore Playwright browser cache
-        id: pw-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-v2-${{ steps.pw.outputs.version }}
-
-      # Always run: idempotent and ~1s on a valid cache, and self-heals a partial
-      # restore (Playwright re-downloads when its completion marker is missing).
-      # Per-attempt timeout + retry ride out a stalled CDN edge; the loop's worst
-      # case (~10m) stays under the 12m step backstop.
-      - name: Install Playwright browser
-        timeout-minutes: 12
+      # Fail fast + legibly if the installed playwright doesn't match the image's
+      # bundled chromium. Checking the real invariant — does the browser the
+      # installed playwright-core expects actually exist in this image? — beats
+      # string-matching a version (no third copy to keep in sync, and it catches
+      # any drift). A miss means package.json's playwright outgrew the container
+      # tag below; bump the image to mcr.microsoft.com/playwright:v<version>-noble.
+      - name: Verify image bundles the expected Chromium
         run: |
-          for i in 1 2 3; do
-            echo "Playwright chromium install attempt $i/3"
-            if timeout -k 10 200 ./node_modules/.bin/playwright install chromium; then
-              exit 0
-            fi
-            echo "attempt $i stalled or failed; backing off before retry"
-            sleep 5
-          done
-          echo "ERROR: playwright chromium install failed after 3 attempts" >&2
-          exit 1
-
-      # Save only on a clean miss: reaching this step means install succeeded
-      # (a failed install aborts the job first), so the cached browser is whole.
-      - name: Save Playwright browser cache
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-v2-${{ steps.pw.outputs.version }}
-
-      # System libs aren't cacheable and apt can stall on a hosted runner; bound
-      # it and don't fail the job — the self-test fails fast if a lib is missing.
-      - name: Install Playwright system deps
-        timeout-minutes: 8
-        continue-on-error: true
-        run: ./node_modules/.bin/playwright install-deps chromium
+          node -e '
+            const { chromium } = require("playwright");
+            const { existsSync } = require("fs");
+            const p = chromium.executablePath();
+            if (!existsSync(p)) {
+              const v = require("playwright/package.json").version;
+              console.error(`::error::Installed playwright ${v} expects a Chromium at ${p}, but it is not in this image. The qa container tag must match the installed playwright version — set it to mcr.microsoft.com/playwright:v${v}-noble in .github/workflows/test.yml.`);
+              process.exit(1);
+            }
+            console.log(`Chromium present at ${p}`);
+          '
 
       - name: Run QA self-test (Playwright)
         run: npm run qa:selftest

@@ -21,8 +21,13 @@ function die(msg) {
 
 let activeUrl = process.argv[2] || process.env.QA_URL || 'http://127.0.0.1:8080/?qa=1';
 
+// Chromium's sandbox can't initialize as uid 0, which is how the Playwright CI
+// container runs. Drop it only in that case; local (non-root) runs keep it on.
+const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+const launchOptions = isRoot ? { args: ['--no-sandbox'] } : {};
+
 async function runOnce({ name, contextOptions }) {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
 
