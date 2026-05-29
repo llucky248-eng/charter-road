@@ -74,24 +74,49 @@ jobs:
         id: pw
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Playwright browsers
+      # Restore-only: the previous failed run's post-step poisoned the old key
+      # with a partial download, so the combined cache action can't be trusted
+      # (it saves even on job failure). The -v2- salt sidesteps that stale entry.
+      - name: Restore Playwright browser cache
         id: pw-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-playwright-v2-${{ steps.pw.outputs.version }}
 
+      # Always run: idempotent and ~1s on a valid cache, and self-heals a partial
+      # restore (Playwright re-downloads when its completion marker is missing).
+      # Per-attempt timeout + retry ride out a stalled CDN edge; the loop's worst
+      # case (~10m) stays under the 12m step backstop.
       - name: Install Playwright browser
-        if: steps.pw-cache.outputs.cache-hit != 'true'
         timeout-minutes: 12
-        run: npx playwright install chromium
+        run: |
+          for i in 1 2 3; do
+            echo "Playwright chromium install attempt $i/3"
+            if timeout -k 10 200 ./node_modules/.bin/playwright install chromium; then
+              exit 0
+            fi
+            echo "attempt $i stalled or failed; backing off before retry"
+            sleep 5
+          done
+          echo "ERROR: playwright chromium install failed after 3 attempts" >&2
+          exit 1
+
+      # Save only on a clean miss: reaching this step means install succeeded
+      # (a failed install aborts the job first), so the cached browser is whole.
+      - name: Save Playwright browser cache
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-v2-${{ steps.pw.outputs.version }}
 
       # System libs aren't cacheable and apt can stall on a hosted runner; bound
       # it and don't fail the job — the self-test fails fast if a lib is missing.
       - name: Install Playwright system deps
         timeout-minutes: 8
         continue-on-error: true
-        run: npx playwright install-deps chromium
+        run: ./node_modules/.bin/playwright install-deps chromium
 
       - name: Run QA self-test (Playwright)
         run: npm run qa:selftest
