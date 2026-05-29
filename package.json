@@ -12,8 +12,9 @@
     "qa:selftest": "node ops/scripts/qa_selftest.mjs",
     "qa:city-walk": "node ops/scripts/qa_city_walk.mjs",
     "test:harness": "node ops/scripts/harness_tests.mjs",
-    "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/harness_tests.mjs",
-    "test": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/qa_selftest.mjs"
+    "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/harness_tests.mjs",
+    "mining:report": "node ops/scripts/mining_report.mjs",
+    "test": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/qa_selftest.mjs"
   },
   "repository": {
     "type": "git",

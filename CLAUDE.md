@@ -4,7 +4,7 @@
 
 Charter Road is designed to be a **fully autonomous, self-running world simulation**. Markets, cities, AI traders, economy, events, hunger, and banking must operate without a human player present. This enables AI agents to play the game for testing, balance tuning, and emergent-behaviour research.
 
-**Next headless milestone (not yet reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. This path does not yet exist — see below.
+**Next headless milestone (partially reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. A first deterministic slice now exists for the **mining economy** — `npm run mining:report -- --days N` (built on the pure `ops/scripts/lib/mining.mjs` module). The full world economy (traders, hunger, banking in `world_service.mjs`) still needs an offline local-state path — see below.
 
 ## Headless constraint
 
@@ -18,7 +18,7 @@ Current headless infrastructure:
 - `ops/scripts/trade_sim.mjs` — AI trader simulation (also Supabase-backed)
 - `ops/scripts/qa_gameplay_sim.mjs` — automated player sim
 
-**What's missing for the milestone:** an in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. `world_service.mjs` would need a local-state mode (e.g. a JSON file as the state store) to get there.
+**What's missing for the milestone:** a *whole-world* in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. The **mining economy already does this** offline via `ops/scripts/mining_report.mjs`; bringing the rest along (traders, hunger, banking) would need `world_service.mjs` to gain a local-state mode (e.g. a JSON file as the state store).
 
 ## Test-first rule
 
@@ -29,6 +29,7 @@ Every feature must have a **failing test written before implementation** (red �
 |---|---|
 | Pure logic (math, data transforms) | `ops/scripts/unit_tests.mjs` |
 | Economy / balance / price curves | `ops/scripts/economy_parity_test.mjs` |
+| Mining sim (sites, metal variants, rarity pricing, production, shipping) | `ops/scripts/mining_tests.mjs` |
 | UI / interaction / visual | `ops/scripts/qa_selftest.mjs` |
 
 ## Review-before-done rule
@@ -79,6 +80,7 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 |---|---|---|
 | `ops/scripts/unit_tests.mjs` | Pure-function unit tests: hash, price, save validation/migration, DB mock, smoothing | **Fully offline, no browser** |
 | `ops/scripts/economy_parity_test.mjs` | Validates client (`src/main.js`) and server (`world_service.mjs`) economy constants match | Imports `world_service.mjs`; offline but reads both files |
+| `ops/scripts/mining_tests.mjs` | Mining redesign: 2 sites, metal variants, rarity-based pricing, NPC+player production, warehouse conservation, trader+player shipping, deterministic report | Imports `lib/mining.mjs`; **fully offline, no browser** |
 | `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'` | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
 | `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_gameplay_sim.mjs` | Measures trade cycles to reach endgame (gear maxed + rep 7 + 500g) | Requires Playwright + `window.__QA.api` |
@@ -92,6 +94,20 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 | `ops/scripts/deploy.sh` | `bump_version` → commit → `git push -u origin <branch>` (3-retry backoff) → poll `pages_check` up to 90s | Requires network + git push access |
 | `ops/scripts/pages_check.mjs` | Fetches live GitHub Pages, validates version in HTML build tag + loader. Arg: version string (required). | Requires network; queries `https://llucky248-eng.github.io/charter-road/` |
 | `ops/scripts/screenshot_pages.mjs` | Takes desktop + mobile screenshots of live Pages → `ops/artifacts/v<version>/` | Requires Playwright + network; arg: version string (required) |
+
+### Mining simulation (offline, deterministic)
+
+The redesigned mining economy is a pure function of world state — no browser, no DB.
+
+| Script | What it does | Constraints |
+|---|---|---|
+| `ops/scripts/lib/mining.mjs` | Pure module: 2 mining sites (`MINE_SITES`), metal variants (`METALS`: copper/silver) with rarity-based prices, per-city multipliers (`METAL_CITY_MULTS`), NPC+player production, trader+player shipping, and `simulateMiningEconomy({days,seed,player})`. **Pricing + site constants mirror `src/main.js` + `world_service.mjs`. `mining_tests.mjs` checks `mining.mjs` against `world_service.mjs` (metal prices) and `src/main.js` (site coords/hubs); `economy_parity_test.mjs` checks `main.js`↔`world_service`. Edit all copies together.** | **Fully offline; no `Date.now`/`Math.random`** |
+| `ops/scripts/mining_report.mjs` | Headless `--days N` JSON economy report. `npm run mining:report -- --days 30 --seed 7 [--pretty] [--player <siteId> --swings K --ships K]` | **Fully offline, no browser** |
+
+In the live game (`src/main.js`): the two sites are carved onto the map as taggable
+ore veins, `playerMineNode` drops the site's metal variant, and copper/silver are
+real market goods (cheapest at their hub city, dearer elsewhere) so server traders
+and the player both ship them for profit.
 
 ### Simulation (Supabase-backed — requires network)
 
