@@ -58,6 +58,7 @@ jobs:
 
   qa:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -69,8 +70,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+
+      - name: Install Playwright browser
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
+        run: npx playwright install chromium
+
+      # System libs aren't cacheable and apt can stall on a hosted runner; bound
+      # it and don't fail the job — the self-test fails fast if a lib is missing.
+      - name: Install Playwright system deps
+        timeout-minutes: 8
+        continue-on-error: true
+        run: npx playwright install-deps chromium
 
       - name: Run QA self-test (Playwright)
         run: npm run qa:selftest
