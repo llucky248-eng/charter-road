@@ -49,7 +49,7 @@ jobs:
             # doesn't fire on maintenance commits.
             NONGAME=$(git diff origin/${{ github.base_ref }}...HEAD -- src/main.js \
               | grep "^[+-]" | grep -v "^[+-][+-][+-]" \
-              | grep -vE "NPC_DIAG_BUILD|[^a-z]version:|buildVersion:" )
+              | grep -vE "NPC_DIAG_BUILD|[^a-z]version:|buildVersion:" || true)
             if [ -z "$NONGAME" ]; then
               echo "Only version lines changed in src/main.js — version bump exempted from test-first rule."
               exit 0
