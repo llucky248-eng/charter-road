@@ -32,6 +32,17 @@ Every feature must have a **failing test written before implementation** (red â†
 | Mining sim (sites, metal variants, rarity pricing, production, shipping) | `ops/scripts/mining_tests.mjs` |
 | UI / interaction / visual | `ops/scripts/qa_selftest.mjs` |
 
+## Version-bump rule
+
+**Any commit that touches `src/main.js` must include a version bump.** Run before staging:
+
+```
+node ops/scripts/bump_version.mjs +patch
+git add src/main.js index.html
+```
+
+The pre-commit hook enforces this: it blocks if `src/main.js` is staged but the version hasn't changed from the last commit. `npm run deploy` calls `bump_version.mjs` automatically â€” use it for releases to main. For feature-branch commits, bump manually before `git add`.
+
 ## Review-before-done rule
 
 **Run `/code-review` on the current diff before reporting ANY task as done**, then
