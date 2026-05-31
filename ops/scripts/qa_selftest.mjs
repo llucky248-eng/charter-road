@@ -15,6 +15,9 @@ import { fileURLToPath } from 'url';
 import { startServer } from './lib/static_server.mjs';
 
 function die(msg) {
+  // Emit a GitHub Actions error annotation so the failure appears in the PR
+  // without needing to open the raw job log.
+  if (process.env.GITHUB_ACTIONS) console.error(`::error::QA_FAIL: ${msg}`);
   console.error('QA_FAIL:', msg);
   process.exit(1);
 }

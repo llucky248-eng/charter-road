@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
-# Blocks commits where src/main.js is staged but index.html version doesn't match.
+# Guards two invariants when src/main.js is staged:
+#   1. index.html version must match (consistency)
+#   2. version must be bumped from the last commit (progress)
 STAGED=$(git diff --cached --name-only)
 if echo "$STAGED" | grep -q "^src/main\.js$"; then
   JS_VER=$(git show :src/main.js | sed -n "s/.*NPC_DIAG_BUILD *= *'v\([0-9.]*\)'.*/\1/p" | head -1)
   HTML_VER=$(git show :index.html | sed -n "s/.*HTML build: v\([0-9.]*\).*/\1/p" | head -1)
+
+  # 1. Consistency: both files must agree.
   if [[ "$JS_VER" != "$HTML_VER" ]]; then
-    echo "ERROR: src/main.js staged but version not bumped in index.html."
+    echo "ERROR: src/main.js staged but version mismatch with index.html."
     echo "  main.js: v${JS_VER}  index.html: v${HTML_VER}"
+    echo "Run: node ops/scripts/bump_version.mjs +patch && git add index.html src/main.js"
+    exit 1
+  fi
+
+  # 2. Progress: version must be bumped from the last committed version.
+  #    Compares against HEAD's src/main.js so this works on any branch.
+  HEAD_VER=$(git show HEAD:src/main.js 2>/dev/null | sed -n "s/.*NPC_DIAG_BUILD *= *'v\([0-9.]*\)'.*/\1/p" | head -1)
+  if [[ -n "$HEAD_VER" && "$JS_VER" == "$HEAD_VER" ]]; then
+    echo "ERROR: src/main.js changed but version is still v${JS_VER} (same as last commit)."
     echo "Run: node ops/scripts/bump_version.mjs +patch && git add index.html src/main.js"
     exit 1
   fi

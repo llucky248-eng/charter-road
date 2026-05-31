@@ -44,6 +44,16 @@ jobs:
         run: |
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           if echo "$CHANGED" | grep -q "^src/main\.js$"; then
+            # Pure version bumps (only NPC_DIAG_BUILD / version: lines touched)
+            # don't need a test — exempt them so the enforce-test-first gate
+            # doesn't fire on maintenance commits.
+            NONGAME=$(git diff origin/${{ github.base_ref }}...HEAD -- src/main.js \
+              | grep "^[+-]" | grep -v "^[+-][+-][+-]" \
+              | grep -vE "NPC_DIAG_BUILD|[^a-z]version:|buildVersion:" || true)
+            if [ -z "$NONGAME" ]; then
+              echo "Only version lines changed in src/main.js — version bump exempted from test-first rule."
+              exit 0
+            fi
             if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|qa_selftest)\.mjs$"; then
               echo "ERROR: src/main.js changed without a corresponding test file update."
               echo ""
