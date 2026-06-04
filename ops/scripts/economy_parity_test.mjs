@@ -150,12 +150,16 @@ test('ink source restriction matches the client economy', () => {
 test('metal variants are mirrored client⇄server with rarity-based prices', () => {
   const sCopper = ITEMS.find(item => item.id === 'copper');
   const sSilver = ITEMS.find(item => item.id === 'silver');
-  assert(sCopper && sSilver, 'server ITEMS must include copper and silver');
+  const sGold   = ITEMS.find(item => item.id === 'gold');
+  assert(sCopper && sSilver && sGold, 'server ITEMS must include copper, silver, and gold');
   assertEqual(sCopper.sourceCities, ['crosshaven']);
   assertEqual(sSilver.sourceCities, ['ironholt']);
+  assertEqual(sGold.sourceCities,   ['valdenmere']);
   assert(sSilver.base > sCopper.base, `rarer silver (${sSilver.base}) must cost more than copper (${sCopper.base})`);
+  assert(sGold.base   > sSilver.base, `legendary gold (${sGold.base}) must cost more than silver (${sSilver.base})`);
   assert(/id:\s*'copper'/.test(mainSource), 'client ITEMS missing copper');
   assert(/id:\s*'silver'/.test(mainSource), 'client ITEMS missing silver');
+  assert(/id:\s*'gold'/.test(mainSource),   'client ITEMS missing gold');
 });
 
 test('server buy/sell quotes match client formula for representative markets', () => {
@@ -169,6 +173,8 @@ test('server buy/sell quotes match client formula for representative markets', (
     ['crosshaven', 'copper'],
     ['ironholt', 'silver'],
     ['ashport', 'silver'],
+    ['valdenmere', 'gold'],
+    ['crosshaven', 'gold'],
   ];
 
   for (const [cityId, itemId] of cases) {
