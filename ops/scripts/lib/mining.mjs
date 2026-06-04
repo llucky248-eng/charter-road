@@ -20,30 +20,33 @@ export const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
 
 // Rarity tiers: rarer => fewer units per miner per day, and (via base price) dearer.
 export const RARITY = {
-  common: { rank: 0, yieldPerMiner: 6 },
-  rare:   { rank: 1, yieldPerMiner: 2 },
+  common:    { rank: 0, yieldPerMiner: 6 },
+  rare:      { rank: 1, yieldPerMiner: 2 },
+  legendary: { rank: 2, yieldPerMiner: 1 },
 };
 
-// The mineable metal variants. base price reflects rarity (copper < silver).
+// The mineable metal variants. base price reflects rarity (copper < silver < gold).
 export const METALS = [
-  { id: 'copper', name: 'Copper Ore', rarity: 'common', base: 14, weight: 2 },
-  { id: 'silver', name: 'Silver Ore', rarity: 'rare',   base: 58, weight: 1 },
+  { id: 'copper', name: 'Copper Ore', rarity: 'common',    base: 14,  weight: 2 },
+  { id: 'silver', name: 'Silver Ore', rarity: 'rare',      base: 58,  weight: 1 },
+  { id: 'gold',   name: 'Gold Ore',   rarity: 'legendary', base: 140, weight: 1 },
 ];
 
-// Two mining sites, each tied to one metal and a nearby hub city (warehouse +
+// Three mining sites, each tied to one metal and a nearby hub city (warehouse +
 // market). x/y are map-tile coordinates used by src/main.js to carve the site.
 export const MINE_SITES = [
   { id: 'coppervein_hollow', name: 'Coppervein Hollow', metal: 'copper', hub: 'crosshaven', npcMiners: 3, x: 82,  y: 140 },
   { id: 'argent_reach',      name: 'Argent Reach',      metal: 'silver', hub: 'ironholt',   npcMiners: 2, x: 116, y: 30  },
+  { id: 'sunwell_shaft',     name: 'Sunwell Shaft',     metal: 'gold',   hub: 'valdenmere', npcMiners: 1, x: 40,  y: 60  },
 ];
 
 // Per-city price multipliers for each metal. Each metal is cheapest at its mine
 // hub (the source) and dearer in distant cities, creating shipping margin.
 export const METAL_CITY_MULTS = {
-  valdenmere: { copper: 1.20, silver: 1.20 },
-  ashport:    { copper: 1.22, silver: 1.30 },
-  crosshaven: { copper: 0.68, silver: 1.28 },
-  ironholt:   { copper: 1.05, silver: 0.66 },
+  valdenmere: { copper: 1.20, silver: 1.20, gold: 0.65 },
+  ashport:    { copper: 1.22, silver: 1.30, gold: 1.30 },
+  crosshaven: { copper: 0.68, silver: 1.28, gold: 1.25 },
+  ironholt:   { copper: 1.05, silver: 0.66, gold: 1.20 },
 };
 
 // Logistics tuning (deterministic).
@@ -92,15 +95,17 @@ export function unitMidPrice(metalId, cityId) {
 /**
  * Units of metal produced at a site on a given day: NPC crew + player swings,
  * with occasional deterministic "rich vein" days (+50% from the NPC crew).
+ * Player swings are scaled by `yieldMult` (pickaxe gear tier, default 1.0).
  */
-export function dailyProduction(site, { day = 1, seed = 1, playerSwings = 0 } = {}) {
+export function dailyProduction(site, { day = 1, seed = 1, playerSwings = 0, yieldMult = 1 } = {}) {
   const metal = metalById(site.metal);
   const perMiner = RARITY[metal.rarity].yieldPerMiner;
   let base = site.npcMiners * perMiner;
   if (seeded01(hashStr(site.id) ^ (seed >>> 0), day | 0) > 0.8) {
     base = Math.round(base * 1.5);
   }
-  return base + (playerSwings | 0) * PLAYER_PER_SWING;
+  const playerOutput = Math.round((playerSwings | 0) * PLAYER_PER_SWING * yieldMult);
+  return base + playerOutput;
 }
 
 /** Best ship-out route for a metal: buy at its mine hub, sell in the dearest city. */
@@ -129,7 +134,7 @@ export function shipProfit(metalId, qty, fromId, toId) {
  * @param {object}  opts
  * @param {number}  opts.days   number of game-days to simulate
  * @param {number}  opts.seed   world seed (controls rich-vein days)
- * @param {?object} opts.player { minesAt: siteId, swingsPerDay, shipsPerDay } or null
+ * @param {?object} opts.player { minesAt: siteId, swingsPerDay, shipsPerDay, yieldMult? } or null
  */
 export function simulateMiningEconomy({ days = 30, seed = 1, player = null } = {}) {
   const warehouse = {};
@@ -154,8 +159,9 @@ export function simulateMiningEconomy({ days = 30, seed = 1, player = null } = {
       const metal = site.metal;
       const playerHere = !!(player && player.minesAt === site.id);
       const playerSwings = playerHere ? (player.swingsPerDay | 0) : 0;
+      const yieldMult = playerHere ? (Number.isFinite(player.yieldMult) ? player.yieldMult : 1) : 1;
 
-      const produced = dailyProduction(site, { day, seed, playerSwings });
+      const produced = dailyProduction(site, { day, seed, playerSwings, yieldMult });
       warehouse[metal] += produced;
       mined[metal] += produced;
       siteStats[site.id].produced += produced;

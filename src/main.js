@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.10'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.11'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -286,7 +286,7 @@ ${line4}`;
         }
         // If gear is set directly, apply stat changes so capacity/speed stay correct
         if (p.gear && typeof p.gear === 'object') {
-          if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+          if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 0 };
           Object.assign(player.gear, p.gear);
           applyGearStats();
         }
@@ -553,7 +553,7 @@ ${line4}`;
 
       /** Direct gear purchase for simulation */
       buyGear: (slot, tier, cost) => {
-        if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+        if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 0 };
         if (player.gold < cost) return { ok: false, reason: 'insufficient gold' };
         if ((player.gear[slot] ?? 0) >= tier) return { ok: false, reason: 'already owned' };
         player.gold -= cost;
@@ -1721,7 +1721,11 @@ function handleGlobalHudTap(clientX, clientY, e) {
   const MINE_SITES = [
     { id: 'coppervein_hollow', name: 'Coppervein Hollow', metal: 'copper', hub: 'crosshaven', x: 82,  y: 140 },
     { id: 'argent_reach',      name: 'Argent Reach',      metal: 'silver', hub: 'ironholt',   x: 116, y: 30  },
+    { id: 'sunwell_shaft',     name: 'Sunwell Shaft',     metal: 'gold',   hub: 'valdenmere', x: 40,  y: 60  },
   ];
+  // Minimap marker tint per metal (hoisted to module scope so the per-frame
+  // render doesn't re-allocate it). Unknown metals fall back to purple.
+  const MINE_SITE_COLORS = { copper: '#c47a3a', silver: '#cfcfd6', gold: '#fde047' };
   // tileIndex -> metalId, populated by makeMap() so playerMineNode drops the
   // variant that belongs to the site the vein sits in (legacy Ironholt = ore).
   const MINE_SITE_NODES = {};
@@ -2411,6 +2415,30 @@ function handleGlobalHudTap(clientX, clientY, e) {
       { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +72%',            cost: 158000,  sellBonus: 0.72 },
       { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +75%',                 cost: 175000,  sellBonus: 0.75 },
     ],
+    // Pickaxe - mining yield + stamina cost per swing (T0–T19). Cost curve mirrors `tool`.
+    // T0 is bare hands (no progression); T2+ unlocks gold ore at Sunwell Shaft.
+    pickaxe: [
+      { id: 'bare_hands_mine',    name: 'Bare Hands',         icon: '✋', desc: 'You pry ore loose with your fingers. 15 stamina/swing.', cost: 0,       yieldMult: 1.00, staminaCost: 15 },
+      { id: 'tin_pickaxe',        name: 'Tin Pickaxe',        icon: '🔨', desc: 'A makeshift tin head. +10% yield, -1 stamina.',        cost: 200,     yieldMult: 1.10, staminaCost: 14 },
+      { id: 'guild_pickaxe',      name: 'Guild Pickaxe',      icon: '⛏', desc: 'Guild-issued steel. +20% yield, -2 stamina. Unlocks GOLD.', cost: 500,    yieldMult: 1.20, staminaCost: 13 },
+      { id: 'reinforced_pick',    name: 'Reinforced Pick',    icon: '🛠️', desc: 'Reinforced shaft. +30% yield, -3 stamina.',           cost: 1100,    yieldMult: 1.30, staminaCost: 12 },
+      { id: 'dwarven_hammer',     name: 'Dwarven Hammer',     icon: '🔨', desc: 'Dwarf-forged head. +40% yield, -4 stamina.',          cost: 2200,    yieldMult: 1.40, staminaCost: 11 },
+      { id: 'mithril_pick',       name: 'Mithril Pick',       icon: '⛏', desc: 'Mithril head, ultralight. +50% yield, -5 stamina.',   cost: 4000,    yieldMult: 1.50, staminaCost: 10 },
+      { id: 'rune_etched',        name: 'Rune-Etched Pick',   icon: '🔮', desc: 'Runes guide the swing. +60% yield, -6 stamina.',      cost: 6500,    yieldMult: 1.60, staminaCost: 10 },
+      { id: 'masters_drill',      name: "Master's Drill",     icon: '⚙️', desc: 'Clockwork drill. +70% yield, -6 stamina.',           cost: 10000,   yieldMult: 1.70, staminaCost: 9  },
+      { id: 'crown_pick',         name: 'Crown Pickaxe',      icon: '👑', desc: 'Crown-blessed. +80% yield, -6 stamina.',              cost: 15000,   yieldMult: 1.80, staminaCost: 9  },
+      { id: 'diamond_tip',        name: 'Diamond-Tip Pick',   icon: '💎', desc: 'Diamond head cuts anything. +90% yield, -7 stamina.', cost: 22000,   yieldMult: 1.90, staminaCost: 8  },
+      { id: 'star_iron',          name: 'Star-Iron Pick',     icon: '⭐', desc: 'Meteoric iron. +100% yield, -7 stamina.',            cost: 32000,   yieldMult: 2.00, staminaCost: 8  },
+      { id: 'forge_master',       name: 'Forge-Master Pick',  icon: '🔥', desc: 'Foundry-tempered. +110% yield.',                      cost: 46000,   yieldMult: 2.10, staminaCost: 8  },
+      { id: 'titan_breaker',      name: 'Titan Breaker',      icon: '🪨', desc: 'Splits boulders. +120% yield.',                       cost: 65000,   yieldMult: 2.20, staminaCost: 8  },
+      { id: 'soul_pick',          name: 'Soul Pickaxe',       icon: '👻', desc: 'Swings itself, almost. +130% yield.',                 cost: 77000,   yieldMult: 2.30, staminaCost: 8  },
+      { id: 'phoenix_pick',       name: 'Phoenix Pick',       icon: '🔥', desc: 'Reforges with each swing. +140% yield.',              cost: 90000,   yieldMult: 2.40, staminaCost: 8  },
+      { id: 'void_breaker',       name: 'Void Breaker',       icon: '🌀', desc: 'Cuts through reality. +150% yield.',                  cost: 105000,  yieldMult: 2.50, staminaCost: 8  },
+      { id: 'time_chip',          name: 'Time-Chip Pick',     icon: '⏳', desc: 'Strikes ore before it solidifies. +160% yield.',      cost: 120000,  yieldMult: 2.60, staminaCost: 8  },
+      { id: 'cosmic_pick',        name: 'Cosmic Pickaxe',     icon: '🌟', desc: 'Universe yields to it. +170% yield.',                 cost: 140000,  yieldMult: 2.70, staminaCost: 8  },
+      { id: 'eternal_pick',       name: 'Eternal Pick',       icon: '♾️', desc: 'Never dulls. +180% yield.',                          cost: 158000,  yieldMult: 2.80, staminaCost: 8  },
+      { id: 'godminer_pick',      name: 'Godminer Pick',      icon: '🌌', desc: 'Ascended miner. Max yield. +200% yield, -7 stamina.', cost: 175000,  yieldMult: 3.00, staminaCost: 8  },
+    ],
   };
 
   // Returns current gear item for a slot
@@ -2421,10 +2449,13 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
   // Apply gear effects to player stats (called after purchase + on load)
   function applyGearStats() {
-    const pack  = currentGear('pack');
-    const boots = currentGear('boots');
-    player.capacity = pack.capacity;
-    player.speed    = boots.speed;
+    const pack    = currentGear('pack');
+    const boots   = currentGear('boots');
+    const pickaxe = currentGear('pickaxe');
+    player.capacity          = pack.capacity;
+    player.speed             = boots.speed;
+    player.miningYieldMult   = pickaxe.yieldMult   ?? 1;
+    player.miningStaminaCost = pickaxe.staminaCost ?? 15;
   }
 
   function checkGuildMilestone() {
@@ -2807,8 +2838,9 @@ const NPC_INTERACT_RADIUS = 18;
     { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },  // high value, heavy - late-game route
     { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, contrabandName: 'Demon Ink', sourceCities: ['ironholt','crosshaven'] },  // contraband; only profitable when sourced from ironholt/crosshaven
     { id: 'gem',    name: 'Gemstones',     base: 80, weight: 1, rare: true },  // rare drop from mining; high value, low weight
-    { id: 'copper', name: 'Copper Ore',    base: 14, weight: 2, rarity: 'common', sourceCities: ['crosshaven'] },  // mined at Coppervein Hollow; common, cheap
-    { id: 'silver', name: 'Silver Ore',    base: 58, weight: 1, rarity: 'rare',   sourceCities: ['ironholt']   },  // mined at Argent Reach; rare, dear
+    { id: 'copper', name: 'Copper Ore',    base: 14,  weight: 2, rarity: 'common',    sourceCities: ['crosshaven'] },  // mined at Coppervein Hollow; common, cheap
+    { id: 'silver', name: 'Silver Ore',    base: 58,  weight: 1, rarity: 'rare',      sourceCities: ['ironholt']   },  // mined at Argent Reach; rare, dear
+    { id: 'gold',   name: 'Gold Ore',      base: 140, weight: 1, rarity: 'legendary', sourceCities: ['valdenmere'], minPickaxeTier: 2 },  // mined at Sunwell Shaft; legendary, needs Pickaxe T2+ (client-mining gate only)
   ];
 
   // --- Market model (minimal, deterministic)
@@ -3355,10 +3387,10 @@ const NPC_INTERACT_RADIUS = 18;
     // Get the city multiplier from the hardcoded mults table in priceFor.
     // We inline the mults here to keep them consistent.
     const CITY_MULTS = {
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20 },
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28 },
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66 },
+      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
+      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
+      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
+      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
     };
     const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
@@ -6371,8 +6403,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.10',
+    version: 'v0.5.11',
     whatsNew: [
+      'Mining gets real depth: new Pickaxe gear slot (20 tiers, faster swings + bigger yield), legendary Gold ore with a new Sunwell Shaft mine near Valdenmere (requires Guild Pickaxe T2+), minimap markers for all three mine sites, and a one-time tip when you find your first vein.',
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
       'window.__BD exposes the full ring buffer for inspection from devtools.',
@@ -6814,15 +6847,16 @@ function drawNpcBubble() {
               <div class="cr-list" aria-label="Items">
                 ${econHtml}
                 ${ui.mode === 'gear' ? (() => {
-                  const slots = ['pack','boots','tool'];
-                  const slotLabels = { pack: '🎒 Pack', boots: '👟 Boots', tool: '📜 Tool' };
+                  const slots = ['pack','boots','tool','pickaxe'];
+                  const slotLabels = { pack: '🎒 Pack', boots: '👟 Boots', tool: '📜 Tool', pickaxe: '⛏️ Pickaxe' };
                   return slots.map(slot => {
                     const tiers = GEAR[slot];
                     const cur = player.gear[slot] ?? 0;
                     const maxT = tiers.length - 1;
                     // Stat label per slot
-                    const statLabel = (g) => slot === 'pack'  ? `📦 ${g.capacity} cap`
-                                           : slot === 'boots' ? `⚡ ${g.speed} spd`
+                    const statLabel = (g) => slot === 'pack'    ? `📦 ${g.capacity} cap`
+                                           : slot === 'boots'   ? `⚡ ${g.speed} spd`
+                                           : slot === 'pickaxe' ? `⛏ ${g.yieldMult.toFixed(2)}× yield · ${g.staminaCost} stam`
                                            : `💰 +${Math.round(g.sellBonus*100)}%`;
                     // Progress bar
                     const pct = Math.round((cur / maxT) * 100);
@@ -7659,7 +7693,7 @@ function drawNpcBubble() {
     intelSells: 0,   // total intel sold (for rep/scoring)
 
     // Gear slots: tier index (0=default, 1=tier2, 2=tier3)
-    gear: { pack: 0, boots: 0, tool: 0 },
+    gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 },
 
     // Mining: per-vein cooldown (tileKey → stateTime when usable again) and
     // a stamina meter (0..100) consumed by each swing, regens 1/sec.
@@ -7668,6 +7702,7 @@ function drawNpcBubble() {
     _mineStaminaTickAt: 0,
 
     guildMember: false, // true once Merchant Guild milestone is achieved
+    seenFirstVein: false, // one-shot tutorial: fires the first time the player stands near any mining vein
     _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
@@ -7764,7 +7799,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.10',
+      buildVersion: 'v0.5.11',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7779,6 +7814,7 @@ function drawNpcBubble() {
         intelLedger: player.intelLedger ? [...player.intelLedger] : [],
         intelSells: player.intelSells || 0,
         guildMember: player.guildMember || false,
+        seenFirstVein: player.seenFirstVein || false,
         gear: { ...player.gear },
         mineCooldown: { ...(player.mineCooldown || {}) },
         mineStamina: typeof player.mineStamina === 'number' ? player.mineStamina : 100,
@@ -7849,7 +7885,7 @@ function drawNpcBubble() {
         if (!isObj(p.gear)) {
           errors.push('player.gear must be object');
         } else {
-          for (const slot of ['pack', 'boots', 'tool']) {
+          for (const slot of ['pack', 'boots', 'tool', 'pickaxe']) {
             if (p.gear[slot] !== undefined && !Number.isInteger(p.gear[slot])) {
               errors.push(`player.gear.${slot} must be an integer`);
             }
@@ -7947,7 +7983,8 @@ function drawNpcBubble() {
   function _applyLoadedState(state) {
     // Restore player
     Object.assign(player, state.player);
-    if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0 };
+    if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 0 };
+    else if (player.gear.pickaxe === undefined) player.gear.pickaxe = 0;
     if (!player.mineCooldown || typeof player.mineCooldown !== 'object') player.mineCooldown = {};
     if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
     // Ensure new items appear in inv after schema upgrade.
@@ -7967,6 +8004,7 @@ function drawNpcBubble() {
       }
     }
     if (typeof player.guildMember !== 'boolean') player.guildMember = false;
+    if (typeof player.seenFirstVein !== 'boolean') player.seenFirstVein = false;
     // Re-check milestone silently on load (no event, just ensures flag is set for saves
     // that predate this feature where conditions may already be met)
     if (!player.guildMember) {
@@ -8213,7 +8251,8 @@ function drawNpcBubble() {
       toast(`Vein still recovering (${left}s).`, 1.5);
       return false;
     }
-    if ((player.mineStamina || 0) < 15) {
+    const staminaCost = player.miningStaminaCost ?? 15;
+    if ((player.mineStamina || 0) < staminaCost) {
       toast('Too tired to swing — rest at the inn.', 2);
       return false;
     }
@@ -8221,16 +8260,27 @@ function drawNpcBubble() {
       toast('Cargo full — drop some load first.', 2);
       return false;
     }
+    // Rarer metals can require a minimum pickaxe tier (data-driven via the item
+    // spec's minPickaxeTier). Refuse before committing stamina/cooldown.
+    const metalAtTile = MINE_SITE_NODES[key];
+    const metalSpec = metalAtTile ? ITEMS.find(it => it.id === metalAtTile) : null;
+    const minTier = metalSpec?.minPickaxeTier ?? 0;
+    if (minTier > 0 && (player.gear?.pickaxe ?? 0) < minTier) {
+      const reqName = GEAR.pickaxe[minTier]?.name || `Tier ${minTier} pickaxe`;
+      toast(`Need a ${reqName} (T${minTier}+) to mine ${metalSpec.name}.`, 2.5);
+      return false;
+    }
     // Optimistic local cooldown so the player can't tap twice before RPC responds
     player.mineCooldown[key] = stateTime + 30000;
-    player.mineStamina = Math.max(0, (player.mineStamina || 0) - 15);
+    player.mineStamina = Math.max(0, (player.mineStamina || 0) - staminaCost);
 
     function _doMineYield() {
       // Veins inside a redesigned mining site drop that site's metal variant;
       // legacy Ironholt veins still drop iron ore.
       const metalId = MINE_SITE_NODES[key] || 'ore';
       const metal = ITEMS.find(it => it.id === metalId);
-      const qty = 2 + (Math.random() * 3 | 0); // 2..4
+      const yieldMult = player.miningYieldMult ?? 1;
+      const qty = Math.max(1, Math.round((2 + (Math.random() * 3 | 0)) * yieldMult)); // (2..4) × pickaxe mult
       player.inv[metalId] = (player.inv[metalId] || 0) + qty;
       let bonus = '';
       if (Math.random() < 0.10) { player.inv.coal = (player.inv.coal || 0) + 1; bonus += ' +1 coal'; }
@@ -11256,6 +11306,12 @@ function drawEntities() {
     const nearNpc = findNearestNpc(player.x, player.y, NPC_INTERACT_RADIUS + 6);
     const nearTrader = findNearestTrader(player.x, player.y);
     const atMine = nearMineTile();
+    // One-shot tutorial: first time the player gets within 2 tiles of any vein.
+    if (atMine && !player.seenFirstVein) {
+      player.seenFirstVein = true;
+      toast('⛏️ Mining vein! Tap to swing — costs stamina, drops 2-4 ore. Recharges every 30s.', 5);
+      saveGame(true);
+    }
 
     const today = Math.floor(time.day);
     const activeIntel = (player.intelLedger || []).filter(ic => !ic.sold && ic.expiryDay >= today);
@@ -11524,6 +11580,16 @@ if (IS_MOBILE) {
       ctx.textAlign = 'left';
       ctx.fillText(c2.name.slice(0,3), cx2 + 4, cy2 + 3);
       ctx.textAlign = 'left';
+    }
+    // mine-site markers (small ⛏ glyph + metal-tinted dot)
+    ctx.font = `${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
+    for (const site of MINE_SITES) {
+      const sx2 = mmX + (site.x / MAP_W) * mmSize;
+      const sy2 = mmY + (site.y / MAP_H) * mmSize;
+      ctx.fillStyle = MINE_SITE_COLORS[site.metal] || '#a78bfa';
+      ctx.beginPath(); ctx.arc(sx2, sy2, 2, 0, Math.PI*2); ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.fillText('⛏', sx2 + 3, sy2 + 3);
     }
     // contract compass
     drawCompassArrowOnMinimap(mmX, mmY, mmSize);
@@ -13493,7 +13559,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           x: 1200,
           y: 960,
           inv: { grain: 5, food: 3, ore: 2, herbs: 1, potion: 0, relic: 0, ink: 0 },
-          gear: { pack: 2, boots: 1, tool: 1 },
+          gear: { pack: 2, boots: 1, tool: 1, pickaxe: 3 },
         });
         api.setRep('valdenmere', 7);
         api.setRep('ashport', 3);
@@ -13528,6 +13594,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(p.gear?.pack === 2, `full-save: gear.pack=2 (got ${p.gear?.pack})`);
         assert(p.gear?.boots === 1, `full-save: gear.boots=1 (got ${p.gear?.boots})`);
         assert(p.gear?.tool === 1, `full-save: gear.tool=1 (got ${p.gear?.tool})`);
+        assert(p.gear?.pickaxe === 3, `full-save: gear.pickaxe=3 (got ${p.gear?.pickaxe})`);
 
         // Rep
         assert(p.rep?.valdenmere === 7, `full-save: rep.valdenmere=7 (got ${p.rep?.valdenmere})`);
@@ -13564,6 +13631,8 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // ── Mining: city-side production + player-active mining ──────────────
       {
         const api = __QA.api;
+        // Reset gear to baseline so stamina/yield assertions match T0 pickaxe.
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
         // Force-build mine, run cityMineTick, treasury should rise.
         api.qaForceBuildMine(1);
         const t0 = (cityTreasury.ironholt?.gold) || 0;
@@ -13588,17 +13657,42 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         const ok2 = api.qaPlayerMine(node.tx, node.ty);
         assert(ok2 === false, 'mine: 2nd swing within 30s blocked by cooldown');
 
-        // Redesigned mining sites: both metal variants exist on the map, and a
+        // Redesigned mining sites: all three metal variants exist on the map, and a
         // site vein drops its own metal (copper here) rather than iron ore.
         const copperNode = api.qaMineSiteNodeAt('copper');
         const silverNode = api.qaMineSiteNodeAt('silver');
-        assert(copperNode && silverNode, 'mine: both copper and silver sites exist on the map');
+        const goldNode   = api.qaMineSiteNodeAt('gold');
+        assert(copperNode && silverNode && goldNode, 'mine: copper, silver, AND gold sites exist on the map');
+        // Each site's veins must carve near its declared coordinate, so the minimap
+        // marker actually points at the ore (guards against world-gen drift).
+        for (const site of MINE_SITES) {
+          const n = api.qaMineSiteNodeAt(site.metal);
+          assert(Math.abs(n.tx - site.x) <= 8 && Math.abs(n.ty - site.y) <= 8,
+            `mine: ${site.id} vein (${n.tx},${n.ty}) should carve near marker (${site.x},${site.y})`);
+        }
         api.teleportToTile(copperNode.tx, copperNode.ty);
         api.qaSetStamina(100);
         const copperBefore = player.inv.copper || 0;
         const okCu = api.qaPlayerMine(copperNode.tx, copperNode.ty);
         assert(okCu === true, 'mine: copper-site swing succeeds');
         assert((player.inv.copper || 0) >= copperBefore + 2, 'mine: copper site drops copper, not ore');
+
+        // Gold gating: T0 pickaxe is refused, T2 pickaxe succeeds.
+        api.teleportToTile(goldNode.tx, goldNode.ty);
+        api.qaSetStamina(100);
+        const goldBefore = player.inv.gold || 0;
+        const okGoldT0 = api.qaPlayerMine(goldNode.tx, goldNode.ty);
+        assert(okGoldT0 === false, 'mine: gold swing refused without Guild Pickaxe (T2)');
+        assert((player.inv.gold || 0) === goldBefore, 'mine: gold inv unchanged when refused');
+        assert(player.mineStamina === 100, 'mine: stamina refunded when gold swing refused');
+
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 2 } });
+        api.qaSetStamina(100);
+        const okGoldT2 = api.qaPlayerMine(goldNode.tx, goldNode.ty);
+        assert(okGoldT2 === true, 'mine: T2 pickaxe swing succeeds at gold vein');
+        assert((player.inv.gold || 0) >= goldBefore + 2, 'mine: gold site drops gold ore');
+        // Reset gear to T0 for save round-trip baseline.
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
 
         // Save round-trip preserves stamina + cooldown.
         api.qaSetStamina(42);

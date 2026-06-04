@@ -58,14 +58,14 @@ const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
 // ── Sites & metal variants ────────────────────────────────────────────────
 console.log('\n=== mining sites & metal variants ===');
 
-test('exactly two mining sites exist', () => {
+test('exactly three mining sites exist', () => {
   assert(Array.isArray(MINE_SITES), 'MINE_SITES must be an array');
-  assert(MINE_SITES.length === 2, `expected 2 sites, got ${MINE_SITES.length}`);
+  assert(MINE_SITES.length === 3, `expected 3 sites, got ${MINE_SITES.length}`);
 });
 
 test('each site produces a distinct metal variant', () => {
   const metals = MINE_SITES.map(s => s.metal);
-  assert(new Set(metals).size === 2, `sites must yield 2 distinct metals, got ${metals.join(',')}`);
+  assert(new Set(metals).size === 3, `sites must yield 3 distinct metals, got ${metals.join(',')}`);
   for (const s of MINE_SITES) {
     assert(metalById(s.metal), `site ${s.id} references unknown metal ${s.metal}`);
     assert(typeof s.hub === 'string' && CITIES.includes(s.hub), `site ${s.id} needs a valid hub city`);
@@ -85,14 +85,27 @@ test('every metal carries a known rarity tier and base price', () => {
 // ── Rarity-based pricing ──────────────────────────────────────────────────
 console.log('\n=== rarity-based pricing ===');
 
+test('three rarity tiers exist and are all populated by a metal', () => {
+  assert(RARITY.common && RARITY.rare && RARITY.legendary,
+    'RARITY must define common, rare, and legendary tiers');
+  const tiers = new Set(METALS.map(m => m.rarity));
+  for (const t of ['common', 'rare', 'legendary']) {
+    assert(tiers.has(t), `no metal carries rarity tier '${t}'`);
+  }
+});
+
 test('rarer metal ranks higher than common metal', () => {
   assert(rarityRank('silver') > rarityRank('copper'),
     'silver (rare) must out-rank copper (common)');
+  assert(rarityRank('gold') > rarityRank('silver'),
+    'gold (legendary) must out-rank silver (rare)');
 });
 
 test('rarer metal has a higher base price', () => {
   assert(metalById('silver').base > metalById('copper').base,
     `silver base (${metalById('silver').base}) must exceed copper base (${metalById('copper').base})`);
+  assert(metalById('gold').base > metalById('silver').base,
+    `gold base (${metalById('gold').base}) must exceed silver base (${metalById('silver').base})`);
 });
 
 test('rarer metal is dearer than common metal in every city', () => {
@@ -219,6 +232,24 @@ test('a participating player increases total revenue', () => {
   });
   assert(withPlayer.totalRevenue > withoutPlayer.totalRevenue,
     `player participation should raise revenue (${withPlayer.totalRevenue} !> ${withoutPlayer.totalRevenue})`);
+});
+
+test('pickaxe yield multiplier scales the player share of production', () => {
+  // Player at the copper site, 4 swings/day, no ships: only the mining delta differs.
+  const base = simulateMiningEconomy({
+    days: 30, seed: 7,
+    player: { minesAt: 'coppervein_hollow', swingsPerDay: 4, shipsPerDay: 0, yieldMult: 1.0 },
+  });
+  const doubled = simulateMiningEconomy({
+    days: 30, seed: 7,
+    player: { minesAt: 'coppervein_hollow', swingsPerDay: 4, shipsPerDay: 0, yieldMult: 2.0 },
+  });
+  const npcOnly = simulateMiningEconomy({ days: 30, seed: 7, player: null });
+  const baseDelta    = base.metals.copper.mined    - npcOnly.metals.copper.mined;
+  const doubledDelta = doubled.metals.copper.mined - npcOnly.metals.copper.mined;
+  assert(baseDelta > 0, `player swings must add copper output (${baseDelta})`);
+  assert(doubledDelta === baseDelta * 2,
+    `2x yieldMult must double player contribution: base=${baseDelta} doubled=${doubledDelta}`);
 });
 
 test('report flags that pricing is sorted by rarity', () => {

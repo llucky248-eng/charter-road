@@ -178,7 +178,7 @@ function validateSave(s) {
       if (!isObj(p.gear)) {
         errors.push('player.gear must be object');
       } else {
-        for (const slot of ['pack', 'boots', 'tool']) {
+        for (const slot of ['pack', 'boots', 'tool', 'pickaxe']) {
           if (p.gear[slot] !== undefined && !Number.isInteger(p.gear[slot])) {
             errors.push(`player.gear.${slot} must be an integer`);
           }
@@ -581,6 +581,16 @@ test('gear slot is float → fail', () => {
 test('gear slot is string → fail', () => {
   const s = makeSave();
   s.player.gear = { pack: 'max', boots: 0, tool: 0 };
+  assert(!validateSave(s).ok);
+});
+test('gear pickaxe tier integer → ok', () => {
+  const s = makeSave();
+  s.player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 3 };
+  assert(validateSave(s).ok, JSON.stringify(validateSave(s).errors));
+});
+test('gear pickaxe non-integer → fail', () => {
+  const s = makeSave();
+  s.player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 'max' };
   assert(!validateSave(s).ok);
 });
 test('marketDrift absent → ok', () => {
