@@ -13687,6 +13687,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(player.mineStamina === 100, 'mine: stamina refunded when gold swing refused');
 
         api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 2 } });
+        api.setPlayer({ capacity: 999 }); // restore the cargo headroom that the gear-change reset
         api.qaSetStamina(100);
         const okGoldT2 = api.qaPlayerMine(goldNode.tx, goldNode.ty);
         assert(okGoldT2 === true, 'mine: T2 pickaxe swing succeeds at gold vein');
