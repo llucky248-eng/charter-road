@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.11'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.12'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -427,6 +427,7 @@ ${line4}`;
           if (ui.toastT > 0) ui.toastT -= d;
           tickBanners(d);
           updateEntities(d);
+          updateAiTraders(d);
           updateAutoNav(d);
           moveWithCollision(d);
           if (ui.npcBubble && stateTime > ui.npcBubble.untilMs) ui.npcBubble = null;
@@ -670,6 +671,11 @@ ${line4}`;
       qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
       /** Run cityMineTick once (no day advance). */
       qaCityMineTick: () => { cityMineTick(); return cityBuildings.ironholt?.mine || null; },
+      /** Snapshot of AI traders for assertions (state, fromId, toId, cityTimer). */
+      qaAiTraders: () => AI_TRADERS.map(t => ({
+        id: t.id, state: t.state, fromId: t.fromId, toId: t.toId,
+        itemId: t.itemId, cityTimer: t.cityTimer ?? 0,
+      })),
     };
   }
 
@@ -4166,14 +4172,36 @@ function traderArrive(t) {
   t.pathIdx = 0;
 }
 
+// Seconds a trader sits in a city before the local fallback dispatches it.
+// Staggered per-trader via t.cityTimer's initial offset (see spawnAiTraders).
+const LOCAL_TRADER_DEPART_DELAY = 18;
+
+function localTraderDepart(t) {
+  const route = traderDecideRoute(t);
+  const path = buildTraderPath(route.fromId, route.toId);
+  if (!path || path.length === 0) return false;
+  t.fromId = route.fromId;
+  t.toId = route.toId;
+  t.itemId = route.itemId;
+  t.path = path;
+  t.pathIdx = 0;
+  t.state = 'traveling';
+  t.cityTimer = 0;
+  t._stuckT = stateTime;
+  t._lastX = t.x;
+  t._lastY = t.y;
+  return true;
+}
+
 function traderDepart(t) {
-  // No-op: route decisions, buying cargo, and state transitions are handled by server world_tick().
-  // Visual path will be rebuilt on next syncTradersFromServer() when server updates state.
+  // No-op: when Supabase world_tick is reachable it owns route decisions.
+  // updateAiTraders runs a local autonomous fallback when the server isn't
+  // ticking so traders still leave their starting city.
 }
 
 function updateAiTraders(dt) {
   for (const t of AI_TRADERS) {
-    // ── In city: snap to city center, no timer (server decides departure) ────
+    // ── In city: snap to city center; locally tick a departure timer ────────
     if (t.state === 'in_city') {
       const c = getCityById(t.toId || t.fromId);
       if (c) {
@@ -4181,6 +4209,17 @@ function updateAiTraders(dt) {
         t.y = (c.y + c.h/2) * TILE;
       }
       maybeFireTraderBubble(t, dt);
+
+      // Local autonomous fallback: if the server world_service cron isn't
+      // pushing trader updates, traders would otherwise sit forever. After
+      // ~18s in city, decide a route locally and start traveling. A server
+      // sync will override on the next realtime update if it arrives.
+      t.cityTimer = (t.cityTimer || 0) + dt;
+      if (t.cityTimer >= LOCAL_TRADER_DEPART_DELAY) {
+        // If pathing isn't available right now (e.g. world not fully ready),
+        // back off a few seconds instead of retrying every frame.
+        if (!localTraderDepart(t)) t.cityTimer = LOCAL_TRADER_DEPART_DELAY - 3;
+      }
       continue;
     }
 
@@ -4188,22 +4227,27 @@ function updateAiTraders(dt) {
 
     // ── Traveling: animate along path waypoints (visual only) ────────
     if (!t.path || t.path.length === 0) {
-      // No path yet — snap to destination visually
+      // No path yet — snap to destination visually and park in-city so the
+      // local fallback can dispatch another trip on the next interval.
       const destC = getCityById(t.toId);
       if (destC) {
         t.x = (destC.x + destC.w/2) * TILE;
         t.y = (destC.y + destC.h/2) * TILE;
       }
+      t.state = 'in_city';
+      t.cityTimer = 0;
       continue;
     }
 
-    // Guard: pathIdx out of range → snap to destination
+    // Guard: pathIdx out of range → snap to destination and park in-city.
     if (t.pathIdx >= t.path.length) {
       const destC = getCityById(t.toId);
       if (destC) {
         t.x = (destC.x + destC.w/2) * TILE;
         t.y = (destC.y + destC.h/2) * TILE;
       }
+      t.state = 'in_city';
+      t.cityTimer = 0;
       continue;
     }
 
@@ -4221,12 +4265,16 @@ function updateAiTraders(dt) {
       // Reached waypoint - advance
       t.pathIdx++;
       if (t.pathIdx >= t.path.length) {
-        // Reached end of path — snap to destination (visual only, no state change)
+        // Reached end of path — snap to destination and park in_city so the
+        // local fallback can dispatch the next trip after the city wait.
         const destC = getCityById(t.toId);
         if (destC) {
           t.x = (destC.x + destC.w/2) * TILE;
           t.y = (destC.y + destC.h/2) * TILE;
         }
+        t.state = 'in_city';
+        t.fromId = t.toId;
+        t.cityTimer = 0;
       }
       continue;
     }
@@ -6403,8 +6451,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.11',
+    version: 'v0.5.12',
     whatsNew: [
+      'Fixes: mining veins no longer appear permanently "still recovering" after a reload — per-vein cooldowns now reset on load so you can swing again right away. AI caravans on the road no longer go missing when the world cron is offline — a local fallback dispatches a fresh trade route every ~18s so the highways stay populated.',
       'Mining gets real depth: new Pickaxe gear slot (20 tiers, faster swings + bigger yield), legendary Gold ore with a new Sunwell Shaft mine near Valdenmere (requires Guild Pickaxe T2+), minimap markers for all three mine sites, and a one-time tip when you find your first vein.',
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
       'Every building-related operation now writes a tagged event (DONATE-START, DONATE-RPC-RESPONSE, SYNC-CT-FETCH, PUSH-CT, PAINT, etc.) to console and the overlay, so we can pinpoint where the built state is being lost.',
@@ -7799,7 +7848,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.11',
+      buildVersion: 'v0.5.12',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -7985,7 +8034,9 @@ function drawNpcBubble() {
     Object.assign(player, state.player);
     if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 0 };
     else if (player.gear.pickaxe === undefined) player.gear.pickaxe = 0;
-    if (!player.mineCooldown || typeof player.mineCooldown !== 'object') player.mineCooldown = {};
+    // stateTime resets to 0 on every page load, so any persisted per-vein
+    // cooldown timestamps are stale and would strand veins as "still recovering".
+    player.mineCooldown = {};
     if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
     // Ensure new items appear in inv after schema upgrade.
     for (const it of ITEMS) if (player.inv[it.id] === undefined) player.inv[it.id] = 0;
@@ -13702,9 +13753,44 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         loadGame();
         assert(player.mineStamina === 42, `mine: stamina survives save/load (got ${player.mineStamina})`);
         assert(typeof player.mineCooldown === 'object', 'mine: mineCooldown survives save/load');
+
+        // stateTime resets to 0 on every page load, so saved per-vein cooldown
+        // timestamps (which are stateTime-based) would otherwise look permanent
+        // ("Vein still recovering" forever). Confirm the cooldown map is wiped
+        // on load so previously-mined veins are immediately mineable again.
+        api.qaSetStamina(100);
+        const cdNode = api.qaMineSiteNodeAt('copper');
+        api.teleportToTile(cdNode.tx, cdNode.ty);
+        api.qaPlayerMine(cdNode.tx, cdNode.ty);
+        assert(Object.keys(player.mineCooldown).length > 0,
+          'mine: a cooldown entry was recorded before save');
+        saveGame(true);
+        loadGame();
+        assert(Object.keys(player.mineCooldown).length === 0,
+          `mine: cooldown map cleared on load so stateTime=0 reset doesn't strand veins (got ${Object.keys(player.mineCooldown).length} entries)`);
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites');
+      // ── AI trader local-fallback departure ────────────────────────────────
+      // When the server (Supabase world_service cron) isn't reachable, all
+      // traders would otherwise sit forever 'in_city' because traderDepart()
+      // is a server-driven no-op. Confirm the local autonomy kicks in so
+      // traders still leave their starting city after a reasonable wait.
+      {
+        const seenTraveling = new Set();
+        // Tick ~40s of game time (well past the local fallback threshold).
+        // Watch every frame so a trader that departs + arrives between samples
+        // is still counted.
+        for (let i = 0; i < 2500; i++) {
+          api.step(1/60);
+          for (const t of api.qaAiTraders()) {
+            if (t.state === 'traveling') seenTraveling.add(t.id);
+          }
+        }
+        assert(seenTraveling.size > 0,
+          `traders: at least one should depart locally when server isn't ticking (saw ${seenTraveling.size} traveling)`);
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
