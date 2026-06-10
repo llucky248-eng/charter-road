@@ -4130,6 +4130,10 @@ async function syncTradersFromServer() {
         t.state = 'in_city';
         t.path  = [];
         t.pathIdx = 0;
+        // Reset the local-fallback dwell timer so a near-threshold cityTimer
+        // doesn't fire localTraderDepart immediately after the server pushes
+        // a fresh in_city dwell.
+        t.cityTimer = 0;
         const destC = getCityById(row.to_id);
         if (destC) {
           t.x = (destC.x + destC.w / 2) * TILE;
@@ -4175,6 +4179,27 @@ function traderArrive(t) {
 // Seconds a trader sits in a city before the local fallback dispatches it.
 // Staggered per-trader via t.cityTimer's initial offset (see spawnAiTraders).
 const LOCAL_TRADER_DEPART_DELAY = 18;
+// Back-off after a failed local dispatch (e.g. buildTraderPath empty). Tied
+// to DEPART_DELAY so a future tuning of DEPART_DELAY doesn't accidentally
+// produce a zero / negative back-off and spin every frame.
+const LOCAL_TRADER_RETRY_BACKOFF = 3;
+
+// Snap a trader to its destination city center and clear all
+// per-trip bookkeeping so the in_city branch (and any server sync) reads a
+// clean state on the next tick. All three "trip ended" branches in
+// updateAiTraders go through this helper so they stay in lock-step.
+function parkTraderInCity(t) {
+  const destC = getCityById(t.toId);
+  if (destC) {
+    t.x = (destC.x + destC.w/2) * TILE;
+    t.y = (destC.y + destC.h/2) * TILE;
+  }
+  t.state = 'in_city';
+  t.fromId = t.toId;
+  t.path = [];
+  t.pathIdx = 0;
+  t.cityTimer = 0;
+}
 
 function localTraderDepart(t) {
   const route = traderDecideRoute(t);
@@ -4218,7 +4243,7 @@ function updateAiTraders(dt) {
       if (t.cityTimer >= LOCAL_TRADER_DEPART_DELAY) {
         // If pathing isn't available right now (e.g. world not fully ready),
         // back off a few seconds instead of retrying every frame.
-        if (!localTraderDepart(t)) t.cityTimer = LOCAL_TRADER_DEPART_DELAY - 3;
+        if (!localTraderDepart(t)) t.cityTimer -= LOCAL_TRADER_RETRY_BACKOFF;
       }
       continue;
     }
@@ -4226,28 +4251,14 @@ function updateAiTraders(dt) {
     if (t.state !== 'traveling') continue;
 
     // ── Traveling: animate along path waypoints (visual only) ────────
+    // All "trip ended" branches go through parkTraderInCity() so they stay
+    // in lock-step (state/fromId/path/pathIdx/cityTimer all reset together).
     if (!t.path || t.path.length === 0) {
-      // No path yet — snap to destination visually and park in-city so the
-      // local fallback can dispatch another trip on the next interval.
-      const destC = getCityById(t.toId);
-      if (destC) {
-        t.x = (destC.x + destC.w/2) * TILE;
-        t.y = (destC.y + destC.h/2) * TILE;
-      }
-      t.state = 'in_city';
-      t.cityTimer = 0;
+      parkTraderInCity(t);
       continue;
     }
-
-    // Guard: pathIdx out of range → snap to destination and park in-city.
     if (t.pathIdx >= t.path.length) {
-      const destC = getCityById(t.toId);
-      if (destC) {
-        t.x = (destC.x + destC.w/2) * TILE;
-        t.y = (destC.y + destC.h/2) * TILE;
-      }
-      t.state = 'in_city';
-      t.cityTimer = 0;
+      parkTraderInCity(t);
       continue;
     }
 
@@ -4265,16 +4276,7 @@ function updateAiTraders(dt) {
       // Reached waypoint - advance
       t.pathIdx++;
       if (t.pathIdx >= t.path.length) {
-        // Reached end of path — snap to destination and park in_city so the
-        // local fallback can dispatch the next trip after the city wait.
-        const destC = getCityById(t.toId);
-        if (destC) {
-          t.x = (destC.x + destC.w/2) * TILE;
-          t.y = (destC.y + destC.h/2) * TILE;
-        }
-        t.state = 'in_city';
-        t.fromId = t.toId;
-        t.cityTimer = 0;
+        parkTraderInCity(t);
       }
       continue;
     }
@@ -7865,7 +7867,10 @@ function drawNpcBubble() {
         guildMember: player.guildMember || false,
         seenFirstVein: player.seenFirstVein || false,
         gear: { ...player.gear },
-        mineCooldown: { ...(player.mineCooldown || {}) },
+        // mineCooldown is intentionally NOT persisted: its values are stateTime
+        // offsets, and stateTime resets to 0 on every page reload, so saving
+        // them would either strand veins as "still recovering" forever (cross-
+        // session) or let Ctrl+L bypass the 30s anti-spam (in-session).
         mineStamina: typeof player.mineStamina === 'number' ? player.mineStamina : 100,
       },
       time: { ...time },
@@ -8034,9 +8039,17 @@ function drawNpcBubble() {
     Object.assign(player, state.player);
     if (!player.gear) player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 0 };
     else if (player.gear.pickaxe === undefined) player.gear.pickaxe = 0;
-    // stateTime resets to 0 on every page load, so any persisted per-vein
-    // cooldown timestamps are stale and would strand veins as "still recovering".
-    player.mineCooldown = {};
+    // Legacy migration: older saves persisted mineCooldown (stateTime-offset
+    // values). Those values are stale on every reload, so drop them. Current
+    // saveGame omits the field entirely, in which case Object.assign above
+    // didn't touch the in-memory map and we preserve it (this is what keeps
+    // Ctrl+L from bypassing the 30s anti-spam cooldown).
+    if (state.player && state.player.mineCooldown !== undefined) {
+      player.mineCooldown = {};
+    }
+    if (!player.mineCooldown || typeof player.mineCooldown !== 'object') {
+      player.mineCooldown = {};
+    }
     if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
     // Ensure new items appear in inv after schema upgrade.
     for (const it of ITEMS) if (player.inv[it.id] === undefined) player.inv[it.id] = 0;
@@ -13754,20 +13767,35 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(player.mineStamina === 42, `mine: stamina survives save/load (got ${player.mineStamina})`);
         assert(typeof player.mineCooldown === 'object', 'mine: mineCooldown survives save/load');
 
-        // stateTime resets to 0 on every page load, so saved per-vein cooldown
-        // timestamps (which are stateTime-based) would otherwise look permanent
-        // ("Vein still recovering" forever). Confirm the cooldown map is wiped
-        // on load so previously-mined veins are immediately mineable again.
+        // mineCooldown semantics: per-vein timestamps are stateTime offsets,
+        // and stateTime resets to 0 on every page reload. Persisting them
+        // would either strand veins as "still recovering" forever after a
+        // reload, or let the player bypass the 30s anti-spam by autosaving
+        // and pressing Ctrl+L. Confirm (a) saveGame doesn't write the field
+        // and (b) an in-session reload preserves the in-memory cooldown.
         api.qaSetStamina(100);
         const cdNode = api.qaMineSiteNodeAt('copper');
         api.teleportToTile(cdNode.tx, cdNode.ty);
         api.qaPlayerMine(cdNode.tx, cdNode.ty);
-        assert(Object.keys(player.mineCooldown).length > 0,
-          'mine: a cooldown entry was recorded before save');
+        const cdKey = cdNode.ty * MAP_W + cdNode.tx;
+        const cdBefore = player.mineCooldown[cdKey];
+        assert(cdBefore > 0, 'mine: a cooldown entry was recorded before save');
         saveGame(true);
+        const savedJson = JSON.parse(api.readSaveRaw() || '{}');
+        assert(savedJson?.player?.mineCooldown === undefined,
+          `mine: saveGame must not serialize stateTime-relative mineCooldown (got ${JSON.stringify(savedJson?.player?.mineCooldown)})`);
+        loadGame();
+        assert(player.mineCooldown[cdKey] === cdBefore,
+          `mine: in-session reload must preserve cooldown to block save-spam exploit (was ${cdBefore}, now ${player.mineCooldown[cdKey]})`);
+
+        // Legacy-save migration: a save that DOES carry mineCooldown (from a
+        // pre-fix build) gets its stale entries dropped on load.
+        const legacy = JSON.parse(api.readSaveRaw() || '{}');
+        legacy.player.mineCooldown = { '999999': 1 };
+        localStorage.setItem(api.getSaveKey(), JSON.stringify(legacy));
         loadGame();
         assert(Object.keys(player.mineCooldown).length === 0,
-          `mine: cooldown map cleared on load so stateTime=0 reset doesn't strand veins (got ${Object.keys(player.mineCooldown).length} entries)`);
+          `mine: legacy save with persisted mineCooldown is migrated to empty (got ${Object.keys(player.mineCooldown).length})`);
       }
 
       // ── AI trader local-fallback departure ────────────────────────────────
