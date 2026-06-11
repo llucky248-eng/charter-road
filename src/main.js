@@ -13804,6 +13804,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       // is a server-driven no-op. Confirm the local autonomy kicks in so
       // traders still leave their starting city after a reasonable wait.
       {
+        const api = __QA.api;
         const seenTraveling = new Set();
         // Tick ~40s of game time (well past the local fallback threshold).
         // Watch every frame so a trader that departs + arrives between samples
