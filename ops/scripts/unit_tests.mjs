@@ -593,6 +593,21 @@ test('gear pickaxe non-integer → fail', () => {
   s.player.gear = { pack: 0, boots: 0, tool: 0, pickaxe: 'max' };
   assert(!validateSave(s).ok);
 });
+// mineCooldown is stateTime-relative and intentionally NOT serialized by the
+// current saveGame, but validateSave still accepts both shapes: the new
+// (absent) format and legacy saves that carry the field. _applyLoadedState
+// migrates legacy entries to {} on load.
+test('mineCooldown absent → ok (current saveGame format)', () => {
+  const s = makeSave();
+  assert(s.player.mineCooldown === undefined,
+    'baseline: makeSave does not include mineCooldown');
+  assert(validateSave(s).ok, JSON.stringify(validateSave(s).errors));
+});
+test('mineCooldown present → ok (legacy save format)', () => {
+  const s = makeSave();
+  s.player.mineCooldown = { '12345': 999999 };
+  assert(validateSave(s).ok, JSON.stringify(validateSave(s).errors));
+});
 test('marketDrift absent → ok', () => {
   const s = makeSave();
   assert(validateSave(s).ok);
