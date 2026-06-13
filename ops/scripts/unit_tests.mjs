@@ -608,6 +608,30 @@ test('mineCooldown present → ok (legacy save format)', () => {
   s.player.mineCooldown = { '12345': 999999 };
   assert(validateSave(s).ok, JSON.stringify(validateSave(s).errors));
 });
+// Cooldown overlay decision mirror: the canvas branch in src/main.js renders
+// a vein as "spent" (gray + amber hourglass-pip) instead of active when its
+// stored cooldown timestamp is still in the future of stateTime. This is the
+// pure decision logic — the renderer just dispatches on its boolean result.
+function veinInCooldown(mineCooldown, key, stateTime) {
+  return !!(mineCooldown && (mineCooldown[key] || 0) > stateTime);
+}
+test('vein cooldown: empty map → active (not in cooldown)', () => {
+  assert(veinInCooldown({}, 100, 50) === false);
+});
+test('vein cooldown: timestamp in past → active (cooldown expired)', () => {
+  assert(veinInCooldown({ 100: 40 }, 100, 50) === false);
+});
+test('vein cooldown: timestamp equal to stateTime → active (expires at now)', () => {
+  assert(veinInCooldown({ 100: 50 }, 100, 50) === false);
+});
+test('vein cooldown: timestamp in future → spent (show cooldown icon)', () => {
+  assert(veinInCooldown({ 100: 60 }, 100, 50) === true);
+});
+test('vein cooldown: only the queried key matters', () => {
+  // Other keys having future cooldowns must not bleed onto the queried vein.
+  assert(veinInCooldown({ 100: 60, 200: 10 }, 200, 50) === false);
+  assert(veinInCooldown({ 100: 60, 200: 99 }, 200, 50) === true);
+});
 test('marketDrift absent → ok', () => {
   const s = makeSave();
   assert(validateSave(s).ok);

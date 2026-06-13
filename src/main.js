@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.12'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.13'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -655,6 +655,16 @@ ${line4}`;
           }
         }
         return null;
+      },
+      /** Count mine_node tiles tagged with the given metal variant. */
+      qaCountMineNodes: (metal) => {
+        let n = 0;
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            if (tileAt(x, y) === 18 && MINE_SITE_NODES[y * MAP_W + x] === metal) n++;
+          }
+        }
+        return n;
       },
       /** Trigger a single player swing at (tx, ty). Returns whether the swing landed. */
       qaPlayerMine: (tx, ty) => {
@@ -2176,7 +2186,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // continuous and no grass tile inside the old bbox bordered a peak.
     {
       const bbox = { x0: 198, y0: 14, x1: 256, y1: 52 };
-      const wanted = 6;
+      const wanted = 12;
       const candidates = [];
       for (let ty = bbox.y0; ty < bbox.y1; ty++) {
         for (let tx = bbox.x0; tx < bbox.x1; tx++) {
@@ -2204,7 +2214,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
     // occupied — and if no grass is reachable, the site simply gets no nodes
     // rather than corrupting terrain (the QA self-test asserts both sites exist).
     for (const site of MINE_SITES) {
-      const want = 5;
+      const want = 12;
       let placed = 0;
       for (let r = 0; r <= 40 && placed < want; r++) {
         for (let oy = -r; oy <= r && placed < want; oy++) {
@@ -6453,8 +6463,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.12',
+    version: 'v0.5.13',
     whatsNew: [
+      'Mining sites read as real deposits now: each site carves 12 ore veins instead of 5 (and Ironholt\'s iron cluster grew from 6 to 12), the tile art is chunkier with metal-tinted glints + a vein streak, and veins on cooldown swap to a depleted gray look with a bright amber hourglass-pip so you can tell at a glance which ones are ready to swing.',
       'Fixes: mining veins no longer appear permanently "still recovering" after a reload — per-vein cooldowns now reset on load so you can swing again right away. AI caravans on the road no longer go missing when the world cron is offline — a local fallback dispatches a fresh trade route every ~18s so the highways stay populated.',
       'Mining gets real depth: new Pickaxe gear slot (20 tiers, faster swings + bigger yield), legendary Gold ore with a new Sunwell Shaft mine near Valdenmere (requires Guild Pickaxe T2+), minimap markers for all three mine sites, and a one-time tip when you find your first vein.',
       'Debug overlay for building persistence: press ` (backtick) or add ?debug=1 to the URL to see a live log of every donate → RPC → sync → paint event, plus current in-memory cityBuildings for every city.',
@@ -7850,7 +7861,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.12',
+      buildVersion: 'v0.5.13',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9865,27 +9876,61 @@ function drawNpcBubble() {
 
     if (id === 18) { // mine node — walkable rocky outcrop with ore vein
       const n = hash2(tx, ty);
-      // dark rocky base
-      ctx.fillStyle = '#5a5048';
-      ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#6b6258';
-      ctx.fillRect(x+1, y+1, TILE-2, TILE-2);
-      // iron ore glints (stable per-tile via hash2)
-      ctx.fillStyle = '#c0a060';
-      ctx.fillRect(x + 3 + (n*4|0),  y + 4 + ((n*7)%5|0), 2, 2);
-      ctx.fillRect(x + 9 + (n*3|0),  y + 9 + ((n*5)%4|0), 2, 1);
-      // gem hint (rare blue speckle)
-      if (n > 0.85) { ctx.fillStyle = '#7dd3fc'; ctx.fillRect(x + 8, y + 6, 1, 1); }
+      const cdMap = (typeof player !== 'undefined' && player.mineCooldown) || null;
+      const inCooldown = !!(cdMap && (cdMap[ty * MAP_W + tx] || 0) > stateTime);
+      // Metal-tinted ore color: site veins carry their metal's color so the
+      // outcrop reads at a glance. Untagged (legacy ironholt) stays gold.
+      const metalId = MINE_SITE_NODES[ty * MAP_W + tx];
+      const oreColor =
+        metalId === 'copper' ? '#c47a3a' :
+        metalId === 'silver' ? '#cfcfd6' :
+        metalId === 'gold'   ? '#fde047' :
+        '#c0a060';
+
+      if (inCooldown) {
+        // Spent vein: muted gray base, dark empty pits where ore was, and a
+        // bright hourglass-pip in the center so the cooldown state reads at
+        // a glance instead of blending into the rock.
+        ctx.fillStyle = '#3f3a36';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.fillStyle = '#4a4540';
+        ctx.fillRect(x+1, y+1, TILE-2, TILE-2);
+        ctx.fillStyle = '#221e1a';
+        ctx.fillRect(x + 2 + (n*3|0), y + 3 + ((n*7)%4|0), 3, 3);
+        ctx.fillRect(x + 8 + (n*2|0), y + 9 + ((n*5)%3|0), 3, 3);
+        ctx.fillRect(x + 4, y + 10, 2, 2);
+        // hourglass-pip: amber pinch in the middle so eye finds it fast
+        ctx.fillStyle = '#fbbf24';
+        const mx = x + (TILE>>1), my = y + (TILE>>1);
+        ctx.fillRect(mx - 2, my - 2, 4, 1);
+        ctx.fillRect(mx - 1, my - 1, 2, 1);
+        ctx.fillRect(mx, my, 1, 1);
+        ctx.fillRect(mx - 1, my + 1, 2, 1);
+        ctx.fillRect(mx - 2, my + 2, 4, 1);
+      } else {
+        // Active vein: chunkier rocky base + larger metal-tinted glints + a
+        // diagonal vein streak so the deposit reads as a real ore vein, not
+        // a single token tile.
+        ctx.fillStyle = '#5a5048';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.fillStyle = '#6b6258';
+        ctx.fillRect(x+1, y+1, TILE-2, TILE-2);
+        // chunky glints (3 lumps, 3x3 each — was 2 lumps at 2x2)
+        ctx.fillStyle = oreColor;
+        ctx.fillRect(x + 2 + (n*3|0),  y + 3 + ((n*7)%4|0), 3, 3);
+        ctx.fillRect(x + 8 + (n*2|0),  y + 8 + ((n*5)%3|0), 3, 3);
+        ctx.fillRect(x + 5 + ((n*11)%3|0), y + 11, 2, 2);
+        // diagonal vein streak (semi-transparent so it reads as embedded ore)
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x + 3, y + 7, 3, 1);
+        ctx.fillRect(x + 10, y + 11, 3, 1);
+        // gem hint (rare blue speckle — bigger so it actually catches the eye)
+        if (n > 0.85) { ctx.fillStyle = '#7dd3fc'; ctx.fillRect(x + 9, y + 5, 2, 2); }
+      }
       // edge shadow
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.fillRect(x, y + TILE - 1, TILE, 1);
       ctx.fillRect(x + TILE - 1, y, 1, TILE);
-      // cooldown overlay if recently mined
-      const cdMap = (typeof player !== 'undefined' && player.mineCooldown) || null;
-      if (cdMap && (cdMap[ty * MAP_W + tx] || 0) > stateTime) {
-        ctx.fillStyle = 'rgba(0,0,0,0.40)';
-        ctx.fillRect(x, y, TILE, TILE);
-      }
       return;
     }
 
@@ -13733,6 +13778,13 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           const n = api.qaMineSiteNodeAt(site.metal);
           assert(Math.abs(n.tx - site.x) <= 8 && Math.abs(n.ty - site.y) <= 8,
             `mine: ${site.id} vein (${n.tx},${n.ty}) should carve near marker (${site.x},${site.y})`);
+        }
+        // Each mining site should carve a substantial cluster so the location
+        // reads as a real ore deposit, not a single token tile.
+        for (const site of MINE_SITES) {
+          const count = api.qaCountMineNodes(site.metal);
+          assert(count >= 10,
+            `mine: ${site.id} should carve at least 10 ${site.metal} veins, got ${count}`);
         }
         api.teleportToTile(copperNode.tx, copperNode.ty);
         api.qaSetStamina(100);
