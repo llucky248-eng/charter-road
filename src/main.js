@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.13'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.14'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -262,7 +262,7 @@ ${line4}`;
           const pool = ['food','ore','herbs'];
           const itId = pool[Math.floor(rand01() * pool.length)];
           const n = 1 + (rand01() < 0.35 ? 1 : 0);
-          player.inv[itId] = (player.inv[itId] || 0) + n;
+          gainItem(itId, n);
         } else {
           advanceDays(1, 'cache');
         }
@@ -656,6 +656,12 @@ ${line4}`;
         }
         return null;
       },
+      /** Snapshot of the active loot popup queue (for assertions). */
+      qaLootPopups: () => _lootPopups.map(p => ({
+        itemId: p.itemId, qty: p.qty, startMs: p.startMs,
+      })),
+      /** Clear the loot popup queue (used to isolate per-test assertions). */
+      qaClearLootPopups: () => { _lootPopups.length = 0; return true; },
       /** Count mine_node tiles tagged with the given metal variant. */
       qaCountMineNodes: (metal) => {
         let n = 0;
@@ -4389,7 +4395,7 @@ function openTraderUI(trader) {
       if (invWeight() + it.weight > player.capacity) { toast('No cargo space.', 2); return; }
       if ((trader.inv[itemId] || 0) <= 0) { toast('Sold out.', 2); return; }
       player.gold -= price;
-      player.inv[itemId] = (player.inv[itemId] || 0) + 1;
+      gainItem(itemId, 1);
       trader.inv[itemId]--;
       trader.gold += price;
       toast(`Bought 1 ${it.name} from ${trader.name} for ${price}g.`, 2.5);
@@ -6463,8 +6469,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.13',
+    version: 'v0.5.14',
     whatsNew: [
+      'Loot pickup animation: every time you gain an item — mining, cache loot, market buy, road-trader buy, event drop, stash retrieve — a floating "+N icon" sprite rises off your head and fades. Rapid identical gains stack into a single popup so a multi-drop swing doesn\'t spam overlapping sprites.',
       'Mining sites read as real deposits now: each site carves 12 ore veins instead of 5 (and Ironholt\'s iron cluster grew from 6 to 12), the tile art is chunkier with metal-tinted glints + a vein streak, and veins on cooldown swap to a depleted gray look with a bright amber hourglass-pip so you can tell at a glance which ones are ready to swing.',
       'Fixes: mining veins no longer appear permanently "still recovering" after a reload — per-vein cooldowns now reset on load so you can swing again right away. AI caravans on the road no longer go missing when the world cron is offline — a local fallback dispatches a fresh trade route every ~18s so the highways stay populated.',
       'Mining gets real depth: new Pickaxe gear slot (20 tiers, faster swings + bigger yield), legendary Gold ore with a new Sunwell Shaft mine near Valdenmere (requires Guild Pickaxe T2+), minimap markers for all three mine sites, and a one-time tip when you find your first vein.',
@@ -6620,7 +6627,7 @@ function drawNpcBubble() {
 
       player.gold -= cost;
       if (player.gold < 0) { player.gold += cost; toast('Trade blocked (gold would go negative).', 2); return; }
-      player.inv[it.id] = (player.inv[it.id] || 0) + buyN;
+      gainItem(it.id, buyN);
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
       economyPostTrade(c.id, it.id, 'buy', buyN);
       syncWorldStateOnAction();
@@ -7544,7 +7551,7 @@ function drawNpcBubble() {
         if (it && w + it.weight > player.capacity) { toast('No pack space.', 2); return; }
         stash[itemId]--;
         if (stash[itemId] <= 0) delete stash[itemId];
-        player.inv[itemId] = (player.inv[itemId] || 0) + 1;
+        gainItem(itemId, 1);
         toast(`Retrieved 1 ${it?.name || itemId}.`, 1.5); scheduleAutoSave(); dom.key = ''; domRender();
       }));
       return;
@@ -7861,7 +7868,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.13',
+      buildVersion: 'v0.5.14',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8356,10 +8363,10 @@ function drawNpcBubble() {
       const metal = ITEMS.find(it => it.id === metalId);
       const yieldMult = player.miningYieldMult ?? 1;
       const qty = Math.max(1, Math.round((2 + (Math.random() * 3 | 0)) * yieldMult)); // (2..4) × pickaxe mult
-      player.inv[metalId] = (player.inv[metalId] || 0) + qty;
+      gainItem(metalId, qty);
       let bonus = '';
-      if (Math.random() < 0.10) { player.inv.coal = (player.inv.coal || 0) + 1; bonus += ' +1 coal'; }
-      if (Math.random() < 0.05) { player.inv.gem  = (player.inv.gem  || 0) + 1; bonus += ' +1 GEM!'; }
+      if (Math.random() < 0.10) { gainItem('coal', 1); bonus += ' +1 coal'; }
+      if (Math.random() < 0.05) { gainItem('gem',  1); bonus += ' +1 GEM!'; }
       toast(`Mined ${qty} ${metal?.name || metalId}${bonus}`, 2.5);
       saveGame(true);
     }
@@ -8762,6 +8769,87 @@ function drawNpcBubble() {
     ui.toastT = seconds;
   }
 
+  // ── Loot pickup popups ────────────────────────────────────────────────────
+  // Lightweight floating "+N icon" sprites that spawn at the player's screen
+  // position whenever they gain items (mining, cache loot, market buy, event
+  // drops). Rapid identical gains stack into a single popup so a multi-drop
+  // swing doesn't paint a spam of overlapping sprites.
+  const ITEM_ICONS = {
+    coal:   '⚫',
+    grain:  '🌾',
+    food:   '🥖',
+    ore:    '🟫',
+    herbs:  '🌿',
+    potion: '🧪',
+    relic:  '🏺',
+    ink:    '🖋️',
+    gem:    '💎',
+    copper: '🟠',
+    silver: '⚪',
+    gold:   '🟡',
+  };
+  const LOOT_POPUP_LIFETIME_MS = 1500;
+  const LOOT_POPUP_RISE_PX    = 36;
+  const LOOT_POPUP_STACK_MS   = 300;
+  const _lootPopups = [];
+
+  function spawnLootPopup(itemId, qty) {
+    if (!itemId || !(qty > 0)) return;
+    // Rapid same-item gains collapse into the latest popup so a single swing
+    // doesn't paint three overlapping sprites for ore+coal+gem combos. The
+    // pure decision is mirrored in ops/scripts/unit_tests.mjs#stackPopup.
+    const last = _lootPopups[_lootPopups.length - 1];
+    if (last && last.itemId === itemId && (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
+      last.qty += qty;
+      last.startMs = stateTime;
+      return;
+    }
+    _lootPopups.push({
+      itemId,
+      qty,
+      sx: player.x - camera.x,
+      sy: player.y - camera.y - 18,
+      startMs: stateTime,
+    });
+  }
+
+  // Single source of truth for "player gains items" so every drop site picks
+  // up the visual feedback automatically. Returns the new total for convenience.
+  function gainItem(itemId, qty) {
+    if (!itemId || !(qty > 0)) return player.inv[itemId] || 0;
+    player.inv[itemId] = (player.inv[itemId] || 0) + qty;
+    spawnLootPopup(itemId, qty);
+    return player.inv[itemId];
+  }
+
+  function drawLootPopups() {
+    if (_lootPopups.length === 0) return;
+    const fontPx = Math.round(13 * UI_SCALE);
+    ctx.save();
+    ctx.font = `800 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let writeIdx = 0;
+    for (let i = 0; i < _lootPopups.length; i++) {
+      const p = _lootPopups[i];
+      const age = stateTime - p.startMs;
+      if (age >= LOOT_POPUP_LIFETIME_MS) continue;
+      const t = age / LOOT_POPUP_LIFETIME_MS;
+      // Ease-out rise + accelerating fade so the eye catches the spawn moment.
+      const yOff = -LOOT_POPUP_RISE_PX * (1 - (1 - t) * (1 - t));
+      ctx.globalAlpha = 1 - t * t;
+      const text = `${ITEM_ICONS[p.itemId] || '✨'} +${p.qty}`;
+      // dark shadow first for legibility against grass/road
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillText(text, p.sx + 1, p.sy + yOff + 1);
+      ctx.fillStyle = '#fde047';
+      ctx.fillText(text, p.sx, p.sy + yOff);
+      _lootPopups[writeIdx++] = p;
+    }
+    _lootPopups.length = writeIdx;
+    ctx.restore();
+  }
+
   function activeContractProgressLabel() {
     if (!contracts.active) return '';
     try {
@@ -8871,7 +8959,7 @@ function drawNpcBubble() {
                   const pool = ['food','ore','herbs'];
                   const itId = pool[Math.floor(rand01() * pool.length)];
                   const n = 1 + (rand01() < 0.35 ? 1 : 0);
-                  player.inv[itId] = (player.inv[itId] || 0) + n;
+                  gainItem(itId, n);
                   const it = ITEMS.find(x => x.id === itId);
                   toast(`Cache: +${n} ${it ? it.name : itId}`, 2.4);
                 } else {
@@ -8952,7 +9040,7 @@ function drawNpcBubble() {
         { label: 'Buy supplies (3g → +1 rations)', run: () => {
             if (player.gold < 3) { toast('Not enough gold.', 2); closeEvent(); return; }
             player.gold -= 3;
-            player.inv['food'] = (player.inv['food'] || 0) + 1;
+            gainItem('food', 1);
             toast('Bought 1 Dried Rations.', 2);
             closeEvent();
           }
@@ -8976,7 +9064,7 @@ function drawNpcBubble() {
         { label: 'Search', run: () => {
             const r = Math.random();
             if (r < 0.45) { const g = 2 + (Math.random()*6|0); player.gold += g; toast(`Found ${g}g`, 2); }
-            else if (r < 0.75) { player.inv['herbs'] = (player.inv['herbs']||0)+1; toast('Found 1 Moon Herbs', 2); }
+            else if (r < 0.75) { gainItem('herbs', 1); toast('Found 1 Moon Herbs', 2); }
             else toast('Nothing but dust.', 2);
             closeEvent();
           }
@@ -9131,7 +9219,7 @@ function drawNpcBubble() {
               const w = invWeight() + it.weight;
               if (w > player.capacity) { toast('No room in your pack.', 2); closeEvent(); return; }
               player.gold -= discountPrice;
-              player.inv[it.id] = (player.inv[it.id] || 0) + 1;
+              gainItem(it.id, 1);
               toast(`Bought 1 ${it.name} for ${discountPrice}g.`, 2.5);
               closeEvent();
             }
@@ -9198,7 +9286,7 @@ function drawNpcBubble() {
                 const pool = ['potion','herbs','relic'];
                 const itId = pool[Math.floor(rand01() * pool.length)];
                 const it2 = ITEMS.find(x => x.id === itId);
-                player.inv[itId] = (player.inv[itId] || 0) + 1;
+                gainItem(itId, 1);
                 toast(`Found 1 ${it2 ? it2.name : itId}!`, 2.6);
               } else if (r < 0.8) {
                 const loss = 8 + Math.floor(rand01() * 10);
@@ -12850,6 +12938,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawPlayer();
     drawOtherPlayers();
     drawNpcBubble();
+    drawLootPopups();
     drawMobileOverlay();
     drawHUD();
     updateFabBar();
@@ -13871,7 +13960,42 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           `traders: at least one should depart locally when server isn't ticking (saw ${seenTraveling.size} traveling)`);
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback');
+      // ── Loot pickup animation: gain → popup queue ────────────────────────
+      // Every item-gain site funnels through gainItem(itemId, qty), which
+      // spawns a floating "+N icon" sprite. The render path consumes the
+      // queue; QA just checks that the queue receives the right entries.
+      {
+        const api = __QA.api;
+        api.qaClearLootPopups();
+        api.qaSetStamina(100);
+        // Reset gear so mining yield is the deterministic T0 baseline (2..4).
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
+        api.setPlayer({ capacity: 999 });
+        const copperNode = api.qaMineSiteNodeAt('copper');
+        api.teleportToTile(copperNode.tx, copperNode.ty);
+        const okMine = api.qaPlayerMine(copperNode.tx, copperNode.ty);
+        assert(okMine === true, 'loot popup: copper swing should land');
+        const popups = api.qaLootPopups();
+        assert(popups.length >= 1,
+          `loot popup: at least one popup spawned after successful mine (got ${popups.length})`);
+        const copperPopup = popups.find(p => p.itemId === 'copper');
+        assert(copperPopup && copperPopup.qty >= 1,
+          `loot popup: expected a copper popup with qty>=1, got ${JSON.stringify(popups)}`);
+
+        // Rapid same-item gains within the stack window collapse into the
+        // latest popup so a multi-drop swing doesn't spam overlapping sprites.
+        api.qaClearLootPopups();
+        gainItem('coal', 1);
+        const before = api.qaLootPopups().length;
+        gainItem('coal', 2);
+        const after = api.qaLootPopups();
+        assert(after.length === before,
+          `loot popup: same-item rapid gain should stack into one popup (got ${after.length})`);
+        assert(after[0].qty === 3,
+          `loot popup: stacked qty should be 1+2=3, got ${after[0].qty}`);
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

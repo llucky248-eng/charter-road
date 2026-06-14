@@ -632,6 +632,52 @@ test('vein cooldown: only the queried key matters', () => {
   assert(veinInCooldown({ 100: 60, 200: 10 }, 200, 50) === false);
   assert(veinInCooldown({ 100: 60, 200: 99 }, 200, 50) === true);
 });
+// Loot-popup stack decision mirror: when the player gains items in rapid
+// succession the renderer collapses identical-itemId popups within a short
+// window into a single "+N" entry so the screen doesn't spam. The same
+// itemId outside the window, or a different itemId at any time, queues
+// a new popup.
+function stackPopup(queue, popup, stackWindowMs, nowMs) {
+  const last = queue[queue.length - 1];
+  if (last && last.itemId === popup.itemId && (nowMs - last.startMs) < stackWindowMs) {
+    last.qty += popup.qty;
+    last.startMs = nowMs;
+    return queue;
+  }
+  return [...queue, { ...popup, startMs: nowMs }];
+}
+test('loot popup: same item within window stacks qty into latest popup', () => {
+  let q = [];
+  q = stackPopup(q, { itemId: 'copper', qty: 3 }, 300, 0);
+  q = stackPopup(q, { itemId: 'copper', qty: 2 }, 300, 100);
+  assert(q.length === 1, `expected 1 popup, got ${q.length}`);
+  assert(q[0].qty === 5, `expected stacked qty=5, got ${q[0].qty}`);
+  assert(q[0].startMs === 100, `expected timer refresh to nowMs=100, got ${q[0].startMs}`);
+});
+test('loot popup: same item OUTSIDE window starts a fresh popup', () => {
+  let q = [];
+  q = stackPopup(q, { itemId: 'copper', qty: 3 }, 300, 0);
+  q = stackPopup(q, { itemId: 'copper', qty: 2 }, 300, 500);
+  assert(q.length === 2, `expected 2 popups (stale window), got ${q.length}`);
+  assert(q[0].qty === 3 && q[1].qty === 2);
+});
+test('loot popup: different items queue separately even within window', () => {
+  let q = [];
+  q = stackPopup(q, { itemId: 'copper', qty: 3 }, 300, 0);
+  q = stackPopup(q, { itemId: 'coal',   qty: 1 }, 300, 50);
+  q = stackPopup(q, { itemId: 'gem',    qty: 1 }, 300, 100);
+  assert(q.length === 3, `expected 3 popups (distinct items), got ${q.length}`);
+  assert(q[0].itemId === 'copper' && q[1].itemId === 'coal' && q[2].itemId === 'gem');
+});
+test('loot popup: stacking only checks the LAST entry, not earlier ones', () => {
+  // If a different item interrupts, the next same-item entry starts fresh.
+  let q = [];
+  q = stackPopup(q, { itemId: 'copper', qty: 3 }, 300, 0);
+  q = stackPopup(q, { itemId: 'coal',   qty: 1 }, 300, 50);
+  q = stackPopup(q, { itemId: 'copper', qty: 1 }, 300, 100);
+  assert(q.length === 3, `expected 3 popups (copper not stacked through coal), got ${q.length}`);
+  assert(q[0].qty === 3 && q[2].qty === 1);
+});
 test('marketDrift absent → ok', () => {
   const s = makeSave();
   assert(validateSave(s).ok);
