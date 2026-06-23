@@ -678,6 +678,37 @@ test('loot popup: stacking only checks the LAST entry, not earlier ones', () => 
   assert(q.length === 3, `expected 3 popups (copper not stacked through coal), got ${q.length}`);
   assert(q[0].qty === 3 && q[2].qty === 1);
 });
+// Lifecycle mirror of drawLootPopups' age-out pass: keep popups whose age
+// is < lifetimeMs, drop the rest. The src/main.js render path does exactly
+// this in-place during the draw call.
+function ageOutPopups(queue, nowMs, lifetimeMs) {
+  return queue.filter(p => (nowMs - p.startMs) < lifetimeMs);
+}
+test('loot popup lifecycle: at age=0 the popup is kept (no render = no expiry)', () => {
+  const q = [{ itemId: 'copper', qty: 3, startMs: 100 }];
+  const kept = ageOutPopups(q, 100, 1500);
+  assert(kept.length === 1, `freshly spawned popup must survive (got ${kept.length})`);
+});
+test('loot popup lifecycle: at age < lifetime the popup is kept', () => {
+  const q = [{ itemId: 'copper', qty: 3, startMs: 100 }];
+  const kept = ageOutPopups(q, 1599, 1500); // age = 1499 < 1500
+  assert(kept.length === 1, `popup at age=1499ms must survive (got ${kept.length})`);
+});
+test('loot popup lifecycle: at age = lifetime the popup is removed', () => {
+  const q = [{ itemId: 'copper', qty: 3, startMs: 100 }];
+  const kept = ageOutPopups(q, 1600, 1500); // age = 1500, NOT < 1500
+  assert(kept.length === 0, `popup at age=lifetime must expire (got ${kept.length})`);
+});
+test('loot popup lifecycle: mixed-age queue prunes only expired entries', () => {
+  const q = [
+    { itemId: 'copper', qty: 3, startMs:    0 }, // age 2000 (expired)
+    { itemId: 'gem',    qty: 1, startMs:  800 }, // age 1200 (kept)
+    { itemId: 'silver', qty: 2, startMs: 1900 }, // age  100 (kept)
+  ];
+  const kept = ageOutPopups(q, 2000, 1500);
+  assert(kept.length === 2, `expected 2 survivors (gem + silver), got ${kept.length}`);
+  assert(kept[0].itemId === 'gem' && kept[1].itemId === 'silver');
+});
 test('marketDrift absent → ok', () => {
   const s = makeSave();
   assert(validateSave(s).ok);
