@@ -97,3 +97,15 @@ jobs:
 
       - name: Run QA self-test (Playwright)
         run: npm run qa:selftest
+
+      - name: Capture loot popup screenshots (Playwright)
+        run: npm run qa:popup-shot
+
+      - name: Upload loot popup screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loot-popup-screenshots
+          path: ops/screenshots/loot_popup/
+          if-no-files-found: warn
+          retention-days: 14

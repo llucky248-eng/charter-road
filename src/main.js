@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.15'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.16'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -694,6 +694,8 @@ ${line4}`;
       }),
       /** Set player stamina directly (for cooldown/full-cargo isolation tests). */
       qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
+      /** Wipe per-vein cooldown so the same tile is mineable again (test isolation). */
+      qaResetMineCooldowns: () => { player.mineCooldown = {}; return true; },
       /** Run cityMineTick once (no day advance). */
       qaCityMineTick: () => { cityMineTick(); return cityBuildings.ironholt?.mine || null; },
       /** Snapshot of AI traders for assertions (state, fromId, toId, cityTimer). */
@@ -6478,7 +6480,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.15',
+    version: 'v0.5.16',
     whatsNew: [
       'Loot pickup animation: every time you gain an item — mining, cache loot, market buy, road-trader buy, event drop, stash retrieve — a floating "+N icon" sprite rises off your head and fades. Rapid identical gains stack into a single popup so a multi-drop swing doesn\'t spam overlapping sprites.',
       'Mining sites read as real deposits now: each site carves 12 ore veins instead of 5 (and Ironholt\'s iron cluster grew from 6 to 12), the tile art is chunkier with metal-tinted glints + a vein streak, and veins on cooldown swap to a depleted gray look with a bright amber hourglass-pip so you can tell at a glance which ones are ready to swing.',
@@ -7877,7 +7879,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.15',
+      buildVersion: 'v0.5.16',
       savedAt: Date.now(),
       player: {
         x: player.x,
