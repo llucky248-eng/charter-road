@@ -1,29 +1,33 @@
 #!/usr/bin/env node
 /**
- * End-to-end screenshot validation for the loot pickup popup.
- *
- * Boots the local server, opens the game with the QA harness, teleports the
- * player onto a copper vein, triggers a swing, and captures a series of
- * screenshots over the popup's lifetime so the actual rendered sprite is
- * visible to a human reviewer:
+ * End-to-end screenshot validation for the loot pickup popup AND every mine
+ * site on the map. Boots the local server, opens the game with the QA
+ * harness, then for each of the three mine sites (copper, silver, gold)
+ * teleports the player onto a vein, triggers a swing, and captures a series
+ * of screenshots over the popup's lifetime so a human reviewer can confirm
+ * the sprite paints and each mine reads correctly on screen.
  *
  *   ops/screenshots/loot_popup/
- *     desktop_baseline.png       - frame before the swing (no popup)
- *     desktop_t0.png             - popup just spawned (full alpha, low yOff)
- *     desktop_t750.png           - popup at mid-life  (~50% rise, ~75% alpha)
- *     desktop_t1400.png          - popup near expiry  (~95% rise, ~10% alpha)
- *     desktop_expired.png        - past LIFETIME_MS, popup gone
- *     mobile_t0.png              - same series at iPhone 12 viewport
- *     mobile_t750.png
+ *     desktop_<metal>_baseline.png  - frame before the swing (no popup)
+ *     desktop_<metal>_t0.png        - popup just spawned (full alpha, low yOff)
+ *     desktop_<metal>_t500.png      - 500ms in
+ *     desktop_<metal>_t1000.png     - 1000ms in
+ *     desktop_<metal>_t1400.png     - 1400ms in (~93% rise, ~13% alpha)
+ *     desktop_<metal>_expired.png   - past LIFETIME_MS, popup gone
+ *     mobile_<metal>_*.png          - same series at iPhone 12 viewport
  *
- * Also crops each frame around the player so the popup is easy to inspect.
+ *   <metal> ∈ { copper, silver, gold }
+ *
+ *   copper → Coppervein Hollow (Crosshaven hub, south-center)
+ *   silver → Argent Reach       (Ironholt hub,   TOP-RIGHT)
+ *   gold   → Sunwell Shaft      (Valdenmere hub, top-left, needs Pickaxe T2)
  *
  * Usage:
  *   node ops/scripts/qa_popup_screenshot.mjs            # spins up local server
  *   QA_URL=http://localhost:8080 node ops/scripts/qa_popup_screenshot.mjs
  *
- * Exits non-zero if the QA harness fails or no popup ever appears in the
- * queue after a swing (regression guard, in addition to the visual proof).
+ * Exits non-zero if the QA harness fails or any site's popup never appears
+ * in the queue after a swing (regression guard, in addition to visual proof).
  */
 
 import { chromium, devices } from 'playwright';
@@ -44,6 +48,11 @@ const url = externalUrl || `http://127.0.0.1:${PORT}/?qa=1`;
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const launchOptions = isRoot ? { args: ['--no-sandbox'] } : {};
 
+// Pickaxe tier needed to mine each metal. Gold's ITEMS entry sets
+// minPickaxeTier=2; copper/silver are unrestricted so T0 is fine.
+const METAL_PICKAXE_TIER = { copper: 0, silver: 0, gold: 2 };
+const METALS = ['copper', 'silver', 'gold'];
+
 function die(msg) {
   console.error('POPUP_SHOT_FAIL:', msg);
   process.exit(1);
@@ -52,70 +61,49 @@ function die(msg) {
 function info(...args) { console.log('[popup-shot]', ...args); }
 
 /**
- * Drive one viewport's full screenshot series.
- * Returns { popupCount, sx, sy, viewW, viewH } so the caller can also assert
- * the popup actually exists in the queue (regression guard, not just visual).
+ * Drive one (viewport, metal) screenshot series.
+ *
+ * Per-site setup resets stamina + cargo + cooldown so an earlier QA selftest
+ * pass can't leave residual state that blocks the swing. The pickaxe tier
+ * is bumped to the metal's minimum (T0 for copper/silver, T2 for gold), then
+ * the player is teleported onto a tagged vein of that metal.
  */
-async function captureSeries(browser, { name, contextOptions }) {
-  info(`--- ${name} ---`);
-  const context = await browser.newContext(contextOptions);
-  const page = await context.newPage();
-  page.on('pageerror', (e) => console.error(`[${name}] pageerror:`, e?.message || e));
+async function captureSeries(page, { viewportName, metal }) {
+  const tier = METAL_PICKAXE_TIER[metal];
+  const tag = `${viewportName}_${metal}`;
+  info(`--- ${tag} (pickaxe T${tier}) ---`);
 
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-
-  // Wait for the self-test harness to declare ready.
-  await page.waitForFunction(
-    () => window.__QA && (window.__QA.status === 'pass' || window.__QA.status === 'fail'),
-    { timeout: 30_000 },
-  );
-  const qa = await page.evaluate(() => ({ status: window.__QA.status, details: window.__QA.details }));
-  if (qa.status !== 'pass') die(`${name}: QA harness failed before screenshots: ${qa.details}`);
-
-  // Stage the player on a copper vein with full stamina + cargo headroom.
-  // Earlier QA selftest passes may have set a cooldown on the first copper
-  // tile and accumulated inventory; reset both so the swing always lands.
-  const setup = await page.evaluate(() => {
+  const setup = await page.evaluate(({ metal, tier }) => {
     const api = window.__QA.api;
     api.qaClearLootPopups();
-    api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
+    api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: tier } });
     api.setPlayer({ capacity: 999, inv: {} });
     api.qaSetStamina(100);
     api.qaResetMineCooldowns();
-    const node = api.qaMineSiteNodeAt('copper');
-    if (!node) return { ok: false, err: 'no copper vein' };
+    const node = api.qaMineSiteNodeAt(metal);
+    if (!node) return { ok: false, err: `no ${metal} vein` };
     api.teleportToTile(node.tx, node.ty);
     return { ok: true, node, constants: api.qaLootPopupConsts() };
-  });
-  if (!setup.ok) die(`${name}: setup failed: ${setup.err}`);
-  info(`copper vein at (${setup.node.tx}, ${setup.node.ty}); LIFETIME=${setup.constants.lifetimeMs}ms`);
+  }, { metal, tier });
+  if (!setup.ok) die(`${tag}: setup failed: ${setup.err}`);
+  info(`${metal} vein at (${setup.node.tx}, ${setup.node.ty}); LIFETIME=${setup.constants.lifetimeMs}ms`);
 
-  // Baseline: no popup yet.
-  await page.screenshot({
-    path: `${SCREENSHOTS_DIR}/${name}_baseline.png`,
-    fullPage: false,
-  });
-  info(`saved ${name}_baseline.png`);
+  await page.screenshot({ path: `${SCREENSHOTS_DIR}/${tag}_baseline.png`, fullPage: false });
+  info(`saved ${tag}_baseline.png`);
 
-  // Fire the swing. In QA mode the yield is synchronous so the popup is
-  // queued before the screenshot tap.
-  const swing = await page.evaluate(() => {
+  const swing = await page.evaluate(({ metal }) => {
     const api = window.__QA.api;
     api.qaClearLootPopups();
-    const node = api.qaMineSiteNodeAt('copper');
+    const node = api.qaMineSiteNodeAt(metal);
     const ok = api.qaPlayerMine(node.tx, node.ty);
     return { ok, popups: api.qaLootPopups() };
-  });
-  if (!swing.ok) die(`${name}: copper swing returned false (validate stamina/cargo/cooldown)`);
-  if (!swing.popups.length) die(`${name}: swing landed but loot popup queue is empty`);
+  }, { metal });
+  if (!swing.ok) die(`${tag}: ${metal} swing returned false (validate stamina/cargo/cooldown/pickaxe)`);
+  if (!swing.popups.length) die(`${tag}: swing landed but loot popup queue is empty`);
   info(`swing OK; popup queue: ${JSON.stringify(swing.popups)}`);
 
-  // Capture lifecycle frames. We can't directly control rAF time, but the
-  // popup ages off stateTime which we advance via api.step() — the render
-  // pass under window.requestAnimationFrame consumes the current stateTime
-  // each frame, so stepping advances the visible age.
   const frames = [
-    { tag: 't0',      ageTargetMs:   60 },  // ~3 frames in
+    { tag: 't0',      ageTargetMs:   60 },
     { tag: 't500',    ageTargetMs:  500 },
     { tag: 't1000',   ageTargetMs: 1000 },
     { tag: 't1400',   ageTargetMs: 1400 },
@@ -126,26 +114,44 @@ async function captureSeries(browser, { name, contextOptions }) {
     const deltaMs = f.ageTargetMs - prevAge;
     prevAge = f.ageTargetMs;
     if (deltaMs > 0) {
-      // Step ~deltaMs of game time in 1/60s increments so animation is smooth.
       const steps = Math.max(1, Math.round(deltaMs / (1000 / 60)));
       await page.evaluate((n) => {
         for (let i = 0; i < n; i++) window.__QA.api.step(1/60);
       }, steps);
     }
-    // One real animation frame so the canvas reflects the new stateTime.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
-    await page.screenshot({
-      path: `${SCREENSHOTS_DIR}/${name}_${f.tag}.png`,
-      fullPage: false,
-    });
+    await page.screenshot({ path: `${SCREENSHOTS_DIR}/${tag}_${f.tag}.png`, fullPage: false });
     const q = await page.evaluate(() => window.__QA.api.qaLootPopups());
-    info(`${name}_${f.tag}.png saved; queue=${q.length}`);
+    info(`${tag}_${f.tag}.png saved; queue=${q.length}`);
     if (f.tag === 't0' && q.length === 0) {
-      die(`${name}: popup vanished from queue at t=60ms — render is pruning too aggressively`);
+      die(`${tag}: popup vanished from queue at t=60ms — render is pruning too aggressively`);
     }
     if (f.tag === 'expired' && q.length !== 0) {
-      die(`${name}: popup still in queue at t=${f.ageTargetMs}ms — past LIFETIME=${setup.constants.lifetimeMs} should be empty (got ${q.length})`);
+      die(`${tag}: popup still in queue at t=${f.ageTargetMs}ms — past LIFETIME=${setup.constants.lifetimeMs} should be empty (got ${q.length})`);
     }
+  }
+}
+
+/**
+ * Boot a viewport, wait for the QA harness, then run captureSeries for every
+ * mine site. The page is reused across metals so we don't reload between
+ * sites — the per-metal setup() above resets all the state we care about.
+ */
+async function runViewport(browser, { viewportName, contextOptions }) {
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  page.on('pageerror', (e) => console.error(`[${viewportName}] pageerror:`, e?.message || e));
+
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(
+    () => window.__QA && (window.__QA.status === 'pass' || window.__QA.status === 'fail'),
+    { timeout: 30_000 },
+  );
+  const qa = await page.evaluate(() => ({ status: window.__QA.status, details: window.__QA.details }));
+  if (qa.status !== 'pass') die(`${viewportName}: QA harness failed before screenshots: ${qa.details}`);
+
+  for (const metal of METALS) {
+    await captureSeries(page, { viewportName, metal });
   }
 
   await context.close();
@@ -162,12 +168,12 @@ async function main() {
 
   const browser = await chromium.launch(launchOptions);
   try {
-    await captureSeries(browser, {
-      name: 'desktop',
+    await runViewport(browser, {
+      viewportName: 'desktop',
       contextOptions: { viewport: { width: 1280, height: 720 } },
     });
-    await captureSeries(browser, {
-      name: 'mobile',
+    await runViewport(browser, {
+      viewportName: 'mobile',
       contextOptions: { ...devices['iPhone 12'] },
     });
   } finally {
@@ -177,7 +183,8 @@ async function main() {
 
   console.log('');
   console.log(`Screenshots saved to ${SCREENSHOTS_DIR}`);
-  console.log('Compare *_baseline (no popup) ↔ *_t0 (popup at full alpha) ↔ *_expired (popup gone) to confirm the sprite renders.');
+  console.log('Compare *_baseline (no popup) ↔ *_t0 (popup at full alpha) ↔ *_expired (popup gone) to confirm the sprite renders for each metal.');
+  console.log('Top-right mine is silver (Argent Reach near Ironholt) — look at desktop_silver_*.png and mobile_silver_*.png.');
 }
 
 main().catch((e) => die(e?.stack || e?.message || String(e)));
