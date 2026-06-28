@@ -1116,6 +1116,158 @@ asyncTest('deleteSaveFromDb: network error → swallowed, does not throw', async
   await ctx.deleteSaveFromDb(); // must not throw
 });
 
+// ─── mine_ore_vein RPC outcome handling (fetch-mocked) ────────────────────────
+// Mirrors the mine_ore_vein RPC branch in playerMineNode (src/main.js). A
+// genuine 2xx response with body {ok:false} means real contention (another
+// player's swing won the race). A non-2xx HTTP response means the RPC call
+// itself failed (missing function, bad auth, paused project, etc.) — an
+// infra problem, not contention — and must fail OPEN the same way a thrown
+// network error already does. Otherwise every player is phantom-blocked
+// with a fake "another miner" message the moment the backend hiccups.
+function makeMineRpcContext({ fetchStub, key = 1, stateTime = 0, miningStaminaCost, mineStamina = 100 } = {}) {
+  const player = { mineCooldown: {}, mineStamina, miningStaminaCost };
+  let yielded = false;
+  let toastMsg = null;
+  function doMineYield() { yielded = true; }
+  function toast(msg) { toastMsg = msg; }
+
+  const staminaCost = player.miningStaminaCost ?? 15;
+  player.mineCooldown[key] = stateTime + 30000; // optimistic local cooldown
+  player.mineStamina = Math.max(0, player.mineStamina - staminaCost);
+
+  const ready = fetchStub('mine_ore_vein_url', { method: 'POST' })
+    .then(r => {
+      if (!r.ok) throw new Error(`mine_ore_vein HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(result => {
+      if (result?.ok) {
+        doMineYield();
+      } else {
+        player.mineStamina = Math.min(100, player.mineStamina + staminaCost);
+        const msLeft = result?.cooldown_remaining_ms || 30000;
+        player.mineCooldown[key] = stateTime + msLeft;
+        toast(`Another miner just worked this vein — try again in ${Math.ceil(msLeft / 1000)}s.`);
+      }
+    })
+    .catch(() => {
+      doMineYield();
+    });
+
+  return { player, ready, get yielded() { return yielded; }, get toastMsg() { return toastMsg; } };
+}
+asyncTest('mine RPC: HTTP error response → fails open, mines anyway (not phantom-blocked)', async () => {
+  const ctx = makeMineRpcContext({
+    key: 5, stateTime: 1000,
+    fetchStub: async () => ({ ok: false, status: 500 }),
+  });
+  await ctx.ready;
+  assert(ctx.yielded, 'HTTP failure must fail open and yield ore, not show "another miner"');
+  assert(ctx.toastMsg === null, 'must not show the contested-vein toast on infra failure');
+});
+asyncTest('mine RPC: network error (thrown) → fails open, mines anyway', async () => {
+  const ctx = makeMineRpcContext({
+    key: 5, stateTime: 1000,
+    fetchStub: async () => { throw new Error('offline'); },
+  });
+  await ctx.ready;
+  assert(ctx.yielded, 'network failure must fail open');
+});
+asyncTest('mine RPC: clean 2xx {ok:true} → yields ore', async () => {
+  const ctx = makeMineRpcContext({
+    key: 5, stateTime: 1000,
+    fetchStub: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+  });
+  await ctx.ready;
+  assert(ctx.yielded);
+});
+asyncTest('mine RPC: clean 2xx {ok:false} → genuine contention, no yield, cooldown from server', async () => {
+  const ctx = makeMineRpcContext({
+    key: 5, stateTime: 1000,
+    fetchStub: async () => ({ ok: true, json: async () => ({ ok: false, cooldown_remaining_ms: 12000 }) }),
+  });
+  await ctx.ready;
+  assert(!ctx.yielded, 'real contention must not yield ore');
+  assertEqual(ctx.player.mineCooldown[5], 1000 + 12000, 'cooldown should use server-provided remaining ms');
+  assert(/Another miner/.test(ctx.toastMsg || ''), 'should show contested-vein toast');
+});
+asyncTest('mine RPC: contention rollback refunds exactly the stamina that was deducted (upgraded pickaxe)', async () => {
+  const ctx = makeMineRpcContext({
+    key: 5, stateTime: 1000, miningStaminaCost: 8, mineStamina: 50, // e.g. Diamond-Tip Pick, not the 15-stamina default; start below the 100 cap so an over-refund is observable
+    fetchStub: async () => ({ ok: true, json: async () => ({ ok: false, cooldown_remaining_ms: 12000 }) }),
+  });
+  await ctx.ready;
+  assertEqual(ctx.player.mineStamina, 50, 'losing a contested swing must net zero stamina change, regardless of pickaxe tier');
+});
+
+// ─── open_cache RPC outcome handling (fetch-mocked) ───────────────────────────
+// Mirrors the open_cache RPC branch in the hidden-cache event handler
+// (src/main.js). Same fail-open contract as mine_ore_vein above: a non-2xx
+// HTTP response is an infra problem, not a genuine "someone already looted
+// this" response, and must fail OPEN like a thrown network error — not
+// permanently mark the cache as looted with zero compensation.
+function makeCacheRpcContext({ fetchStub, key = 'c1' } = {}) {
+  const openedCaches = new Set();
+  let lootApplied = false;
+  let toastMsg = null;
+  let saved = false;
+  function applyLoot() { lootApplied = true; }
+  function toast(msg) { toastMsg = msg; }
+
+  const ready = fetchStub('open_cache_url', { method: 'POST' })
+    .then(r => {
+      if (!r.ok) throw new Error(`open_cache HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(result => {
+      if (result?.ok) {
+        openedCaches.add(key);
+        applyLoot();
+      } else {
+        openedCaches.add(key); // don't prompt again locally
+        toast('Already looted — empty crate.');
+      }
+      saved = true;
+    })
+    .catch(() => {
+      openedCaches.add(key);
+      applyLoot();
+      saved = true;
+    });
+
+  return { openedCaches, ready, get lootApplied() { return lootApplied; }, get toastMsg() { return toastMsg; }, get saved() { return saved; } };
+}
+asyncTest('open_cache RPC: HTTP error response → fails open, loot applied (not permanently marked empty)', async () => {
+  const ctx = makeCacheRpcContext({
+    fetchStub: async () => ({ ok: false, status: 500 }),
+  });
+  await ctx.ready;
+  assert(ctx.lootApplied, 'HTTP failure must fail open and grant loot, not silently mark the cache empty');
+  assert(ctx.toastMsg === null, 'must not show the "already looted" toast on infra failure');
+});
+asyncTest('open_cache RPC: network error (thrown) → fails open, loot applied', async () => {
+  const ctx = makeCacheRpcContext({
+    fetchStub: async () => { throw new Error('offline'); },
+  });
+  await ctx.ready;
+  assert(ctx.lootApplied, 'network failure must fail open');
+});
+asyncTest('open_cache RPC: clean 2xx {ok:true} → loot applied', async () => {
+  const ctx = makeCacheRpcContext({
+    fetchStub: async () => ({ ok: true, json: async () => ({ ok: true }) }),
+  });
+  await ctx.ready;
+  assert(ctx.lootApplied);
+});
+asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no loot, shows toast', async () => {
+  const ctx = makeCacheRpcContext({
+    fetchStub: async () => ({ ok: true, json: async () => ({ ok: false }) }),
+  });
+  await ctx.ready;
+  assert(!ctx.lootApplied, 'real already-looted must not grant loot');
+  assert(/Already looted/.test(ctx.toastMsg || ''), 'should show the already-looted toast');
+});
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
