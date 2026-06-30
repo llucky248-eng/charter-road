@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.14'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.17'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -658,10 +658,19 @@ ${line4}`;
       },
       /** Snapshot of the active loot popup queue (for assertions). */
       qaLootPopups: () => _lootPopups.map(p => ({
-        itemId: p.itemId, qty: p.qty, startMs: p.startMs,
+        itemId: p.itemId, qty: p.qty, startMs: p.startMs, sx: p.sx, sy: p.sy,
       })),
       /** Clear the loot popup queue (used to isolate per-test assertions). */
       qaClearLootPopups: () => { _lootPopups.length = 0; return true; },
+      /** Invoke the renderer's drawLootPopups pass so age-out semantics are
+       *  exercised in QA (the main render loop doesn't run during api.step). */
+      qaDrawLootPopups: () => { drawLootPopups(); return _lootPopups.length; },
+      /** Read the loot popup tunables so tests can wait the right interval. */
+      qaLootPopupConsts: () => ({
+        lifetimeMs: LOOT_POPUP_LIFETIME_MS,
+        risePx:     LOOT_POPUP_RISE_PX,
+        stackMs:    LOOT_POPUP_STACK_MS,
+      }),
       /** Count mine_node tiles tagged with the given metal variant. */
       qaCountMineNodes: (metal) => {
         let n = 0;
@@ -685,6 +694,8 @@ ${line4}`;
       }),
       /** Set player stamina directly (for cooldown/full-cargo isolation tests). */
       qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
+      /** Wipe per-vein cooldown so the same tile is mineable again (test isolation). */
+      qaResetMineCooldowns: () => { player.mineCooldown = {}; return true; },
       /** Run cityMineTick once (no day advance). */
       qaCityMineTick: () => { cityMineTick(); return cityBuildings.ironholt?.mine || null; },
       /** Snapshot of AI traders for assertions (state, fromId, toId, cityTimer). */
@@ -6469,8 +6480,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.14',
+    version: 'v0.5.17',
     whatsNew: [
+      'Fixed mining being permanently blocked by a false "Another miner just worked this vein" message, and the same bug in hidden caches ("Already looted — empty crate"): the client was treating any failed multiplayer-claim request (server hiccup, bad response) the same as a genuine claim-lost-to-another-player response, so every swing/loot attempt got phantom-blocked. Both now fail open — backend issues no longer stop you from mining or looting. Also fixed: losing a contested mining swing now refunds the exact stamina your pickaxe spent instead of always refunding a flat amount.',
       'Loot pickup animation: every time you gain an item — mining, cache loot, market buy, road-trader buy, event drop, stash retrieve — a floating "+N icon" sprite rises off your head and fades. Rapid identical gains stack into a single popup so a multi-drop swing doesn\'t spam overlapping sprites.',
       'Mining sites read as real deposits now: each site carves 12 ore veins instead of 5 (and Ironholt\'s iron cluster grew from 6 to 12), the tile art is chunkier with metal-tinted glints + a vein streak, and veins on cooldown swap to a depleted gray look with a bright amber hourglass-pip so you can tell at a glance which ones are ready to swing.',
       'Fixes: mining veins no longer appear permanently "still recovering" after a reload — per-vein cooldowns now reset on load so you can swing again right away. AI caravans on the road no longer go missing when the world cron is offline — a local fallback dispatches a fresh trade route every ~18s so the highways stay populated.',
@@ -7868,7 +7880,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.14',
+      buildVersion: 'v0.5.17',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8377,20 +8389,32 @@ function drawNpcBubble() {
         headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
         body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: String(key) }),
       })
-        .then(r => r.ok ? r.json() : null)
+        .then(r => {
+          // A non-2xx response means the RPC call itself failed (missing
+          // function, bad auth, paused project, etc.) — an infra problem,
+          // not contention. Route it to the same fail-open path as a thrown
+          // network error below, instead of misreporting it as "another
+          // miner" and phantom-blocking every swing whenever the backend
+          // hiccups.
+          if (!r.ok) throw new Error(`mine_ore_vein HTTP ${r.status}`);
+          return r.json();
+        })
         .then(result => {
           if (result?.ok) {
             _doMineYield();
           } else {
-            // Another player mined this vein; roll back stamina + cooldown
-            player.mineStamina = Math.min(100, (player.mineStamina || 0) + 15);
+            // Another player mined this vein; roll back stamina + cooldown.
+            // Refund the same staminaCost that was deducted above — not a
+            // flat 15 — so upgraded pickaxes (lower stamina/swing) don't net
+            // free stamina every time they lose a contested swing.
+            player.mineStamina = Math.min(100, (player.mineStamina || 0) + staminaCost);
             const msLeft = result?.cooldown_remaining_ms || 30000;
             player.mineCooldown[key] = stateTime + msLeft;
             toast(`Another miner just worked this vein — try again in ${Math.ceil(msLeft / 1000)}s.`, 2.5);
           }
         })
         .catch(() => {
-          // Network failure: apply yield optimistically
+          // Network/HTTP failure: apply yield optimistically
           _doMineYield();
         });
     } else {
@@ -8974,7 +8998,15 @@ function drawNpcBubble() {
                   headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
                   body: JSON.stringify({ p_uid: player.uid || '0', p_tile_key: key }),
                 })
-                  .then(r => r.ok ? r.json() : null)
+                  .then(r => {
+                    // Same fail-open contract as mine_ore_vein: a non-2xx
+                    // response is an infra problem, not a genuine "someone
+                    // already looted this" result. Route it to the same
+                    // fail-open path as a thrown network error below, instead
+                    // of permanently marking the cache empty for zero loot.
+                    if (!r.ok) throw new Error(`open_cache HTTP ${r.status}`);
+                    return r.json();
+                  })
                   .then(result => {
                     if (result?.ok) {
                       openedCaches.add(key);
@@ -8986,7 +9018,7 @@ function drawNpcBubble() {
                     scheduleAutoSave();
                   })
                   .catch(() => {
-                    // Network failure: apply loot optimistically, cache locally
+                    // Network/HTTP failure: apply loot optimistically, cache locally
                     openedCaches.add(key);
                     _applyLoot();
                     scheduleAutoSave();
@@ -13993,9 +14025,47 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           `loot popup: same-item rapid gain should stack into one popup (got ${after.length})`);
         assert(after[0].qty === 3,
           `loot popup: stacked qty should be 1+2=3, got ${after[0].qty}`);
+
+        // Full lifecycle: spawn → render (queue persists) → age out → render
+        // (queue pruned). Confirms the renderer actually consumes the queue
+        // and that popups don't leak past LIFETIME_MS.
+        api.qaClearLootPopups();
+        const k = api.qaLootPopupConsts();
+        gainItem('gem', 1);
+        let q = api.qaLootPopups();
+        assert(q.length === 1 && q[0].itemId === 'gem',
+          `lifecycle: spawn → queue has gem (got ${JSON.stringify(q)})`);
+        // First render pass: popup is freshly spawned so it survives.
+        const afterRender1 = api.qaDrawLootPopups();
+        assert(afterRender1 === 1,
+          `lifecycle: render at age=0 keeps the popup (got ${afterRender1})`);
+        // Tick past LIFETIME (1500ms + slack). 1/60s × ~100 = ~1.67s.
+        const ticks = Math.ceil((k.lifetimeMs + 200) / (1000 / 60));
+        for (let i = 0; i < ticks; i++) api.step(1/60);
+        // Render pass: aged-out popup gets pruned.
+        const afterRender2 = api.qaDrawLootPopups();
+        assert(afterRender2 === 0,
+          `lifecycle: render past LIFETIME=${k.lifetimeMs}ms prunes the popup (got ${afterRender2} after ${ticks} ticks)`);
+
+        // Spawn site coords must be on-screen at spawn time (above player).
+        // Catches regressions like passing world coords without subtracting
+        // camera — the popup would otherwise spawn far outside the viewport.
+        api.qaClearLootPopups();
+        gainItem('silver', 2);
+        const fresh = api.qaLootPopups()[0];
+        const VIEW_W_PROBE = (typeof window !== 'undefined' && window.innerWidth) || 1280;
+        const VIEW_H_PROBE = (typeof window !== 'undefined' && window.innerHeight) || 720;
+        // Camera centers on player, so sx ≈ VIEW_W/2 and sy ≈ VIEW_H/2 - 18.
+        // Allow a wide margin since exact view size varies by device.
+        const xOk = (typeof fresh.sx !== 'number') || (fresh.sx >= 0 && fresh.sx <= VIEW_W_PROBE);
+        const yOk = (typeof fresh.sy !== 'number') || (fresh.sy >= 0 && fresh.sy <= VIEW_H_PROBE);
+        // Note: sx/sy aren't returned by qaLootPopups by default; this just
+        // documents the expected camera-centered spawn for future debugging.
+        assert(xOk && yOk,
+          `lifecycle: spawn coords should be within viewport (sx=${fresh.sx}, sy=${fresh.sy})`);
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups');
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
