@@ -882,6 +882,217 @@ test('null db → local wins (dbDay=0 < localDay=1)', () => {
   assert(pickNewerSave(null, { savedAt: 1000, time: { day: 1 } }) === 'local');
 });
 
+// ─── Road events: wealth-scaled stakes + context-weighted selection ──────────
+// Mirrors cargoMarketValue / roadStakes / roadEventWeights / pickWeighted in
+// src/main.js (copy verbatim on any change). Road events must scale with what
+// the player stands to lose (gold + cargo value) and be picked deterministically
+// from a context-weighted table — no Math.random in selection.
+
+// cargoMarketValue — mirrors src/main.js
+function cargoMarketValue(inv, items) {
+  let v = 0;
+  for (const it of items) v += (inv[it.id] || 0) * it.base;
+  return v;
+}
+
+// roadStakes — mirrors src/main.js
+function roadStakes(gold, cargoVal) {
+  const wealth = Math.max(0, gold || 0) + Math.max(0, cargoVal || 0);
+  const heat = Math.min(1, wealth / 600); // 600g total wealth = fully "worth robbing"
+  return {
+    wealth,
+    heat,
+    banditDemand: Math.min(150, Math.max(12, Math.round(wealth * 0.12))),
+    toll:         Math.min(60,  Math.max(8,  Math.round(wealth * 0.05))),
+    shelter:      Math.min(25,  Math.max(4,  Math.round(wealth * 0.02))),
+    quarantine:   Math.min(45,  Math.max(10, Math.round(wealth * 0.04))),
+    escortPay:    Math.round(12 + heat * 28),
+    omenFind:     Math.round(5 + heat * 20),
+    fightLoot:    Math.round(10 + heat * 30),
+    dropCount:    cargoVal >= 240 ? 3 : cargoVal >= 80 ? 2 : 1,
+  };
+}
+
+// roadEventWeights — mirrors src/main.js
+function roadEventWeights(ctx) {
+  const w = {
+    bandits: 1 + (ctx.heat || 0) * 2, // valuable travelers attract predators
+    toll: 1, storm: 1, omen: 1, escort: 1,
+    wandering_merchant: 1, wounded_soldier: 1, plague_cart: 0.7,
+    lost_cargo: 1, wild_animal: 1, hermit: 1, waystone: 1,
+  };
+  if ((ctx.cargoVal || 0) <= 0) w.bandits = 0.25; // empty pack — nothing to rob
+  if ((ctx.food || 0) <= 0) { w.wandering_merchant += 1; w.hermit += 0.75; }
+  if (ctx.patrolOk) w.patrol = ctx.hasContraband ? 2.5 : 1;
+  return w;
+}
+
+// pickWeighted — mirrors src/main.js
+function pickWeighted(weights, roll) {
+  const keys = Object.keys(weights).filter(k => weights[k] > 0);
+  if (keys.length === 0) return null;
+  let total = 0;
+  for (const k of keys) total += weights[k];
+  let x = Math.min(0.999999999, Math.max(0, roll || 0)) * total;
+  for (const k of keys) {
+    x -= weights[k];
+    if (x < 0) return k;
+  }
+  return keys[keys.length - 1];
+}
+
+const RE_ITEMS = [
+  { id: 'grain', base: 10, weight: 1 },
+  { id: 'relic', base: 60, weight: 2 },
+  { id: 'ink',   base: 75, weight: 1, contrabandName: 'Demon Ink' },
+];
+
+console.log('\n=== cargoMarketValue ===');
+
+test('empty inventory → 0', () => {
+  assertEqual(cargoMarketValue({}, RE_ITEMS), 0);
+});
+
+test('sums qty × base across items', () => {
+  assertEqual(cargoMarketValue({ grain: 3, relic: 1 }, RE_ITEMS), 90);
+});
+
+test('ignores ids not in the item list and missing counts', () => {
+  assertEqual(cargoMarketValue({ mystery: 5, grain: 2 }, RE_ITEMS), 20);
+});
+
+console.log('\n=== roadStakes ===');
+
+test('broke traveler hits the floors', () => {
+  const s = roadStakes(0, 0);
+  assertEqual(s.wealth, 0);
+  assertEqual(s.heat, 0);
+  assertEqual(s.banditDemand, 12);
+  assertEqual(s.toll, 8);
+  assertEqual(s.shelter, 4);
+  assertEqual(s.quarantine, 10);
+  assertEqual(s.escortPay, 12);
+  assertEqual(s.omenFind, 5);
+  assertEqual(s.fightLoot, 10);
+  assertEqual(s.dropCount, 1);
+});
+
+test('starting player (220g, no cargo) pays meaningful stakes', () => {
+  const s = roadStakes(220, 0);
+  assertEqual(s.wealth, 220);
+  assertClose(s.heat, 220 / 600, 1e-9);
+  assertEqual(s.banditDemand, 26); // round(220 * 0.12)
+  assertEqual(s.toll, 11);         // round(220 * 0.05)
+  assertEqual(s.escortPay, 22);    // round(12 + heat*28)
+});
+
+test('rich trader (500g + 300g cargo) faces rich-trader stakes', () => {
+  const s = roadStakes(500, 300);
+  assertEqual(s.wealth, 800);
+  assertEqual(s.heat, 1); // capped
+  assertEqual(s.banditDemand, 96); // round(800 * 0.12)
+  assertEqual(s.toll, 40);
+  assertEqual(s.escortPay, 40);    // 12 + 28
+  assertEqual(s.omenFind, 25);     // 5 + 20
+  assertEqual(s.fightLoot, 40);    // 10 + 30
+  assertEqual(s.dropCount, 3);     // cargo ≥ 240
+});
+
+test('stakes are capped so late-game is not absurd', () => {
+  const s = roadStakes(5000, 0);
+  assertEqual(s.banditDemand, 150);
+  assertEqual(s.toll, 60);
+  assertEqual(s.shelter, 25);
+  assertEqual(s.quarantine, 45);
+});
+
+test('stakes grow monotonically with wealth', () => {
+  assert(roadStakes(400, 0).banditDemand > roadStakes(200, 0).banditDemand);
+  assert(roadStakes(0, 400).banditDemand > roadStakes(0, 200).banditDemand);
+});
+
+test('dropCount tiers with cargo value', () => {
+  assertEqual(roadStakes(0, 0).dropCount, 1);
+  assertEqual(roadStakes(0, 100).dropCount, 2);
+  assertEqual(roadStakes(0, 300).dropCount, 3);
+});
+
+test('negative inputs are clamped, not amplified', () => {
+  const s = roadStakes(-50, -10);
+  assertEqual(s.wealth, 0);
+  assertEqual(s.banditDemand, 12);
+});
+
+console.log('\n=== roadEventWeights ===');
+
+const baseCtx = { cargoVal: 100, heat: 0.3, food: 2, hasContraband: false, patrolOk: false };
+
+test('no patrol entry when patrol is on cooldown', () => {
+  const w = roadEventWeights(baseCtx);
+  assert(!('patrol' in w), 'patrol should be absent when patrolOk=false');
+});
+
+test('patrol appears when off cooldown, boosted by contraband', () => {
+  const plain = roadEventWeights({ ...baseCtx, patrolOk: true });
+  const smuggling = roadEventWeights({ ...baseCtx, patrolOk: true, hasContraband: true });
+  assertEqual(plain.patrol, 1);
+  assertEqual(smuggling.patrol, 2.5);
+});
+
+test('valuable cargo attracts bandits', () => {
+  const poor = roadEventWeights({ ...baseCtx, heat: 0 });
+  const rich = roadEventWeights({ ...baseCtx, heat: 1 });
+  assertEqual(poor.bandits, 1);
+  assertEqual(rich.bandits, 3); // 1 + heat*2
+});
+
+test('empty pack makes bandits nearly skip you', () => {
+  const w = roadEventWeights({ ...baseCtx, cargoVal: 0, heat: 0 });
+  assertEqual(w.bandits, 0.25);
+});
+
+test('no rations boosts food-seller encounters', () => {
+  const fed = roadEventWeights(baseCtx);
+  const hungry = roadEventWeights({ ...baseCtx, food: 0 });
+  assert(hungry.wandering_merchant > fed.wandering_merchant);
+  assert(hungry.hermit > fed.hermit);
+});
+
+console.log('\n=== pickWeighted ===');
+
+test('deterministic: same roll → same pick', () => {
+  const w = { a: 1, b: 2, c: 3 };
+  assertEqual(pickWeighted(w, 0.5), pickWeighted(w, 0.5));
+});
+
+test('roll 0 → first positive-weight key', () => {
+  assertEqual(pickWeighted({ a: 1, b: 1 }, 0), 'a');
+});
+
+test('roll near 1 → last key', () => {
+  assertEqual(pickWeighted({ a: 1, b: 1 }, 0.999999), 'b');
+});
+
+test('zero-weight keys are never picked', () => {
+  for (const roll of [0, 0.25, 0.5, 0.75, 0.999]) {
+    assertEqual(pickWeighted({ a: 0, b: 1 }, roll), 'b');
+  }
+});
+
+test('picks proportionally to weight (boundary at 1/4 for {a:1,b:3})', () => {
+  assertEqual(pickWeighted({ a: 1, b: 3 }, 0.24), 'a');
+  assertEqual(pickWeighted({ a: 1, b: 3 }, 0.26), 'b');
+});
+
+test('roll ≥ 1 is clamped into range, not out of bounds', () => {
+  assertEqual(pickWeighted({ a: 1, b: 1 }, 1), 'b');
+});
+
+test('empty table → null', () => {
+  assertEqual(pickWeighted({}, 0.5), null);
+  assertEqual(pickWeighted({ a: 0 }, 0.5), null);
+});
+
 // ─── DB layer (fetch-mocked) ──────────────────────────────────────────────────
 // Tests for saveGameToDb / loadGameFromDb / deleteSaveFromDb.
 // Each test gets its own context with an injected fetch stub so no real network
