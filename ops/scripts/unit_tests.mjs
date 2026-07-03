@@ -927,6 +927,39 @@ function roadEventWeights(ctx) {
   return w;
 }
 
+// eventChoiceLocked — mirrors src/main.js
+// Input lock right after an event dialog opens, so a tap meant for movement
+// can never activate a choice. Driven by stateTime (deterministic frame clock);
+// a clock reset (now < openedAt) must unlock, never permanently lock.
+function eventChoiceLocked(nowMs, openedAtMs, lockMs) {
+  if (typeof openedAtMs !== 'number') return false; // legacy/QA path — unlocked
+  if (nowMs < openedAtMs) return false;             // clock reset — unlocked
+  return (nowMs - openedAtMs) < lockMs;
+}
+
+// EVENT_THEMES / eventThemeFor — mirrors src/main.js
+// threat:true events are forced encounters: no X button, Esc is refused.
+const EVENT_THEMES = {
+  bandits:            { icon: '⚔️', accent: '#c0392b', threat: true },
+  toll:               { icon: '🛑', accent: '#b0722a', threat: true },
+  patrol:             { icon: '🛡️', accent: '#3d6da8', threat: true },
+  plague_cart:        { icon: '☠️', accent: '#5b6e5a', threat: true },
+  wild_animal:        { icon: '🐺', accent: '#7a4a2b', threat: true },
+  storm:              { icon: '⛈️', accent: '#5a6472', threat: false },
+  omen:               { icon: '✨', accent: '#d18816', threat: false },
+  escort:             { icon: '🤝', accent: '#4f9e5b', threat: false },
+  wandering_merchant: { icon: '🧺', accent: '#8a5aa3', threat: false },
+  wounded_soldier:    { icon: '🩹', accent: '#a8485e', threat: false },
+  lost_cargo:         { icon: '📦', accent: '#a87a3e', threat: false },
+  hermit:             { icon: '🔥', accent: '#e57389', threat: false },
+  waystone:           { icon: '🗿', accent: '#7fbf83', threat: false },
+  default:            { icon: '❗', accent: '#7c5cd6', threat: false },
+};
+
+function eventThemeFor(kind) {
+  return EVENT_THEMES[kind] || EVENT_THEMES.default;
+}
+
 // pickWeighted — mirrors src/main.js
 function pickWeighted(weights, roll) {
   const keys = Object.keys(weights).filter(k => weights[k] > 0);
@@ -1091,6 +1124,61 @@ test('roll ≥ 1 is clamped into range, not out of bounds', () => {
 test('empty table → null', () => {
   assertEqual(pickWeighted({}, 0.5), null);
   assertEqual(pickWeighted({ a: 0 }, 0.5), null);
+});
+
+console.log('\n=== eventChoiceLocked ===');
+
+test('locked immediately after open', () => {
+  assertEqual(eventChoiceLocked(100, 0, 400), true);
+  assertEqual(eventChoiceLocked(399, 0, 400), true);
+});
+
+test('unlocked once lock window elapses', () => {
+  assertEqual(eventChoiceLocked(400, 0, 400), false);
+  assertEqual(eventChoiceLocked(500, 0, 400), false);
+});
+
+test('clock reset (now < openedAt) → unlocked, never a permanent lock', () => {
+  assertEqual(eventChoiceLocked(0, 500, 400), false);
+  assertEqual(eventChoiceLocked(10, 99999, 400), false);
+});
+
+test('missing/invalid openedAt → unlocked (legacy and QA paths)', () => {
+  assertEqual(eventChoiceLocked(100, undefined, 400), false);
+  assertEqual(eventChoiceLocked(100, null, 400), false);
+});
+
+console.log('\n=== eventThemeFor / EVENT_THEMES ===');
+
+test('threat set is exactly the five forced encounters', () => {
+  const threats = Object.keys(EVENT_THEMES).filter(k => EVENT_THEMES[k].threat).sort();
+  assertEqual(JSON.stringify(threats), JSON.stringify(['bandits', 'patrol', 'plague_cart', 'toll', 'wild_animal']));
+});
+
+test('every event kind in the weight table has a theme', () => {
+  const w = roadEventWeights({ cargoVal: 1, heat: 0, food: 1, hasContraband: true, patrolOk: true });
+  for (const kind of Object.keys(w)) {
+    assert(kind in EVENT_THEMES, `missing theme for '${kind}'`);
+  }
+});
+
+test('every theme has an icon and accent color', () => {
+  for (const [k, t] of Object.entries(EVENT_THEMES)) {
+    assert(t.icon && t.icon.length > 0, `no icon for '${k}'`);
+    assert(/^#[0-9a-f]{6}$/i.test(t.accent), `bad accent for '${k}': ${t.accent}`);
+  }
+});
+
+test('unknown kind falls back to non-threat default', () => {
+  const t = eventThemeFor('nonsense');
+  assertEqual(t, EVENT_THEMES.default);
+  assertEqual(t.threat, false);
+  assertEqual(eventThemeFor(null), EVENT_THEMES.default);
+});
+
+test('known kind returns its own theme', () => {
+  assertEqual(eventThemeFor('bandits'), EVENT_THEMES.bandits);
+  assertEqual(eventThemeFor('bandits').threat, true);
 });
 
 // ─── DB layer (fetch-mocked) ──────────────────────────────────────────────────

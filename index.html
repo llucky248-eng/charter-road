@@ -561,6 +561,43 @@
       to { transform: translateY(-10px); opacity: 0; }
     }
 
+    /* ── Road events ─────────────────────────────────────────────
+       Scoped under .cr-event* so the other modals (market/bank/…)
+       and the mobile-layout QA geometry stay untouched. Animation is
+       transform/opacity only — box metrics never move. */
+    .cr-event-backdrop { background: rgba(45,30,20,0.5); }
+    .cr-event-threat-backdrop { background: rgba(30,12,8,0.62); }
+    .cr-panel.cr-event {
+      animation: crEventIn 320ms cubic-bezier(.2,1.4,.4,1) both;
+      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff, 0 0 0 4px var(--ev-accent, #7c5cd6);
+    }
+    @keyframes crEventIn {
+      from { transform: scale(.92) translateY(14px); opacity: 0; }
+      to   { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    .cr-event .cr-head { border-bottom: 3px solid var(--ev-accent, #7c5cd6); }
+    .cr-event-icon {
+      font-size: 30px; line-height: 1; flex: 0 0 auto;
+      filter: drop-shadow(0 2px 0 rgba(0,0,0,.15));
+      animation: crEventIconPop 420ms cubic-bezier(.2,1.6,.4,1) both;
+    }
+    @keyframes crEventIconPop {
+      from { transform: scale(.4) rotate(-12deg); opacity: 0; }
+      to   { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    .cr-event .cr-head > div:not(.cr-event-icon) { flex: 1 1 auto; }
+    .cr-event-stakes {
+      margin-top: 8px; display: inline-block; padding: 3px 10px;
+      border-radius: 10px; border: 2px solid var(--ev-accent, #7c5cd6);
+      color: var(--ev-accent, #7c5cd6); background: rgba(255,255,255,.55);
+      font-weight: 800; font-size: 13px;
+    }
+    /* Cosmetic reinforcement of the JS input lock right after open. */
+    .cr-event .cr-intro-lock { pointer-events: none; opacity: .55; }
+    @media (prefers-reduced-motion: reduce) {
+      .cr-panel.cr-event, .cr-event-icon { animation: none; }
+    }
+
     /* ── Player Login Overlay ── */
     #login-overlay {
       position: fixed; inset: 0; z-index: 99999;
@@ -823,7 +860,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Patch Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.18</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.19</div>
     </div>
   </div>
 
@@ -971,7 +1008,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.18&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.19&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);
