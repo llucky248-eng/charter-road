@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.19'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.20'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -536,6 +536,10 @@ ${line4}`;
        *  used to age an open event dialog — it force-closes modals so movement
        *  tests never wedge. */
       qaAdvanceStateTime: (ms) => { stateTime += Math.max(0, Number(ms) || 0); return stateTime; },
+      /** QA helper: open a specific road-event kind (stakes derived from the
+       *  current player state) and render its dialog. */
+      qaOpenRoadEvent: (kind) => { openRoadEventDialog(kind); domRender(); return !!ui.eventOpen; },
+      qaDropRandomCargo: (n) => dropRandomCargo(n),
 
       // ── City walking helpers ──────────────────────────────────────────
       /** Start a click-move to world pixel (wx, wy) - uses A* pathfinding */
@@ -6506,8 +6510,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.19',
+    version: 'v0.5.20',
     whatsNew: [
+      'Road event outcomes now animate: every decision pays off visibly — gold you win rises off your head as a golden "🪙 +25g", gold you lose sinks away in red, and dropped or spent cargo (fled bandits, storm-ruined goods, seized contraband, shared rations) shows floating item-loss markers. Same-moment popups stagger so a fine plus a confiscation reads as two clear hits, not a blur.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
       'Fixed mining being permanently blocked by a false "Another miner just worked this vein" message, and the same bug in hidden caches ("Already looted — empty crate"): the client was treating any failed multiplayer-claim request (server hiccup, bad response) the same as a genuine claim-lost-to-another-player response, so every swing/loot attempt got phantom-blocked. Both now fail open — backend issues no longer stop you from mining or looting. Also fixed: losing a contested mining swing now refunds the exact stamina your pickaxe spent instead of always refunding a flat amount.',
@@ -7930,7 +7935,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.19',
+      buildVersion: 'v0.5.20',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8862,6 +8867,7 @@ function drawNpcBubble() {
     silver: '⚪',
     gold:   '🟡',
     __alert: '❗', // road-event ambush marker, not an item
+    __gold:  '🪙', // gold delta popup, not an item
   };
   const LOOT_POPUP_LIFETIME_MS = 1500;
   const LOOT_POPUP_RISE_PX    = 36;
@@ -8874,7 +8880,7 @@ function drawNpcBubble() {
     // doesn't paint three overlapping sprites for ore+coal+gem combos. The
     // pure decision is mirrored in ops/scripts/unit_tests.mjs#stackPopup.
     const last = _lootPopups[_lootPopups.length - 1];
-    if (last && last.itemId === itemId && (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
+    if (last && last.itemId === itemId && last.qty > 0 && (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
       last.qty += qty;
       last.startMs = stateTime;
       return;
@@ -8883,7 +8889,7 @@ function drawNpcBubble() {
       itemId,
       qty,
       sx: player.x - camera.x,
-      sy: player.y - camera.y - 18,
+      sy: _popupSpawnY(), // stagger under same-frame loss/gold popups
       startMs: stateTime,
     });
   }
@@ -8898,6 +8904,41 @@ function drawNpcBubble() {
       sy: player.y - camera.y - 18,
       startMs: stateTime,
     });
+  }
+
+  // Same-frame outcome popups (a gold delta + a dropped item, say) stagger
+  // vertically so they don't paint on top of each other.
+  function _popupSpawnY() {
+    const sameFrame = _lootPopups.reduce((n, q) => n + (q.startMs === stateTime ? 1 : 0), 0);
+    return player.y - camera.y - 18 - sameFrame * 14;
+  }
+
+  // Gold deltas from event outcomes: 🪙 +Ng rises gold-colored, 🪙 -Ng sinks red.
+  function spawnGoldPopup(delta) {
+    const d = Math.round(delta || 0);
+    if (!d) return;
+    _lootPopups.push({ itemId: '__gold', qty: d, sx: player.x - camera.x, sy: _popupSpawnY(), startMs: stateTime });
+  }
+
+  // Item losses (dropped cargo, spent rations, seized contraband): icon -N, red, sinks.
+  function spawnLossPopup(itemId, qty) {
+    const n = Math.abs(Math.round(qty || 0));
+    if (!itemId || !n) return;
+    _lootPopups.push({ itemId, qty: -n, sx: player.x - camera.x, sy: _popupSpawnY(), startMs: stateTime });
+  }
+
+  // (pure; mirrored verbatim in ops/scripts/unit_tests.mjs)
+  function lootPopupText(itemId, qty, icons) {
+    const icon = icons[itemId] || '✨';
+    if (!(qty > 0) && !(qty < 0)) return icon; // qty 0 → bare marker (❗ alert)
+    const sign = qty > 0 ? '+' : '';           // negatives carry their own '-'
+    const unit = itemId === '__gold' ? 'g' : '';
+    return `${icon} ${sign}${qty}${unit}`;
+  }
+
+  // Losses fall and read red; gains (and markers) rise and read gold.
+  function lootPopupStyle(qty) {
+    return qty < 0 ? { color: '#ff6b6b', dir: 1 } : { color: '#fde047', dir: -1 };
   }
 
   // Single source of truth for "player gains items" so every drop site picks
@@ -8923,13 +8964,14 @@ function drawNpcBubble() {
       if (age >= LOOT_POPUP_LIFETIME_MS) continue;
       const t = age / LOOT_POPUP_LIFETIME_MS;
       // Ease-out rise + accelerating fade so the eye catches the spawn moment.
-      const yOff = -LOOT_POPUP_RISE_PX * (1 - (1 - t) * (1 - t));
+      const style = lootPopupStyle(p.qty);
+      const yOff = style.dir * LOOT_POPUP_RISE_PX * (1 - (1 - t) * (1 - t));
       ctx.globalAlpha = 1 - t * t;
-      const text = p.qty > 0 ? `${ITEM_ICONS[p.itemId] || '✨'} +${p.qty}` : (ITEM_ICONS[p.itemId] || '✨');
+      const text = lootPopupText(p.itemId, p.qty, ITEM_ICONS);
       // dark shadow first for legibility against grass/road
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.fillText(text, p.sx + 1, p.sy + yOff + 1);
-      ctx.fillStyle = '#fde047';
+      ctx.fillStyle = style.color;
       ctx.fillText(text, p.sx, p.sy + yOff);
       _lootPopups[writeIdx++] = p;
     }
@@ -9064,13 +9106,16 @@ function drawNpcBubble() {
     const pool = ITEMS.filter(it => (player.inv[it.id] || 0) > 0);
     if (pool.length === 0) return 0;
     let dropped = 0;
+    const tally = {};
     for (let i = 0; i < maxDrop; i++) {
       const options = ITEMS.filter(it => (player.inv[it.id] || 0) > 0);
       if (options.length === 0) break;
       const it = options[Math.floor(rand01() * options.length)];
       player.inv[it.id] -= 1;
+      tally[it.id] = (tally[it.id] || 0) + 1;
       dropped += 1;
     }
+    for (const [id, n] of Object.entries(tally)) spawnLossPopup(id, n);
     return dropped;
   }
 
@@ -9137,7 +9182,7 @@ function drawNpcBubble() {
                 if (_r < 0.55) {
                   const g = 6 + Math.floor(rand01() * 15);
                   player.gold += g;
-                  toast(`Cache: +${g}g`, 2.2);
+                  spawnGoldPopup(g); toast(`Cache: +${g}g`, 2.2);
                 } else if (_r < 0.85) {
                   const pool = ['food','ore','herbs'];
                   const itId = pool[Math.floor(rand01() * pool.length)];
@@ -9207,7 +9252,8 @@ function drawNpcBubble() {
           { label: 'Offer 1g (chance of blessing)', run: () => {
               if (player.gold <= 0) { toast('No coin to offer.', 2); closeEvent(); return; }
               player.gold -= 1;
-              if (rand01() < 0.6) { player.gold += 4; toast('Blessing! +4g', 2); }
+              spawnGoldPopup(-1);
+              if (rand01() < 0.6) { player.gold += 4; spawnGoldPopup(4); toast('Blessing! +4g', 2); }
               else toast('The wind answers in silence.', 2);
               closeEvent();
             }
@@ -9227,6 +9273,7 @@ function drawNpcBubble() {
           { label: 'Buy supplies (3g → +1 rations)', run: () => {
               if (player.gold < 3) { toast('Not enough gold.', 2); closeEvent(); return; }
               player.gold -= 3;
+              spawnGoldPopup(-3);
               gainItem('food', 1);
               toast('Bought 1 Dried Rations.', 2);
               closeEvent();
@@ -9246,7 +9293,7 @@ function drawNpcBubble() {
         choices: [
           { label: 'Search', run: () => {
               const r = rand01();
-              if (r < 0.45) { const g = 2 + (rand01()*6|0); player.gold += g; toast(`Found ${g}g`, 2); }
+              if (r < 0.45) { const g = 2 + (rand01()*6|0); player.gold += g; spawnGoldPopup(g); toast(`Found ${g}g`, 2); }
               else if (r < 0.75) { gainItem('herbs', 1); toast('Found 1 Moon Herbs', 2); }
               else toast('Nothing but dust.', 2);
               closeEvent();
@@ -9283,6 +9330,12 @@ function drawNpcBubble() {
       patrolOk: patrolCooldownOk,
     }), rand01());
 
+    openRoadEventDialog(kind, stakes);
+  }
+
+  // Build + open the dialog for a road-event kind. Split from
+  // maybeTriggerRoadEvent so QA can exercise specific events directly.
+  function openRoadEventDialog(kind, stakes = roadStakes(player.gold, cargoMarketValue(player.inv, ITEMS))) {
     if (kind === 'bandits') {
       const demand = stakes.banditDemand;
       openEvent({
@@ -9291,19 +9344,19 @@ function drawNpcBubble() {
         title: 'Bandits!',
         text: `A masked crew steps onto the road. They size up your pack and demand ${demand}g.`,
         choices: [
-          { label: `Pay ${demand}g`, run: () => { const paid = Math.min(player.gold, demand); player.gold -= paid; toast(`Paid ${paid}g to avoid trouble.`, 2.6); closeEvent(); } },
+          { label: `Pay ${demand}g`, run: () => { const paid = Math.min(player.gold, demand); player.gold -= paid; spawnGoldPopup(-paid); toast(`Paid ${paid}g to avoid trouble.`, 2.6); closeEvent(); } },
           { label: 'Flee (drop cargo)', run: () => { const d = dropRandomCargo(stakes.dropCount + 1); toast(d ? `You escaped, but dropped ${d} item(s).` : 'You escaped, barely. No cargo to drop.', 3); closeEvent(); } },
           { label: 'Fight (risk)', run: () => {
               if (rand01() < 0.58) {
                 const loot = stakes.fightLoot + Math.floor(rand01() * stakes.fightLoot);
                 player.gold += loot;
-                toast(`You won! Looted ${loot}g.`, 2.8);
+                spawnGoldPopup(loot); toast(`You won! Looted ${loot}g.`, 2.8);
               } else {
                 const d = dropRandomCargo(stakes.dropCount);
                 const fine = Math.round(demand * 0.6) + Math.floor(rand01() * 10);
                 const paid = Math.min(player.gold, fine);
                 player.gold -= paid;
-                toast(`You lost. Dropped ${d} item(s) and paid ${paid}g.`, 3.2);
+                spawnGoldPopup(-paid); toast(`You lost. Dropped ${d} item(s) and paid ${paid}g.`, 3.2);
               }
               closeEvent();
             }
@@ -9319,7 +9372,7 @@ function drawNpcBubble() {
         title: 'Toll Checkpoint',
         text: 'A petty lord has stationed guards here. They assess your cargo before naming a price. Pay up or detour through rough terrain.',
         choices: [
-          { label: `Pay ${toll}g`, run: () => { const paid = Math.min(player.gold, toll); player.gold -= paid; toast(`Paid ${paid}g toll.`, 2.4); closeEvent(); } },
+          { label: `Pay ${toll}g`, run: () => { const paid = Math.min(player.gold, toll); player.gold -= paid; spawnGoldPopup(-paid); toast(`Paid ${paid}g toll.`, 2.4); closeEvent(); } },
           { label: 'Detour (slow)', run: () => { road.cooldown = 12.0; toast('You detour. No toll, but it wastes time.', 3); closeEvent(); } },
         ],
       });
@@ -9335,7 +9388,7 @@ function drawNpcBubble() {
               const fragile = ['herbs', 'potion'];
               if (rand01() < 0.4) {
                 const id = fragile[Math.floor(rand01() * fragile.length)];
-                if ((player.inv[id] || 0) > 0) { player.inv[id] -= 1; toast('A fragile item was ruined by the storm.', 3); }
+                if ((player.inv[id] || 0) > 0) { player.inv[id] -= 1; spawnLossPopup(id, 1); toast('A fragile item was ruined by the storm.', 3); }
                 else toast('You weather the storm.', 2.4);
               } else {
                 toast('You weather the storm.', 2.4);
@@ -9343,7 +9396,7 @@ function drawNpcBubble() {
               closeEvent();
             }
           },
-          { label: `Take shelter (-${stakes.shelter}g)`, run: () => { const paid = Math.min(player.gold, stakes.shelter); player.gold -= paid; toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
+          { label: `Take shelter (-${stakes.shelter}g)`, run: () => { const paid = Math.min(player.gold, stakes.shelter); player.gold -= paid; spawnGoldPopup(-paid); toast(`Sheltered at a roadside inn (-${paid}g).`, 2.8); closeEvent(); } },
         ],
       });
 
@@ -9359,11 +9412,11 @@ function drawNpcBubble() {
                 const loss = Math.round(stakes.omenFind * 0.8) + Math.floor(rand01() * 8);
                 const paid = Math.min(player.gold, loss);
                 player.gold -= paid;
-                toast(`A pickpocket strikes while you look! Lost ${paid}g.`, 3.2);
+                spawnGoldPopup(-paid); toast(`A pickpocket strikes while you look! Lost ${paid}g.`, 3.2);
               } else {
                 const g = stakes.omenFind + Math.floor(rand01() * 8);
                 player.gold += g;
-                toast(`Good omen! Found ${g}g.`, 2.4);
+                spawnGoldPopup(g); toast(`Good omen! Found ${g}g.`, 2.4);
               }
               closeEvent();
             }
@@ -9385,10 +9438,10 @@ function drawNpcBubble() {
               if (rand01() < 0.20) {
                 const loss = Math.min(player.gold, Math.round(pay * 0.8));
                 player.gold -= loss;
-                toast(`Ambush! You drove them off but took a hit. Lost ${loss}g.`, 3.2);
+                spawnGoldPopup(-loss); toast(`Ambush! You drove them off but took a hit. Lost ${loss}g.`, 3.2);
               } else {
                 player.gold += pay;
-                toast(`You escort the merchant safely. +${pay}g.`, 2.4);
+                spawnGoldPopup(pay); toast(`You escort the merchant safely. +${pay}g.`, 2.4);
               }
               closeEvent();
             }
@@ -9412,6 +9465,7 @@ function drawNpcBubble() {
               const w = invWeight() + it.weight;
               if (w > player.capacity) { toast('No room in your pack.', 2); closeEvent(); return; }
               player.gold -= discountPrice;
+              spawnGoldPopup(-discountPrice);
               gainItem(it.id, 1);
               toast(`Bought 1 ${it.name} for ${discountPrice}g.`, 2.5);
               closeEvent();
@@ -9439,6 +9493,7 @@ function drawNpcBubble() {
           { label: 'Help (spend 1 ration)', run: () => {
               if ((player.inv['food'] || 0) < 1) { toast('No rations to spare.', 2); closeEvent(); return; }
               player.inv['food'] -= 1;
+              spawnLossPopup('food', 1);
               player.rep[destCity.id] = (player.rep[destCity.id] || 0) + 2;
               toast(`You helped the soldier. +2 rep in ${destCity.name}.`, 3);
               closeEvent();
@@ -9459,7 +9514,7 @@ function drawNpcBubble() {
           { label: `Pay ${fee}g to pass`, run: () => {
               const paid = Math.min(player.gold, fee);
               player.gold -= paid;
-              toast(`Paid ${paid}g. You continue onward.`, 2.4);
+              spawnGoldPopup(-paid); toast(`Paid ${paid}g. You continue onward.`, 2.4);
               closeEvent();
             }
           },
@@ -9490,7 +9545,7 @@ function drawNpcBubble() {
                 const loss = Math.round(8 + stakes.heat * 18) + Math.floor(rand01() * 10);
                 const paid = Math.min(player.gold, loss);
                 player.gold -= paid;
-                toast(`Booby-trapped! Lost ${paid}g dealing with it.`, 3);
+                spawnGoldPopup(-paid); toast(`Booby-trapped! Lost ${paid}g dealing with it.`, 3);
               } else {
                 toast('Just hay and broken glass. Nothing useful.', 2.2);
               }
@@ -9510,11 +9565,11 @@ function drawNpcBubble() {
           { label: 'Flee (drop 1 ration)', run: () => {
               if ((player.inv['food'] || 0) > 0) {
                 player.inv['food'] -= 1;
-                toast('You flee, tossing a ration behind you. They take the bait.', 3);
+                spawnLossPopup('food', 1); toast('You flee, tossing a ration behind you. They take the bait.', 3);
               } else {
                 const g = Math.min(player.gold, Math.round(6 + stakes.heat * 12));
                 player.gold -= g;
-                toast(`Nothing to drop! They chase you. Lost ${g}g in the confusion.`, 3.2);
+                spawnGoldPopup(-g); toast(`Nothing to drop! They chase you. Lost ${g}g in the confusion.`, 3.2);
               }
               closeEvent();
             }
@@ -9523,12 +9578,12 @@ function drawNpcBubble() {
               if (rand01() < 0.52) {
                 const g = Math.round(stakes.fightLoot * 0.5) + Math.floor(rand01() * 8);
                 player.gold += g;
-                toast(`You drove them off! Sold the pelt for ${g}g.`, 2.8);
+                spawnGoldPopup(g); toast(`You drove them off! Sold the pelt for ${g}g.`, 2.8);
               } else {
                 const hurt = Math.round(8 + stakes.heat * 15) + Math.floor(rand01() * 10);
                 const paid = Math.min(player.gold, hurt);
                 player.gold -= paid;
-                toast(`Bitten badly. Lost ${paid}g on road-side medicine.`, 3);
+                spawnGoldPopup(-paid); toast(`Bitten badly. Lost ${paid}g on road-side medicine.`, 3);
               }
               closeEvent();
             }
@@ -9544,6 +9599,7 @@ function drawNpcBubble() {
           { label: 'Share a meal (1 food)', run: () => {
               if ((player.inv['food'] || 0) >= 1) {
                 player.inv['food'] -= 1;
+                spawnLossPopup('food', 1);
                 // Hermit shares a trade secret — free intel card
                 const npcProxy = { id: 'hermit_npc' };
                 const nearCity = world.cities.reduce((best, c2) => {
@@ -9599,6 +9655,7 @@ function drawNpcBubble() {
           { label: 'Leave an offering (3g)', run: () => {
               if (player.gold >= 3) {
                 player.gold -= 3;
+                spawnGoldPopup(-3);
                 // Small road speed boost for next journey
                 road.cooldown = Math.max(0, road.cooldown - 3);
                 toast('You leave a coin. The road feels lighter under your feet.', 3);
@@ -9652,7 +9709,7 @@ function drawNpcBubble() {
             { label: `Pay reduced toll (${fine}g)`, run: () => {
                 const paid = Math.min(player.gold, fine);
                 player.gold -= paid;
-                toast(`Familiar face helps — reduced toll ${paid}g.`, 2.4);
+                spawnGoldPopup(-paid); toast(`Familiar face helps — reduced toll ${paid}g.`, 2.4);
                 closeEvent();
               }
             },
@@ -9662,7 +9719,7 @@ function drawNpcBubble() {
                 } else {
                   const paid = Math.min(player.gold, Math.round(stakes.toll * 1.25));
                   player.gold -= paid;
-                  toast(`They're unconvinced. Standard toll ${paid}g.`, 2.8);
+                  spawnGoldPopup(-paid); toast(`They're unconvinced. Standard toll ${paid}g.`, 2.8);
                 }
                 closeEvent();
               }
@@ -9687,7 +9744,7 @@ function drawNpcBubble() {
             { label: `Pay toll (${fine}g)`, run: () => {
                 const paid = Math.min(player.gold, fine);
                 player.gold -= paid;
-                toast(`Paid ${paid}g road toll.`, 2.4);
+                spawnGoldPopup(-paid); toast(`Paid ${paid}g road toll.`, 2.4);
                 closeEvent();
               }
             },
@@ -9696,7 +9753,7 @@ function drawNpcBubble() {
                   if (rand01() < 0.65) {
                     const paid = Math.min(player.gold, bribe);
                     player.gold -= paid;
-                    toast(`Guard pockets the coin and walks away. Paid ${paid}g.`, 3);
+                    spawnGoldPopup(-paid); toast(`Guard pockets the coin and walks away. Paid ${paid}g.`, 3);
                   } else {
                     const it = contrabandItems[0];
                     const seized = Math.min(player.inv[it.id], 2);
@@ -9704,7 +9761,7 @@ function drawNpcBubble() {
                     const fine2 = Math.min(player.gold, fine);
                     player.gold -= fine2;
                     player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 1);
-                    toast(`Bribe refused! Seized ${seized} ${it.name}, fined ${fine2}g, rep -1.`, 3.5);
+                    spawnLossPopup(it.id, seized); spawnGoldPopup(-fine2); toast(`Bribe refused! Seized ${seized} ${it.name}, fined ${fine2}g, rep -1.`, 3.5);
                   }
                   closeEvent();
                 }
@@ -9719,7 +9776,7 @@ function drawNpcBubble() {
                   const penalty = Math.min(player.gold, bribe);
                   player.gold -= penalty;
                   player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 2);
-                  toast(`Caught! Dropped ${d} item(s), fined ${penalty}g, rep -2.`, 3.5);
+                  spawnGoldPopup(-penalty); toast(`Caught! Dropped ${d} item(s), fined ${penalty}g, rep -2.`, 3.5);
                 }
                 closeEvent();
               }
@@ -14301,7 +14358,50 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         api.qaClearLootPopups();
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle + road-event-ui');
+      // ── Road event outcomes: reward/loss popups after a decision ─────────
+      // Choosing an option must visualize what it cost or paid: gold deltas
+      // fly off the player (🪙 +Ng gold / -Ng red), dropped cargo shows as
+      // item-loss popups. Wired through a real road event end-to-end.
+      {
+        const api = __QA.api;
+        api.closeUI();
+        api.setPlayer({ gold: 200 });
+        api.qaClearLootPopups();
+
+        // Toll: paying must enqueue a negative gold popup and deduct gold.
+        assert(api.qaOpenRoadEvent('toll') === true, 'event-fx: toll road event opens via QA helper');
+        const goldBefore = player.gold;
+        api.qaAdvanceStateTime(500);
+        document.querySelector('[data-action="choose"]').click(); // choice 0 = Pay
+        assert(api.qaEventOpen() === false, 'event-fx: paying the toll closes the event');
+        assert(player.gold < goldBefore, 'event-fx: toll actually deducted gold');
+        const lossPop = api.qaLootPopups().find(p => p.itemId === '__gold' && p.qty < 0);
+        assert(!!lossPop, `event-fx: gold-loss popup enqueued after paying toll (got ${JSON.stringify(api.qaLootPopups())})`);
+        assert(lossPop.qty === player.gold - goldBefore, 'event-fx: popup qty matches the gold actually lost');
+
+        // Escort accept: outcome is ±gold — either way a gold popup must appear.
+        api.qaClearLootPopups();
+        assert(api.qaOpenRoadEvent('escort') === true, 'event-fx: escort event opens');
+        api.qaAdvanceStateTime(500);
+        document.querySelector('[data-action="choose"]').click(); // choice 0 = Escort
+        assert(api.qaLootPopups().some(p => p.itemId === '__gold' && p.qty !== 0),
+          'event-fx: escort outcome enqueues a gold popup (win or ambush)');
+
+        // Cargo drops: dropRandomCargo must emit aggregated item-loss popups.
+        // (setPlayer merges inv keys, so zero everything else explicitly.)
+        api.setPlayer({ inv: { coal: 0, grain: 3, food: 0, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+        api.qaClearLootPopups();
+        const droppedN = api.qaDropRandomCargo(2);
+        assert(droppedN === 2, `event-fx: dropRandomCargo dropped 2 (got ${droppedN})`);
+        const itemLoss = api.qaLootPopups().find(p => p.itemId === 'grain' && p.qty < 0);
+        assert(!!itemLoss, 'event-fx: dropped cargo shows an item-loss popup');
+        assert(itemLoss.qty === -2, `event-fx: drops of the same item aggregate into one popup (got ${itemLoss.qty})`);
+
+        api.closeUI();
+        api.qaClearLootPopups();
+      }
+
+      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle + road-event-ui + event-outcome-fx');
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }

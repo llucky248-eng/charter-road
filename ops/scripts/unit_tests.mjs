@@ -639,12 +639,29 @@ test('vein cooldown: only the queried key matters', () => {
 // a new popup.
 function stackPopup(queue, popup, stackWindowMs, nowMs) {
   const last = queue[queue.length - 1];
-  if (last && last.itemId === popup.itemId && (nowMs - last.startMs) < stackWindowMs) {
+  // Gains only stack onto gain entries — merging a gain into a loss (or the
+  // qty-0 alert marker) would show a bogus net popup instead of both facts.
+  if (last && last.itemId === popup.itemId && last.qty > 0 && (nowMs - last.startMs) < stackWindowMs) {
     last.qty += popup.qty;
     last.startMs = nowMs;
     return queue;
   }
   return [...queue, { ...popup, startMs: nowMs }];
+}
+
+// lootPopupText / lootPopupStyle — mirrors src/main.js
+// Popup text for gains, losses, gold deltas, and bare markers (qty 0).
+function lootPopupText(itemId, qty, icons) {
+  const icon = icons[itemId] || '✨';
+  if (!(qty > 0) && !(qty < 0)) return icon; // qty 0 → bare marker (❗ alert)
+  const sign = qty > 0 ? '+' : '';           // negatives carry their own '-'
+  const unit = itemId === '__gold' ? 'g' : '';
+  return `${icon} ${sign}${qty}${unit}`;
+}
+
+// Losses fall and read red; gains (and markers) rise and read gold.
+function lootPopupStyle(qty) {
+  return qty < 0 ? { color: '#ff6b6b', dir: 1 } : { color: '#fde047', dir: -1 };
 }
 test('loot popup: same item within window stacks qty into latest popup', () => {
   let q = [];
@@ -668,6 +685,13 @@ test('loot popup: different items queue separately even within window', () => {
   q = stackPopup(q, { itemId: 'gem',    qty: 1 }, 300, 100);
   assert(q.length === 3, `expected 3 popups (distinct items), got ${q.length}`);
   assert(q[0].itemId === 'copper' && q[1].itemId === 'coal' && q[2].itemId === 'gem');
+});
+test('loot popup: a gain never stacks onto a loss entry of the same item', () => {
+  // Road events can drop an item and grant one moments apart; merging them
+  // would show a bogus "±0" popup instead of both facts.
+  let q = [{ itemId: 'grain', qty: -1, startMs: 0 }];
+  q = stackPopup(q, { itemId: 'grain', qty: 1 }, 300, 100);
+  assert(q.length === 2, `expected loss + gain to stay separate, got ${q.length}`);
 });
 test('loot popup: stacking only checks the LAST entry, not earlier ones', () => {
   // If a different item interrupts, the next same-item entry starts fresh.
@@ -1179,6 +1203,44 @@ test('unknown kind falls back to non-threat default', () => {
 test('known kind returns its own theme', () => {
   assertEqual(eventThemeFor('bandits'), EVENT_THEMES.bandits);
   assertEqual(eventThemeFor('bandits').threat, true);
+});
+
+console.log('\n=== lootPopupText / lootPopupStyle ===');
+
+const RE_ICONS = { grain: '🌾', __gold: '🪙', __alert: '❗' };
+
+test('item gain → "icon +N"', () => {
+  assertEqual(lootPopupText('grain', 3, RE_ICONS), '🌾 +3');
+});
+
+test('item loss → "icon -N"', () => {
+  assertEqual(lootPopupText('grain', -2, RE_ICONS), '🌾 -2');
+});
+
+test('gold delta carries a g suffix', () => {
+  assertEqual(lootPopupText('__gold', 25, RE_ICONS), '🪙 +25g');
+  assertEqual(lootPopupText('__gold', -25, RE_ICONS), '🪙 -25g');
+});
+
+test('qty 0 → bare marker icon (❗ alert)', () => {
+  assertEqual(lootPopupText('__alert', 0, RE_ICONS), '❗');
+});
+
+test('unknown item falls back to sparkle icon', () => {
+  assertEqual(lootPopupText('mystery', 2, RE_ICONS), '✨ +2');
+});
+
+test('losses read red and sink; gains read gold and rise', () => {
+  const loss = lootPopupStyle(-5);
+  const gain = lootPopupStyle(5);
+  assertEqual(loss.color, '#ff6b6b');
+  assertEqual(loss.dir, 1);
+  assertEqual(gain.color, '#fde047');
+  assertEqual(gain.dir, -1);
+});
+
+test('qty 0 marker uses the gain style (rises)', () => {
+  assertEqual(lootPopupStyle(0).dir, -1);
 });
 
 // ─── DB layer (fetch-mocked) ──────────────────────────────────────────────────
