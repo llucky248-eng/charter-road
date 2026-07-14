@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.19'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.20'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6506,7 +6506,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.19',
+    version: 'v0.5.20',
     whatsNew: [
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -6592,6 +6592,8 @@ function drawNpcBubble() {
   const dom = {
     kind: null,
     key: null,
+    marketListScroll: 0,
+    marketListMode: null,
   };
 
   function domCloseAll() {
@@ -6946,6 +6948,16 @@ function drawNpcBubble() {
         </div>
       ` : '';
 
+      // Rebuilding innerHTML replaces the .cr-list node, which resets its native
+      // scrollTop to 0. Capture and restore it so a buy/sell (which changes the
+      // dom.key via gold/inv) doesn't yank the list back to the top. Only carry
+      // the offset over within the same tab — buy/sell/gear show different-length
+      // lists, so reusing a scroll offset across a tab switch would open the new
+      // tab already scrolled partway down instead of at the top.
+      const prevListScroll = ui.mode === dom.marketListMode
+        ? (uiRoot.querySelector('.cr-list')?.scrollTop || 0)
+        : 0;
+
       uiRoot.innerHTML = `
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
           <div class="cr-panel">
@@ -7032,6 +7044,10 @@ function drawNpcBubble() {
           </div>
         </div>
       `;
+
+      const newList = uiRoot.querySelector('.cr-list');
+      if (newList) newList.scrollTop = prevListScroll;
+      dom.marketListMode = ui.mode;
 
       // Bind events (re-bound on re-render)
       uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }));
@@ -7930,7 +7946,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.19',
+      buildVersion: 'v0.5.20',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -13255,6 +13271,31 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       const sellSave = __QA.api.readSave();
       assert(!!sellSave, 'save should exist after sell autosave flush');
       assert(sellSave.player.inv.food === (beforeSell.player.inv.food || 0) - 1, 'save should reflect sold food');
+
+      // Selling an item must not reset the market list's scroll position to top
+      // (regression: rebuilding .cr-list on every trade wiped native scrollTop)
+      __QA.api.clearSave();
+      __QA.api.setPlayer({ gold: 50, inv: { food: 5, grain: 5, wood: 5, tools: 5 }, capacity: 999 });
+      const scrollOpened = __QA.api.openMarketUI('valdenmere', 'sell');
+      assert(scrollOpened, 'market UI should open for scroll-preservation test');
+      const scrollList = uiRoot.querySelector('.cr-list');
+      assert(!!scrollList, 'cr-list should exist after market open');
+      scrollList.scrollTop = 40;
+      const scrollSellR = __QA.api.marketSell('food', 1, 'valdenmere');
+      assert(scrollSellR.ok === true, 'marketSell should succeed for scroll-preservation test');
+      __QA.api.flushAutosave(); // clear pending autosave timer so it doesn't leak into later tests
+      domRender();
+      const scrollListAfter = uiRoot.querySelector('.cr-list');
+      assert(!!scrollListAfter, 'cr-list should still exist after sell re-render');
+      assert(scrollListAfter.scrollTop === 40, 'selling an item should preserve market list scroll position');
+
+      // Switching tabs (sell -> buy) shows a different list, so the old
+      // scroll offset must NOT carry over into the new tab.
+      ui.mode = 'buy';
+      domRender();
+      const scrollListAfterTabSwitch = uiRoot.querySelector('.cr-list');
+      assert(!!scrollListAfterTabSwitch, 'cr-list should exist after switching tabs');
+      assert(scrollListAfterTabSwitch.scrollTop === 0, 'switching market tabs should reset scroll to top, not reuse the previous tab\'s offset');
 
       // Failed buy should not schedule autosave
       __QA.api.clearSave();
