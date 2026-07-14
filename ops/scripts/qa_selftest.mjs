@@ -74,6 +74,55 @@ async function runOnce({ name, contextOptions }) {
   console.log('QA_PASS:', name);
 }
 
+// Selling (or buying) rebuilds the market panel's .cr-list DOM node every
+// render, which used to reset its native scrollTop to 0. Drive the real DOM
+// through __QA.api (outside the in-page self-test) to confirm the scroll
+// offset survives a same-tab trade but still resets on a tab switch.
+async function checkMarketScrollPreservation() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 50, inv: { food: 5, grain: 5, wood: 5, tools: 5 }, capacity: 999 });
+
+    if (!api.openMarketUI('valdenmere', 'sell')) return { ok: false, reason: 'market UI did not open' };
+    const list = document.querySelector('.cr-list');
+    if (!list) return { ok: false, reason: 'cr-list missing after open' };
+    list.scrollTop = 40;
+
+    const sellR = api.marketSell('food', 1, 'valdenmere');
+    if (!sellR.ok) return { ok: false, reason: 'marketSell failed' };
+    api.flushAutosave();
+    // Force a deterministic re-render (mirrors the game loop's per-frame domRender call).
+    api.openMarketUI('valdenmere', 'sell');
+    const afterSell = document.querySelector('.cr-list');
+    const sellScrollOk = !!afterSell && afterSell.scrollTop === 40;
+
+    api.openMarketUI('valdenmere', 'buy');
+    const afterSwitch = document.querySelector('.cr-list');
+    const switchScrollOk = !!afterSwitch && afterSwitch.scrollTop === 0;
+
+    api.closeUI();
+    return { ok: sellScrollOk && switchScrollOk, sellScrollOk, switchScrollOk };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`market-scroll-preservation: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: market-scroll-preservation');
+}
+
 (async () => {
   let server = null;
 
@@ -105,6 +154,8 @@ async function runOnce({ name, contextOptions }) {
       name: 'mobile-iphone',
       contextOptions: { ...devices['iPhone 12'] },
     });
+
+    await checkMarketScrollPreservation();
 
     console.log('QA_PASS: all');
   } finally {
