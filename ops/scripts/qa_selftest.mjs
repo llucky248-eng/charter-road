@@ -152,6 +152,59 @@ async function checkMarketScrollPreservation() {
   console.log('QA_PASS: market-scroll-preservation');
 }
 
+// The SELL tab must list only items the player actually holds, and when the
+// pack is empty it must stay on SELL and show an empty state — not silently
+// bounce the player to the BUY tab.
+async function checkSellTabFiltering() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+
+    // Holding 2 item types: sell tab shows exactly those 2 rows (no permit row)
+    api.setPlayer({ gold: 50, inv: { coal: 0, grain: 0, food: 5, ore: 3, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 }, capacity: 999 });
+    if (!api.openMarketUI('valdenmere', 'sell')) return { ok: false, reason: 'market UI did not open' };
+    const heldCards = [...document.querySelectorAll('.cr-list .cr-card[data-idx]')];
+    const heldCount = heldCards.length;
+    const heldTitles = heldCards.map(c => c.querySelector('.cr-card-title')?.textContent || '');
+    const onlyHeldShown = heldCount === 2
+      && heldTitles.some(t => /rations/i.test(t))
+      && heldTitles.some(t => /iron ore/i.test(t));
+
+    // Buy tab still shows the full catalogue + permit row
+    api.openMarketUI('valdenmere', 'buy');
+    const buyCount = document.querySelectorAll('.cr-list .cr-card[data-idx]').length;
+    const buyShowsAll = buyCount > heldCount;
+
+    // Empty pack: sell tab stays selected and shows an empty state
+    api.setPlayer({ gold: 50, inv: { food: 0, ore: 0 }, capacity: 999 });
+    api.openMarketUI('valdenmere', 'sell');
+    const sellSelected = document.querySelector('[data-mode="sell"]')?.getAttribute('aria-selected') === 'true';
+    const emptyCards = document.querySelectorAll('.cr-list .cr-card[data-idx]').length;
+    const emptyState = !!document.querySelector('.cr-list .cr-empty');
+    const emptyOk = sellSelected && emptyCards === 0 && emptyState;
+
+    api.closeUI();
+    return { ok: onlyHeldShown && buyShowsAll && emptyOk, onlyHeldShown, buyShowsAll, emptyOk, heldCount, heldTitles, buyCount, sellSelected, emptyCards, emptyState };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`sell-tab-filtering: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: sell-tab-filtering');
+}
+
 (async () => {
   let server = null;
 
@@ -185,6 +238,7 @@ async function checkMarketScrollPreservation() {
     });
 
     await checkMarketScrollPreservation();
+    await checkSellTabFiltering();
 
     console.log('QA_PASS: all');
   } finally {

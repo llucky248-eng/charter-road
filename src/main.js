@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.21'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.22'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6516,7 +6516,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.21',
+    version: 'v0.5.22',
     whatsNew: [
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -6822,12 +6822,6 @@ function drawNpcBubble() {
       if (!c) { domCloseAll(); return; }
       const rules = CITY_RULES[c.id];
       const isMobile = IS_MOBILE;
-      const sellHasItems = ITEMS.some(it => (player.inv[it.id] || 0) > 0);
-      const buyHasItems = true;
-      if (ui.mode !== 'gear') {
-        if (buyHasItems && !sellHasItems) ui.mode = 'buy';
-        if (sellHasItems && !buyHasItems) ui.mode = 'sell';
-      }
       const showTabs = true; // always show - gear tab always visible
       const hasPermit = !!player.permits[c.id];
 
@@ -6837,10 +6831,13 @@ function drawNpcBubble() {
         const selected = i === ui.selection;
         const isPermitRow = i === ITEMS.length;
         const it = isPermitRow ? null : ITEMS[i];
+        const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
+        // SELL tab lists only what the player holds (permit is a buy-only row).
+        // An empty pack shows an empty state below instead of bouncing to BUY.
+        if (ui.mode === 'sell' && (isPermitRow || have <= 0)) continue;
         const _quote = isPermitRow ? null : quoteFor(c.id, it);
         const price = isPermitRow ? PERMIT_PRICE : _quote.buy;  // display buy price = ask
         const sellPrice = isPermitRow ? null : _quote.sell;      // display sell price = bid
-        const have = isPermitRow ? 0 : (player.inv[it.id] || 0);
         const contra = (!isPermitRow) && it.contrabandName && rules.contraband.includes(it.contrabandName);
         const notAvailHere = (!isPermitRow) && it.sourceCities && !it.sourceCities.includes(c.id);
 
@@ -6961,22 +6958,25 @@ function drawNpcBubble() {
       // Rebuilding innerHTML replaces the .cr-list node, which resets its native
       // scrollTop to 0. Capture and restore the scroll so a buy/sell (which
       // changes the dom.key via gold/inv) doesn't yank the list back to the top.
-      // Restore is anchored to the first item row, not the raw pixel offset:
-      // blocks above the items (Global Market pulse, rumors) can appear or grow
-      // on a rebuild — e.g. selling enough units pushes pressure past the ±0.05
-      // display threshold — and a raw scrollTop restore would leave the number
-      // intact while the rows the player was looking at shift away. Only carry
-      // the offset over within the same tab — buy/sell/gear show different-length
-      // lists, so reusing a scroll offset across a tab switch would open the new
-      // tab already scrolled partway down instead of at the top.
-      const listAnchorTop = (list) => {
-        const card = list?.querySelector('.cr-card[data-idx]');
-        if (!card) return null;
-        return card.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
-      };
+      // Restore is anchored to item rows, not the raw pixel offset: blocks above
+      // the items (Global Market pulse, rumors) can appear or grow on a rebuild —
+      // e.g. selling enough units pushes pressure past the ±0.05 display
+      // threshold — and a raw scrollTop restore would leave the number intact
+      // while the rows the player was looking at shift away. Anchors are matched
+      // by data-idx because the sell tab drops a row entirely when its item
+      // sells out; we use the first old row that still exists after the rebuild.
+      // Only carry the offset over within the same tab — buy/sell/gear show
+      // different-length lists, so reusing a scroll offset across a tab switch
+      // would open the new tab already scrolled partway down instead of at the top.
       const prevList = ui.mode === dom.marketListMode ? uiRoot.querySelector('.cr-list') : null;
       const prevListScroll = prevList?.scrollTop || 0;
-      const prevAnchorTop = prevList ? listAnchorTop(prevList) : null;
+      const prevAnchors = [];
+      if (prevList) {
+        const listTop = prevList.getBoundingClientRect().top;
+        for (const card of prevList.querySelectorAll('.cr-card[data-idx]')) {
+          prevAnchors.push([card.getAttribute('data-idx'), card.getBoundingClientRect().top - listTop + prevList.scrollTop]);
+        }
+      }
 
       uiRoot.innerHTML = `
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
@@ -7054,7 +7054,7 @@ function drawNpcBubble() {
                       ${hiddenAfter ? `<div style="font-size:10px;color:#555;margin-top:4px;padding-left:4px">▼ ${maxT - showTo} more tiers locked</div>` : ''}
                     </div>`;
                   }).join('');
-                })() : `${rumorsHtml}${rows.join('')}`}
+                })() : `${rumorsHtml}${rows.length ? rows.join('') : `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">🎒 Nothing to sell — your pack is empty.<br><span style="font-size:12px;color:#a89a78;">Buy goods here or mine ore, then sell where prices are higher.</span></div>`}`}
               </div>
             </div>
             <div class="cr-foot">
@@ -7067,8 +7067,15 @@ function drawNpcBubble() {
 
       const newList = uiRoot.querySelector('.cr-list');
       if (newList) {
-        const newAnchorTop = listAnchorTop(newList); // scrollTop is 0 on a fresh node
-        const drift = (prevAnchorTop != null && newAnchorTop != null) ? newAnchorTop - prevAnchorTop : 0;
+        let drift = 0;
+        const newListTop = newList.getBoundingClientRect().top; // scrollTop is 0 on a fresh node
+        for (const [idx, prevTop] of prevAnchors) {
+          const match = newList.querySelector(`.cr-card[data-idx="${idx}"]`);
+          if (match) {
+            drift = (match.getBoundingClientRect().top - newListTop) - prevTop;
+            break;
+          }
+        }
         newList.scrollTop = prevListScroll + drift;
       }
       dom.marketListMode = ui.mode;
@@ -7970,7 +7977,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.21',
+      buildVersion: 'v0.5.22',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -13298,8 +13305,10 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
       // Selling an item must not reset the market list's scroll position to top
       // (regression: rebuilding .cr-list on every trade wiped native scrollTop)
+      // Hold every item so the sell tab (which now lists only held items) is
+      // long enough to actually scroll.
       __QA.api.clearSave();
-      __QA.api.setPlayer({ gold: 50, inv: { food: 5, grain: 5, wood: 5, tools: 5 }, capacity: 999 });
+      __QA.api.setPlayer({ gold: 50, inv: { coal: 5, grain: 5, food: 5, ore: 5, herbs: 5, potion: 5, relic: 5, ink: 5, gem: 5, copper: 5, silver: 5, gold: 5 }, capacity: 999 });
       const scrollOpened = __QA.api.openMarketUI('valdenmere', 'sell');
       assert(scrollOpened, 'market UI should open for scroll-preservation test');
       const scrollList = uiRoot.querySelector('.cr-list');
@@ -13521,10 +13530,21 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     if (USE_DOM_MODALS) {
       domRender();
       assert(uiRoot.querySelector('.cr-tabs'), 'market should always show tabs (gear tab always visible)');
-      assert(ui.mode === 'buy', 'mobile market should force buy mode when sell empty');
       assert(uiRoot.querySelector('.cr-action'), 'mobile market should render single action button');
 
+      // Sell tab with an empty pack: stays on sell and shows an empty state
+      // (it must NOT silently bounce the player to the buy tab).
+      ui.mode = 'sell';
+      domRender();
+      assert(ui.mode === 'sell', 'empty pack must not bounce the sell tab to buy');
+      assert(uiRoot.querySelector('.cr-empty'), 'empty pack sell tab should show an empty state');
+      assert(uiRoot.querySelectorAll('.cr-card[data-idx]').length === 0, 'empty pack sell tab should list no items');
+
       if (ITEMS[0]) player.inv[ITEMS[0].id] = 2;
+      domRender();
+      assert(uiRoot.querySelectorAll('.cr-card[data-idx]').length === 1, 'sell tab should list only held items');
+
+      ui.mode = 'buy';
       domRender();
       assert(uiRoot.querySelector('.cr-tabs'), 'mobile market should show tabs when both have items');
       assert(uiRoot.querySelectorAll('.cr-card').length > 0, 'mobile market should render cards');
