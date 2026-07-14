@@ -111,8 +111,37 @@ async function checkMarketScrollPreservation() {
     const afterSwitch = document.querySelector('.cr-list');
     const switchScrollOk = !!afterSwitch && afterSwitch.scrollTop === 0;
 
+    // Live-mode regression: selling can push an item past the ±0.05 pressure
+    // threshold, making the "Global Market" pulse block appear at the TOP of
+    // the scroll list. A raw scrollTop restore then leaves the numeric offset
+    // intact while the item rows shift down — the view visually jumps toward
+    // the top. Anchor check: the item row the player was looking at must stay
+    // at the same on-screen position after the sale inserts the block.
+    api.openMarketUI('valdenmere', 'sell');
+    const list2 = document.querySelector('.cr-list');
+    list2.scrollTop = 150;
+    const rowTopBefore = (() => {
+      const card = list2.querySelector('.cr-card[data-idx]');
+      return card.getBoundingClientRect().top - list2.getBoundingClientRect().top;
+    })();
+    api.setEconomyPressure('valdenmere', 'food', -0.2); // simulates the post-sell pressure spike
+    api.marketSell('food', 1, 'valdenmere');
+    api.flushAutosave();
+    api.openMarketUI('valdenmere', 'sell'); // force re-render, same tab
+    const list3 = document.querySelector('.cr-list');
+    const econBlockShown = !!list3.querySelector('[aria-label="Market pulse"]');
+    const rowTopAfter = (() => {
+      const card = list3.querySelector('.cr-card[data-idx]');
+      return card.getBoundingClientRect().top - list3.getBoundingClientRect().top;
+    })();
+    const anchorOk = econBlockShown && Math.abs(rowTopAfter - rowTopBefore) <= 2;
+
+    api.setEconomyPressure('valdenmere', 'food', 0); // clean up for later checks
     api.closeUI();
-    return { ok: sellScrollOk && switchScrollOk, sellScrollOk, switchScrollOk };
+    return {
+      ok: sellScrollOk && switchScrollOk && anchorOk,
+      sellScrollOk, switchScrollOk, anchorOk, econBlockShown, rowTopBefore, rowTopAfter,
+    };
   });
 
   await browser.close();

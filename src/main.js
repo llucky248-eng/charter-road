@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.20'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.21'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -303,6 +303,16 @@ ${line4}`;
       },
 
       freezePrices: () => { stateTime = 0; },
+
+      /** QA helper: set a market pressure value directly. Lets tests exercise the
+       *  "Global Market" pulse block in the market list, which is otherwise only
+       *  populated by the (QA-disabled) live economy sync. */
+      setEconomyPressure: (cityId, itemId, p) => {
+        if (!ECONOMY.pressure[cityId]) ECONOMY.pressure[cityId] = {};
+        ECONOMY.pressure[cityId][itemId] = Number(p) || 0;
+        dom.key = ''; // force re-render so the block appears
+        return true;
+      },
 
       // QA helper: set the active contract deterministically.
       // If null/undefined, clears active.
@@ -6506,7 +6516,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.20',
+    version: 'v0.5.21',
     whatsNew: [
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -6949,14 +6959,24 @@ function drawNpcBubble() {
       ` : '';
 
       // Rebuilding innerHTML replaces the .cr-list node, which resets its native
-      // scrollTop to 0. Capture and restore it so a buy/sell (which changes the
-      // dom.key via gold/inv) doesn't yank the list back to the top. Only carry
+      // scrollTop to 0. Capture and restore the scroll so a buy/sell (which
+      // changes the dom.key via gold/inv) doesn't yank the list back to the top.
+      // Restore is anchored to the first item row, not the raw pixel offset:
+      // blocks above the items (Global Market pulse, rumors) can appear or grow
+      // on a rebuild — e.g. selling enough units pushes pressure past the ±0.05
+      // display threshold — and a raw scrollTop restore would leave the number
+      // intact while the rows the player was looking at shift away. Only carry
       // the offset over within the same tab — buy/sell/gear show different-length
       // lists, so reusing a scroll offset across a tab switch would open the new
       // tab already scrolled partway down instead of at the top.
-      const prevListScroll = ui.mode === dom.marketListMode
-        ? (uiRoot.querySelector('.cr-list')?.scrollTop || 0)
-        : 0;
+      const listAnchorTop = (list) => {
+        const card = list?.querySelector('.cr-card[data-idx]');
+        if (!card) return null;
+        return card.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      };
+      const prevList = ui.mode === dom.marketListMode ? uiRoot.querySelector('.cr-list') : null;
+      const prevListScroll = prevList?.scrollTop || 0;
+      const prevAnchorTop = prevList ? listAnchorTop(prevList) : null;
 
       uiRoot.innerHTML = `
         <div class="cr-backdrop" role="dialog" aria-modal="true" aria-label="Market">
@@ -7046,7 +7066,11 @@ function drawNpcBubble() {
       `;
 
       const newList = uiRoot.querySelector('.cr-list');
-      if (newList) newList.scrollTop = prevListScroll;
+      if (newList) {
+        const newAnchorTop = listAnchorTop(newList); // scrollTop is 0 on a fresh node
+        const drift = (prevAnchorTop != null && newAnchorTop != null) ? newAnchorTop - prevAnchorTop : 0;
+        newList.scrollTop = prevListScroll + drift;
+      }
       dom.marketListMode = ui.mode;
 
       // Bind events (re-bound on re-render)
@@ -7946,7 +7970,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.20',
+      buildVersion: 'v0.5.21',
       savedAt: Date.now(),
       player: {
         x: player.x,
