@@ -392,8 +392,13 @@
     .cr-action:hover { background: #ffd5e1; }
     .cr-action:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
 
-    .cr-body { padding: 12px 20px 14px; }
-    .cr-list { overflow-x: hidden; overflow-y: auto; max-height: 62vh; padding: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
+    /* The panel is height-capped with overflow:hidden, so the body/list must
+       flex-shrink and scroll internally — a fixed list height (the old 62vh)
+       overflows the clip edge on short panels and visually cuts off the list
+       and footer. Header/tabs/footer never shrink; the list absorbs the rest. */
+    .cr-head, .cr-tabs, .cr-foot { flex-shrink: 0; }
+    .cr-body { padding: 12px 20px 14px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .cr-list { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
 
     @media (pointer: coarse) {
       .cr-backdrop { position: fixed; inset: 0; padding: 0; z-index: 9000; }
@@ -860,7 +865,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Patch Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.22</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.23</div>
     </div>
   </div>
 
@@ -1008,7 +1013,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.22&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.23&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);

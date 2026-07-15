@@ -205,6 +205,61 @@ async function checkSellTabFiltering() {
   console.log('QA_PASS: sell-tab-filtering');
 }
 
+// The market panel must never clip its own footer or item list. The panel is
+// capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
+// a long list pushes the footer past the clip edge and the list looks "cut
+// off" with no scrollbar — which is exactly what happened on desktop, where
+// .cr-list had a viewport-based max-height (62vh) inside a canvas-sized panel.
+async function checkMarketPanelNotClipped() {
+  const browser = await chromium.launch(launchOptions);
+
+  for (const [name, viewport] of [
+    ['desktop-720p', { width: 1280, height: 720 }],
+    ['desktop-short', { width: 1280, height: 600 }],
+  ]) {
+    const page = await browser.newPage({ viewport });
+    await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForFunction(() => {
+      // @ts-ignore
+      return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+    }, { timeout: 30_000 });
+
+    const outcome = await page.evaluate(() => {
+      // @ts-ignore
+      const api = window.__QA.api;
+      api.clearSave();
+      api.setPlayer({ gold: 500, inv: { coal: 5, grain: 5, food: 5 }, capacity: 999 });
+      if (!api.openMarketUI('valdenmere', 'buy')) return { ok: false, reason: 'market UI did not open' };
+      const panel = document.querySelector('.cr-panel');
+      const foot = document.querySelector('.cr-foot');
+      const list = document.querySelector('.cr-list');
+      if (!panel || !foot || !list) return { ok: false, reason: 'panel/foot/list missing' };
+      const pr = panel.getBoundingClientRect();
+      const fr = foot.getBoundingClientRect();
+      const lr = list.getBoundingClientRect();
+      // The footer must sit fully inside the panel's clip box, and the list's
+      // box must end above the footer (i.e. the list shrank and scrolls instead
+      // of overflowing past the clip edge).
+      const footVisible = fr.bottom <= pr.bottom + 1 && fr.height > 0;
+      const listInside = lr.bottom <= pr.bottom + 1;
+      const listScrollable = list.scrollHeight > list.clientHeight
+        ? (() => { list.scrollTop = 99999; return list.scrollTop > 0; })()
+        : true;
+      api.closeUI();
+      return { ok: footVisible && listInside && listScrollable, footVisible, listInside, listScrollable, panelBottom: pr.bottom, footBottom: fr.bottom, listBottom: lr.bottom };
+    });
+
+    if (!outcome || !outcome.ok) {
+      await browser.close();
+      die(`market-panel-clipping (${name}): ${outcome?.reason || JSON.stringify(outcome)}`);
+    }
+    await page.close();
+  }
+
+  await browser.close();
+  console.log('QA_PASS: market-panel-clipping');
+}
+
 (async () => {
   let server = null;
 
@@ -239,6 +294,7 @@ async function checkSellTabFiltering() {
 
     await checkMarketScrollPreservation();
     await checkSellTabFiltering();
+    await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');
   } finally {
