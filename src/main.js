@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.23'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.24'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -348,8 +348,7 @@ ${line4}`;
           const qty = contracts.active.qty;
           const have = player.inv[want] || 0;
           if (have >= qty) {
-            player.inv[want] = have - qty;
-            if (player.inv[want] < 0) player.inv[want] = 0;
+            loseItem(want, qty);
 
             const reward = contracts.active.reward;
             player.gold += reward;
@@ -406,7 +405,7 @@ ${line4}`;
         if (n <= 0) return { ok: false, reason: 'bad days' };
         advanceDays(n, 'travel');
         for (let i = 0; i < n; i++) {
-          if ((player.inv['food'] || 0) > 0) player.inv['food'] -= 1;
+          if ((player.inv['food'] || 0) > 0) loseItem('food', 1);
           else player.gold = Math.max(0, player.gold - 5); // no-food penalty
         }
         scheduleAutoSave();
@@ -475,7 +474,7 @@ ${line4}`;
               const qty = contracts.active.qty;
               const have = player.inv[want] || 0;
               if (have >= qty) {
-                player.inv[want] = Math.max(0, have - qty);
+                loseItem(want, qty);
                 const reward = contracts.active.reward;
                 player.gold += reward;
                 const repGain = clamp(qty, 2, 4);
@@ -6516,8 +6515,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.23',
+    version: 'v0.5.24',
     whatsNew: [
+      'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
       'Fixed mining being permanently blocked by a false "Another miner just worked this vein" message, and the same bug in hidden caches ("Already looted — empty crate"): the client was treating any failed multiplayer-claim request (server hiccup, bad response) the same as a genuine claim-lost-to-another-player response, so every swing/loot attempt got phantom-blocked. Both now fail open — backend issues no longer stop you from mining or looting. Also fixed: losing a contested mining swing now refunds the exact stamina your pickaxe spent instead of always refunding a flat amount.',
@@ -6706,10 +6706,8 @@ function drawNpcBubble() {
     const netEach = Math.max(1, Math.round(p * (1 - CITY_RULES[c.id].taxRate) * (1 + combinedBonus)));
     const gain = sellN * netEach;
 
-    player.inv[it.id] = have - sellN;
-    if (player.inv[it.id] < 0) { player.inv[it.id] = have; toast('Trade blocked (qty would go negative).', 2); return; }
+    loseItem(it.id, sellN);
     player.gold += gain;
-    if (player.gold < 0) { player.gold -= gain; player.inv[it.id] = have; toast('Trade blocked (gold would go negative).', 2); return; }
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
     syncWorldStateOnAction();
@@ -7648,7 +7646,7 @@ function drawNpcBubble() {
       uiRoot.querySelectorAll('[data-action="store"]').forEach(el => el.addEventListener('click', () => {
         const itemId = el.getAttribute('data-item');
         if ((player.inv[itemId] || 0) <= 0) { toast('None to store.', 2); return; }
-        player.inv[itemId]--;
+        loseItem(itemId, 1);
         stash[itemId] = (stash[itemId] || 0) + 1;
         toast(`Stored 1 ${ITEMS.find(i=>i.id===itemId)?.name || itemId}.`, 1.5); scheduleAutoSave(); dom.key = ''; domRender();
       }));
@@ -7977,7 +7975,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.23',
+      buildVersion: 'v0.5.24',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8879,7 +8877,7 @@ function drawNpcBubble() {
       const have = player.inv[it.id] || 0;
       if (have > 0) {
         removed += have;
-        player.inv[it.id] = 0;
+        loseItem(it.id, have);
       }
     }
     return removed;
@@ -8916,12 +8914,17 @@ function drawNpcBubble() {
   const _lootPopups = [];
 
   function spawnLootPopup(itemId, qty) {
-    if (!itemId || !(qty > 0)) return;
-    // Rapid same-item gains collapse into the latest popup so a single swing
-    // doesn't paint three overlapping sprites for ore+coal+gem combos. The
-    // pure decision is mirrored in ops/scripts/unit_tests.mjs#stackPopup.
+    // qty is signed: positive = gain ("+N", rises, gold), negative = loss
+    // ("-N", falls, red). Zero is reserved for the bare alert popup below.
+    if (!itemId || !qty) return;
+    // Rapid same-item, same-sign popups collapse into the latest one so a
+    // single swing (or a multi-day trip's rations) doesn't paint a spam of
+    // overlapping sprites. Gains never merge into losses. The pure decision
+    // is mirrored in ops/scripts/unit_tests.mjs#stackPopup.
     const last = _lootPopups[_lootPopups.length - 1];
-    if (last && last.itemId === itemId && (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
+    if (last && last.itemId === itemId &&
+        Math.sign(last.qty) === Math.sign(qty) &&
+        (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
       last.qty += qty;
       last.startMs = stateTime;
       return;
@@ -8956,6 +8959,18 @@ function drawNpcBubble() {
     return player.inv[itemId];
   }
 
+  // Counterpart for "player loses items" (selling, contract delivery, food
+  // upkeep, theft, confiscation...). Clamps at what the player actually
+  // holds, spawns a falling red "-N" popup, returns the new total.
+  function loseItem(itemId, qty) {
+    const have = player.inv[itemId] || 0;
+    const taken = Math.min(have, Math.max(0, Math.floor(qty)));
+    if (!itemId || taken <= 0) return have;
+    player.inv[itemId] = have - taken;
+    spawnLootPopup(itemId, -taken);
+    return player.inv[itemId];
+  }
+
   function drawLootPopups() {
     if (_lootPopups.length === 0) return;
     const fontPx = Math.round(13 * UI_SCALE);
@@ -8969,14 +8984,21 @@ function drawNpcBubble() {
       const age = stateTime - p.startMs;
       if (age >= LOOT_POPUP_LIFETIME_MS) continue;
       const t = age / LOOT_POPUP_LIFETIME_MS;
-      // Ease-out rise + accelerating fade so the eye catches the spawn moment.
-      const yOff = -LOOT_POPUP_RISE_PX * (1 - (1 - t) * (1 - t));
+      // Ease-out drift + accelerating fade so the eye catches the spawn
+      // moment. Gains rise off the player's head; losses sink down toward it
+      // (never below it — falling past the head would hide the text behind
+      // the player/mule sprite).
+      const eased = 1 - (1 - t) * (1 - t);
+      const yOff = p.qty < 0
+        ? -LOOT_POPUP_RISE_PX * (1 - eased)
+        : -LOOT_POPUP_RISE_PX * eased;
       ctx.globalAlpha = 1 - t * t;
-      const text = p.qty > 0 ? `${ITEM_ICONS[p.itemId] || '✨'} +${p.qty}` : (ITEM_ICONS[p.itemId] || '✨');
+      const icon = ITEM_ICONS[p.itemId] || '✨';
+      const text = p.qty > 0 ? `${icon} +${p.qty}` : p.qty < 0 ? `${icon} -${-p.qty}` : icon;
       // dark shadow first for legibility against grass/road
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.fillText(text, p.sx + 1, p.sy + yOff + 1);
-      ctx.fillStyle = '#fde047';
+      ctx.fillStyle = p.qty < 0 ? '#f87171' : '#fde047';
       ctx.fillText(text, p.sx, p.sy + yOff);
       _lootPopups[writeIdx++] = p;
     }
@@ -9115,7 +9137,7 @@ function drawNpcBubble() {
       const options = ITEMS.filter(it => (player.inv[it.id] || 0) > 0);
       if (options.length === 0) break;
       const it = options[Math.floor(rand01() * options.length)];
-      player.inv[it.id] -= 1;
+      loseItem(it.id, 1);
       dropped += 1;
     }
     return dropped;
@@ -9485,7 +9507,7 @@ function drawNpcBubble() {
         choices: [
           { label: 'Help (spend 1 ration)', run: () => {
               if ((player.inv['food'] || 0) < 1) { toast('No rations to spare.', 2); closeEvent(); return; }
-              player.inv['food'] -= 1;
+              loseItem('food', 1);
               player.rep[destCity.id] = (player.rep[destCity.id] || 0) + 2;
               toast(`You helped the soldier. +2 rep in ${destCity.name}.`, 3);
               closeEvent();
@@ -9556,7 +9578,7 @@ function drawNpcBubble() {
         choices: [
           { label: 'Flee (drop 1 ration)', run: () => {
               if ((player.inv['food'] || 0) > 0) {
-                player.inv['food'] -= 1;
+                loseItem('food', 1);
                 toast('You flee, tossing a ration behind you. They take the bait.', 3);
               } else {
                 const g = Math.min(player.gold, Math.round(6 + stakes.heat * 12));
@@ -9590,7 +9612,7 @@ function drawNpcBubble() {
         choices: [
           { label: 'Share a meal (1 food)', run: () => {
               if ((player.inv['food'] || 0) >= 1) {
-                player.inv['food'] -= 1;
+                loseItem('food', 1);
                 // Hermit shares a trade secret — free intel card
                 const npcProxy = { id: 'hermit_npc' };
                 const nearCity = world.cities.reduce((best, c2) => {
@@ -9747,7 +9769,7 @@ function drawNpcBubble() {
                   } else {
                     const it = contrabandItems[0];
                     const seized = Math.min(player.inv[it.id], 2);
-                    player.inv[it.id] -= seized;
+                    loseItem(it.id, seized);
                     const fine2 = Math.min(player.gold, fine);
                     player.gold -= fine2;
                     player.rep[cid] = Math.max(0, (player.rep[cid] || 0) - 1);
@@ -13004,8 +13026,7 @@ function drawEvent() {
         const qty = contracts.active.qty;
         const have = player.inv[want] || 0;
         if (have >= qty) {
-          player.inv[want] = have - qty;
-          if (player.inv[want] < 0) player.inv[want] = 0;
+          loseItem(want, qty);
 
           player.gold += contracts.active.reward;
 
@@ -13096,7 +13117,7 @@ function drawEvent() {
           // Upkeep: consume 1 food per day if carrying any
           for (let i = 0; i < days; i++) {
             if (player.inv['food'] > 0) {
-              player.inv['food'] -= 1;
+              loseItem('food', 1);
               toast('Consumed 1 rations.', 1.4);
             } else {
               // No food: penalty - 5g (balanced vs rations buy cost ~12g, trip economy)
@@ -14332,6 +14353,41 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         // documents the expected camera-centered spawn for future debugging.
         assert(xOk && yOk,
           `lifecycle: spawn coords should be within viewport (sx=${fresh.sx}, sy=${fresh.sy})`);
+
+        // ── Losses: every item-loss site funnels through loseItem(itemId, qty),
+        // which spawns a "-N icon" popup (negative qty in the queue).
+        api.qaClearLootPopups();
+        api.setPlayer({ inv: { food: 5 } });
+        loseItem('food', 2);
+        assert((player.inv.food || 0) === 3, `loseItem should decrement inventory (got ${player.inv.food})`);
+        let lossQ = api.qaLootPopups();
+        assert(lossQ.length === 1 && lossQ[0].itemId === 'food' && lossQ[0].qty === -2,
+          `loss popup: expected one food popup with qty=-2, got ${JSON.stringify(lossQ)}`);
+
+        // loseItem clamps at what the player actually holds.
+        loseItem('food', 99);
+        assert((player.inv.food || 0) === 0, `loseItem should clamp at zero (got ${player.inv.food})`);
+
+        // A gain must not merge into a loss popup (opposite signs stay separate).
+        api.qaClearLootPopups();
+        api.setPlayer({ inv: { coal: 5 } });
+        loseItem('coal', 1);
+        gainItem('coal', 2);
+        lossQ = api.qaLootPopups();
+        assert(lossQ.length === 2 && lossQ[0].qty === -1 && lossQ[1].qty === 2,
+          `loss popup: gain and loss must not stack (got ${JSON.stringify(lossQ)})`);
+
+        // Selling in the market spawns a loss popup through the same pipeline.
+        api.qaClearLootPopups();
+        api.setPlayer({ gold: 50, inv: { food: 3 }, capacity: 999 });
+        const lossSellR = api.marketSell('food', 2, 'valdenmere');
+        assert(lossSellR.ok === true, 'loss popup: marketSell should succeed');
+        api.flushAutosave();
+        const sellQ = api.qaLootPopups();
+        const sellLoss = sellQ.find(p => p.itemId === 'food' && p.qty === -2);
+        assert(!!sellLoss,
+          `loss popup: selling 2 food should spawn a food qty=-2 popup, got ${JSON.stringify(sellQ)}`);
+        api.qaClearLootPopups();
       }
 
       // ── Road event dialog: theming, input lock, dismissal integrity ──────
