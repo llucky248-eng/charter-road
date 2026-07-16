@@ -632,14 +632,17 @@ test('vein cooldown: only the queried key matters', () => {
   assert(veinInCooldown({ 100: 60, 200: 10 }, 200, 50) === false);
   assert(veinInCooldown({ 100: 60, 200: 99 }, 200, 50) === true);
 });
-// Loot-popup stack decision mirror: when the player gains items in rapid
-// succession the renderer collapses identical-itemId popups within a short
-// window into a single "+N" entry so the screen doesn't spam. The same
-// itemId outside the window, or a different itemId at any time, queues
-// a new popup.
+// Loot-popup stack decision mirror: when the player gains or loses items in
+// rapid succession the renderer collapses identical-itemId popups within a
+// short window into a single "+N"/"-N" entry so the screen doesn't spam.
+// qty is signed (+ gain, - loss); only same-sign popups merge — a gain must
+// never cancel out a loss popup visually. The same itemId outside the
+// window, an opposite sign, or a different itemId queues a new popup.
 function stackPopup(queue, popup, stackWindowMs, nowMs) {
   const last = queue[queue.length - 1];
-  if (last && last.itemId === popup.itemId && (nowMs - last.startMs) < stackWindowMs) {
+  if (last && last.itemId === popup.itemId &&
+      Math.sign(last.qty) === Math.sign(popup.qty) &&
+      (nowMs - last.startMs) < stackWindowMs) {
     last.qty += popup.qty;
     last.startMs = nowMs;
     return queue;
@@ -677,6 +680,20 @@ test('loot popup: stacking only checks the LAST entry, not earlier ones', () => 
   q = stackPopup(q, { itemId: 'copper', qty: 1 }, 300, 100);
   assert(q.length === 3, `expected 3 popups (copper not stacked through coal), got ${q.length}`);
   assert(q[0].qty === 3 && q[2].qty === 1);
+});
+test('loot popup: losses stack with losses of the same item within window', () => {
+  let q = [];
+  q = stackPopup(q, { itemId: 'food', qty: -1 }, 300, 0);
+  q = stackPopup(q, { itemId: 'food', qty: -2 }, 300, 100);
+  assert(q.length === 1, `expected 1 loss popup, got ${q.length}`);
+  assert(q[0].qty === -3, `expected stacked qty=-3, got ${q[0].qty}`);
+});
+test('loot popup: a gain never merges into a loss popup (opposite signs)', () => {
+  let q = [];
+  q = stackPopup(q, { itemId: 'food', qty: -1 }, 300, 0);
+  q = stackPopup(q, { itemId: 'food', qty: 2 }, 300, 100);
+  assert(q.length === 2, `expected 2 popups (loss then gain kept apart), got ${q.length}`);
+  assert(q[0].qty === -1 && q[1].qty === 2, `expected [-1, +2], got [${q[0].qty}, ${q[1].qty}]`);
 });
 // Lifecycle mirror of drawLootPopups' age-out pass: keep popups whose age
 // is < lifetimeMs, drop the rest. The src/main.js render path does exactly
