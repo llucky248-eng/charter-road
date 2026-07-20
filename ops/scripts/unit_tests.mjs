@@ -1584,6 +1584,60 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   assert(/Already looted/.test(ctx.toastMsg || ''), 'should show the already-looted toast');
 });
 
+// ─── Market keyboard navigation (extracted live from src/main.js) ────────────
+// The SELL tab renders only held items (and no permit row), so the keyboard
+// handler must cycle through exactly the rows the renderer shows — not the
+// full 0..ITEMS.length index space. These helpers are extracted from the real
+// source (not copied) so the test can never drift from the game.
+{
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const _here = dirname(fileURLToPath(import.meta.url));
+  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
+  const _extract = (name) => {
+    const m = _mainSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+    if (!m) return null;
+    return new Function(`return (${m[0]})`)();
+  };
+  const marketVisibleIndices = _extract('marketVisibleIndices');
+  const marketNavStep = _extract('marketNavStep');
+
+  const FIX_ITEMS = [{ id: 'grain' }, { id: 'food' }, { id: 'ore' }, { id: 'herbs' }];
+
+  console.log('\n=== Market keyboard navigation ===');
+  test('marketVisibleIndices exists in src/main.js', () => {
+    assert(typeof marketVisibleIndices === 'function', 'marketVisibleIndices not found in src/main.js');
+  });
+  test('marketNavStep exists in src/main.js', () => {
+    assert(typeof marketNavStep === 'function', 'marketNavStep not found in src/main.js');
+  });
+  test('buy mode lists every item plus the permit row', () => {
+    const vis = marketVisibleIndices('buy', FIX_ITEMS, {});
+    assertEqual(JSON.stringify(vis), JSON.stringify([0, 1, 2, 3, 4]));
+  });
+  test('sell mode lists only held items, no permit row', () => {
+    const vis = marketVisibleIndices('sell', FIX_ITEMS, { food: 5, herbs: 2, ore: 0 });
+    assertEqual(JSON.stringify(vis), JSON.stringify([1, 3]));
+  });
+  test('sell mode with empty pack lists nothing', () => {
+    const vis = marketVisibleIndices('sell', FIX_ITEMS, { food: 0 });
+    assertEqual(JSON.stringify(vis), JSON.stringify([]));
+  });
+  test('nav steps forward within visible rows and wraps', () => {
+    assertEqual(marketNavStep([1, 3], 1, +1), 3);
+    assertEqual(marketNavStep([1, 3], 3, +1), 1, 'wraps to first');
+    assertEqual(marketNavStep([1, 3], 1, -1), 3, 'wraps back to last');
+  });
+  test('nav snaps a hidden selection to a visible row', () => {
+    assertEqual(marketNavStep([1, 3], 2, +1), 1, 'hidden selection snaps to first on down');
+    assertEqual(marketNavStep([1, 3], 2, -1), 3, 'hidden selection snaps to last on up');
+  });
+  test('nav on an empty list leaves selection unchanged', () => {
+    assertEqual(marketNavStep([], 2, +1), 2);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {

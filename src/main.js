@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.25'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.26'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6515,7 +6515,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.25',
+    version: 'v0.5.26',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6633,6 +6633,31 @@ function drawNpcBubble() {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  // Visible market rows for a tab: BUY lists every item plus the permit row
+  // (index items.length); SELL lists only items the player holds and never the
+  // permit row. The keyboard handler must cycle through exactly the rows the
+  // renderer shows — mirrored assertions live in ops/scripts/unit_tests.mjs
+  // (extracted from this source, keep the signature stable).
+  function marketVisibleIndices(mode, items, inv) {
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      if (mode === 'sell' && ((inv[items[i].id] || 0) <= 0)) continue;
+      out.push(i);
+    }
+    if (mode !== 'sell') out.push(items.length);
+    return out;
+  }
+
+  // Step the market selection within the visible rows, wrapping at the ends.
+  // A selection that is no longer visible (item sold out, tab switched) snaps
+  // to the first row on down / last row on up instead of walking hidden rows.
+  function marketNavStep(visible, current, dir) {
+    if (!visible.length) return current;
+    const pos = visible.indexOf(current);
+    if (pos < 0) return dir > 0 ? visible[0] : visible[visible.length - 1];
+    return visible[(pos + dir + visible.length) % visible.length];
   }
 
   function marketTryTrade(index, qty = 1) {
@@ -7086,7 +7111,11 @@ function drawNpcBubble() {
 
       // Bind events (re-bound on re-render)
       uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }));
-      uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => { ui.mode = el.getAttribute('data-mode'); toast(ui.mode.toUpperCase(), 0.7); }));
+      uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => {
+        ui.mode = el.getAttribute('data-mode');
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+        toast(ui.mode.toUpperCase(), 0.7);
+      }));
       uiRoot.querySelectorAll('[data-idx]').forEach(el => {
         el.addEventListener('click', (ev) => {
           const idx = Number(el.getAttribute('data-idx'));
@@ -7981,7 +8010,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.25',
+      buildVersion: 'v0.5.26',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9821,13 +9850,17 @@ function drawNpcBubble() {
 
 
     if (ui.marketOpen) {
-      const totalN = ITEMS.length + 1; // +1 permit row
+      const visible = marketVisibleIndices(ui.mode, ITEMS, player.inv);
       if (e.code === 'Escape') { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }
-      if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
-      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + totalN - 1) % totalN;
-      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % totalN;
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        ui.mode = ui.mode === 'buy' ? 'sell' : 'buy';
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+      }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = marketNavStep(visible, ui.selection, -1);
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = marketNavStep(visible, ui.selection, +1);
       if (e.code === 'Enter' || e.code === 'Space') {
-        marketTryTrade(ui.selection);
+        if (visible.includes(ui.selection)) marketTryTrade(ui.selection);
       }
     }
 
