@@ -1749,6 +1749,42 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
+// Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
+// figures; bankQuickAmounts scales the three buttons to the player's wealth.
+{
+  const bankQuickAmounts = extractFromMain('bankQuickAmounts');
+
+  console.log('\n=== Bank deposit quick-amounts ===');
+  test('bankQuickAmounts exists in src/main.js', () => {
+    assert(typeof bankQuickAmounts === 'function', 'bankQuickAmounts not found in src/main.js');
+  });
+  test('scales to 10% / 50% / 100% for a wealthy player', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(1000)), JSON.stringify([100, 500, 1000]));
+  });
+  test('MAX always equals current gold', () => {
+    assertEqual(bankQuickAmounts(1000)[2], 1000);
+    assertEqual(bankQuickAmounts(37)[2], 37);
+    assertEqual(bankQuickAmounts(5)[2], 5);
+  });
+  test('amounts round to whole gold', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(255)), JSON.stringify([26, 128, 255]));
+  });
+  test('smallest button floors at 10g while it fits under MAX', () => {
+    // 10% of 50 = 5, floored up to 10; half = 25; max = 50.
+    assertEqual(JSON.stringify(bankQuickAmounts(50)), JSON.stringify([10, 25, 50]));
+  });
+  test('never offers more than the player holds', () => {
+    // gold below the 10g floor: every button clamps down to gold, MAX == gold.
+    const a = bankQuickAmounts(5);
+    assert(a.every(v => v <= 5), `amounts exceed gold: ${JSON.stringify(a)}`);
+    assertEqual(a[2], 5);
+  });
+  test('zero gold yields all-zero amounts', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(0)), JSON.stringify([0, 0, 0]));
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {

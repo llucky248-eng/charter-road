@@ -327,6 +327,51 @@ async function checkContractReplaceAndAbandon() {
   console.log('QA_PASS: contract-replace-abandon');
 }
 
+// Bank deposit buttons must scale with the player's wealth (10%/50%/100% of
+// gold) rather than the old fixed +10/+50/+100, and a click must deposit the
+// labelled amount.
+async function checkBankDepositScaling() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 1000, capacity: 999 });
+    if (typeof api.openBankUI !== 'function') return { ok: false, reason: 'openBankUI QA helper missing' };
+    if (!api.openBankUI('valdenmere', 'deposit')) return { ok: false, reason: 'bank UI did not open' };
+
+    const btns = [...document.querySelectorAll('[data-action="dep"]')];
+    const amts = btns.map(b => Number(b.getAttribute('data-amt')));
+    // 10% / 50% / 100% of 1000g.
+    const scaled = JSON.stringify(amts) === JSON.stringify([100, 500, 1000]);
+    if (!scaled) return { ok: false, reason: `unexpected deposit amounts: ${JSON.stringify(amts)}` };
+
+    const goldBefore = api.snapshot().player.gold;
+    // Click the +500 (half) button.
+    btns.find(b => Number(b.getAttribute('data-amt')) === 500).click();
+    const goldAfter = api.snapshot().player.gold;
+    const deposited = goldBefore - goldAfter === 500;
+
+    api.closeUI();
+    return { ok: scaled && deposited, scaled, deposited, goldBefore, goldAfter };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`bank-deposit-scaling: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: bank-deposit-scaling');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -418,6 +463,7 @@ async function checkMarketPanelNotClipped() {
     await checkSellTabFiltering();
     await checkMobileMarketQtyButtons();
     await checkContractReplaceAndAbandon();
+    await checkBankDepositScaling();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');

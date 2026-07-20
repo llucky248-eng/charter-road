@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.30'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.31'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -533,11 +533,28 @@ ${line4}`;
         }
       },
 
+      /** QA helper: open the bank UI at a city on a given tab and render. */
+      openBankUI: (cityId = 'valdenmere', tab = 'deposit') => {
+        try {
+          __QA.api.forceCityEntry(cityId);
+          ui.marketOpen = false;
+          ui.contractsOpen = false;
+          ui.bankOpen = true;
+          ui.bankTab = tab;
+          dom.key = '';
+          domRender();
+          return !!document.querySelector('.cr-panel');
+        } catch (e) {
+          return false;
+        }
+      },
+
       /** QA helper: close any open modal and re-render. */
       closeUI: () => {
         ui.marketOpen = false;
         ui.contractsOpen = false;
         ui.eventOpen = false;
+        ui.bankOpen = false;
         domRender();
       },
 
@@ -6533,7 +6550,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.30',
+    version: 'v0.5.31',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6652,6 +6669,19 @@ function drawNpcBubble() {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  // Bank deposit quick-amounts scaled to the player's wealth: 10% / 50% / 100%
+  // of current gold, each floored at 10g but never above what the player holds,
+  // so MAX (the third value) always equals gold. Fixed +10/+50/+100 buttons are
+  // meaningless once gear costs six figures. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract this from source — keep it self-contained.
+  function bankQuickAmounts(gold) {
+    const g = Math.max(0, Math.floor(Number(gold) || 0));
+    const max = g;
+    const half = Math.min(max, Math.max(10, Math.round(g / 2)));
+    const tenth = Math.min(half, Math.max(10, Math.round(g / 10)));
+    return [tenth, half, max];
   }
 
   // Visible market rows for a tab: BUY lists every item plus the permit row
@@ -7418,14 +7448,18 @@ function drawNpcBubble() {
           </div>`;
       } else if (ui.bankTab === 'deposit') {
         const rateLabel = `${(BANK_INTEREST_RATE * 100).toFixed(1)}%/day`;
+        // Buttons scale with gold; dedupe so low-gold players don't see three
+        // identical amounts. Disabled entirely when the player is broke.
+        const depAmts = [...new Set(bankQuickAmounts(player.gold))].filter(a => a > 0);
+        const depBtns = depAmts.length
+          ? depAmts.map(a => `<button class="cr-tab" data-action="dep" data-amt="${a}">+${a}g</button>`).join('')
+          : '<span class="cr-sub" style="color:#fbbf24">No gold to deposit.</span>';
         bodyHtml = `
           <div class="cr-sub">Deposits earn <b>${rateLabel}</b> interest.</div>
           <div class="cr-sub">Vault reserve: <b style="color:${vaultHealthColor}">${vault.reserve}g</b> - <span style="color:${vaultHealthColor}">${vaultHealthLabel}</span></div>
           <div class="cr-sub" style="margin-top:2px">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
-          <div style="display:flex;gap:8px;margin-top:10px;">
-            <button class="cr-tab" data-action="dep10">+10g</button>
-            <button class="cr-tab" data-action="dep50">+50g</button>
-            <button class="cr-tab" data-action="dep100">+100g</button>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            ${depBtns}
           </div>`;
       } else if (ui.bankTab === 'withdraw') {
         bodyHtml = dep
@@ -7521,9 +7555,10 @@ function drawNpcBubble() {
             }
           });
         };
-        uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
-        uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
-        uiRoot.querySelector('[data-action="dep100"]')?.addEventListener('click', () => bankDeposit(100));
+        uiRoot.querySelectorAll('[data-action="dep"]').forEach(el => el.addEventListener('click', () => {
+          const amt = Math.floor(Number(el.getAttribute('data-amt')) || 0);
+          if (amt > 0) bankDeposit(amt);
+        }));
 
         uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
           if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
@@ -8065,7 +8100,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.30',
+      buildVersion: 'v0.5.31',
       savedAt: Date.now(),
       player: {
         x: player.x,
