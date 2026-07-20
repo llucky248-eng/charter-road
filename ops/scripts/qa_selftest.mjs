@@ -440,7 +440,9 @@ async function checkContractBoardHints() {
     api.setActiveContract(null);
 
     // Empty pack: first job shows "You hold 0/N" and a "cheapest at" hint.
-    api.setPlayer({ gold: 50, inv: {}, capacity: 999 });
+    // setPlayer merges inv, so zero every good explicitly (clearSave only wipes
+    // localStorage, not the in-memory pack the in-page self-test left behind).
+    api.setPlayer({ gold: 50, capacity: 999, inv: { coal: 0, grain: 0, food: 0, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
     if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not open' };
     const firstCard = document.querySelector('.cr-list .cr-card[data-cidx]');
     if (!firstCard) return { ok: false, reason: 'no job cards' };

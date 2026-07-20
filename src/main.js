@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.35'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.36'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6621,7 +6621,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.35',
+    version: 'v0.5.36',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -7007,9 +7007,10 @@ function drawNpcBubble() {
     if (kind === 'market') {
       const c = currentCity();
       if (!c) { domCloseAll(); return; }
-      // Snapshot this city's quotes for the PRICES tab. Runs on the market
-      // rebuild path (past the dom.key early-return above), so it fires on open
-      // and stays cheap — not every frame.
+      // Snapshot this city's quotes for the PRICES tab. Runs on every market
+      // rebuild (past the dom.key early-return above) — so on open and on each
+      // buy/sell/tab change, but not every frame. Re-snapshotting is idempotent
+      // (same quotes within a visit) and keeps the current city's stamp current.
       recordMarketVisit(c.id);
       const rules = CITY_RULES[c.id];
       const isMobile = IS_MOBILE;
@@ -7018,7 +7019,10 @@ function drawNpcBubble() {
 
       const totalN = ITEMS.length + 1;
       const rows = [];
-      for (let i = 0; i < totalN; i++) {
+      // Only BUY/SELL render tradeable item rows; GEAR and PRICES have their own
+      // bodies, so skip the per-item quote+HTML work for them entirely.
+      const buildItemRows = ui.mode === 'buy' || ui.mode === 'sell';
+      for (let i = 0; buildItemRows && i < totalN; i++) {
         const selected = i === ui.selection;
         const isPermitRow = i === ITEMS.length;
         const it = isPermitRow ? null : ITEMS[i];
@@ -7259,7 +7263,9 @@ function drawNpcBubble() {
                 })() : ui.mode === 'prices' ? (() => {
                   // Read-only ledger of last-seen quotes per visited city.
                   const ledger = player.priceLedger || {};
-                  const cityIds = Object.keys(ledger).filter(cid => getCityById(cid));
+                  // Only well-formed entries for real cities (a tampered save
+                  // could carry a null/garbage entry that would throw below).
+                  const cityIds = Object.keys(ledger).filter(cid => getCityById(cid) && ledger[cid] && typeof ledger[cid] === 'object');
                   if (!cityIds.length) return `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">📒 No prices recorded yet.<br><span style="font-size:12px;color:#a89a78;">Open markets in other cities and their prices are remembered here.</span></div>`;
                   const today = Math.floor(time.day);
                   // Current city first, then the rest most-recently-seen first.
@@ -8245,7 +8251,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.35',
+      buildVersion: 'v0.5.36',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8264,8 +8270,12 @@ function drawNpcBubble() {
         gear: { ...player.gear },
         // Last-seen market quotes per city (deep-copied so the serialized state
         // never aliases the live ledger). Surfaced by the market PRICES tab.
+        // Skip any malformed entry (e.g. from a tampered save) so serialization
+        // can't throw on a non-object entry.
         priceLedger: Object.fromEntries(
-          Object.entries(player.priceLedger || {}).map(([cid, e]) => [cid, { day: e.day, quotes: { ...e.quotes } }])
+          Object.entries(player.priceLedger || {})
+            .filter(([, e]) => e && typeof e === 'object')
+            .map(([cid, e]) => [cid, { day: e.day, quotes: { ...(e.quotes || {}) } }])
         ),
         // mineCooldown is intentionally NOT persisted: its values are stateTime
         // offsets, and stateTime resets to 0 on every page reload, so saving
