@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.27'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.28'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -510,6 +510,22 @@ ${line4}`;
           ui.mode = mode;
           ui.marketScroll = 0;
           ui.selection = 0;
+          domRender();
+          return !!document.querySelector('.cr-panel');
+        } catch (e) {
+          return false;
+        }
+      },
+
+      /** QA helper: open the contracts board at a city and render. */
+      openContractsUI: (cityId = 'valdenmere') => {
+        try {
+          __QA.api.forceCityEntry(cityId);
+          ui.marketOpen = false;
+          ui.contractsOpen = true;
+          ui.contractsSel = 0;
+          ui.contractsConfirmIdx = -1;
+          ui.contractsCityId = cityId;
           domRender();
           return !!document.querySelector('.cr-panel');
         } catch (e) {
@@ -6517,7 +6533,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.27',
+    version: 'v0.5.28',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6581,6 +6597,7 @@ function drawNpcBubble() {
 
     contractsSel: 0,
     contractsNavT: 0,
+    contractsConfirmIdx: -1, // row armed for replace-confirm (-1 = none)
 
     bankOpen: false,
     bankTab: 'deposit', // 'deposit'|'withdraw'|'loan'
@@ -6620,6 +6637,7 @@ function drawNpcBubble() {
     ui.guildOpen = false;
     ui.warehouseOpen = false;
     ui.buildingDonateOpen = false;
+    ui.contractsConfirmIdx = -1; // closing the board disarms any replace-confirm
   }
 
   function domEnsureOpen() {
@@ -6764,6 +6782,16 @@ function drawNpcBubble() {
     return Math.max(0, r);
   }
 
+  // Accepting a job while another contract is active must not silently discard
+  // the active one: the first activation on a row arms a confirm ('confirm'),
+  // a second activation on the same armed row goes through ('accept').
+  // Mirrored assertions in ops/scripts/unit_tests.mjs extract this function
+  // from source — keep it self-contained.
+  function contractAcceptDecision(active, confirmIdx, idx) {
+    if (!active) return 'accept';
+    return confirmIdx === idx ? 'accept' : 'confirm';
+  }
+
   function contractsAccept(idx) {
     const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
@@ -6772,6 +6800,14 @@ function drawNpcBubble() {
     const jobs = (contracts.byCity[c.id] || []).filter(j => (j?.tier ?? 0) <= repTier);
     const job = jobs[idx];
     if (!job) return;
+
+    if (contractAcceptDecision(contracts.active, ui.contractsConfirmIdx, idx) === 'confirm') {
+      ui.contractsConfirmIdx = idx;
+      toast('This replaces your active contract — press Accept again to confirm.', 2.6);
+      dom.key = ''; // re-render so the armed row's button relabels
+      return;
+    }
+    ui.contractsConfirmIdx = -1;
 
     const finalReward = contractRewardForAccept(c.id, job.reward, job.tier);
     contracts.active = { ...job, reward: finalReward };
@@ -6810,7 +6846,7 @@ function drawNpcBubble() {
       for (const it of ITEMS) key += `|${player.inv[it.id] || 0}`;
     } else if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
-      key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
+      key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${ui.contractsConfirmIdx}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
     } else if (kind === 'event') {
       key += `|${ui.eventTitle}|${ui.eventText}|${ui.eventSel}|${ui.eventChoices.length}|${ui.eventKind}|${ui.eventDismissable ? 1 : 0}|${ui.eventStakes}`;
     } else if (kind === 'bank') {
@@ -7182,15 +7218,18 @@ function drawNpcBubble() {
         const selected = i === ui.contractsSel;
         const tierTag = `[T${job.tier ?? 0}]`;
         const shownReward = contractRewardForAccept(c.id, job.reward, job.tier);
+        const armed = i === ui.contractsConfirmIdx;
+        const acceptLabel = armed ? 'Replace?' : 'Accept';
         return `
           <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
             <div>
               <div class="cr-card-title">${htmlEscape(tierTag)} Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
               <div class="cr-card-sub">Reward: ${shownReward}g</div>
+              ${armed ? '<div class="cr-card-sub" style="color:#fbbf24">⚠️ Replaces your active contract</div>' : ''}
             </div>
             <div class="cr-right">
               <div class="cr-price">${shownReward}g</div>
-              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="accept" data-cidx="${i}">Accept</button>
+              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;${armed ? 'border-color:#fbbf24;color:#fbbf24;' : ''}" data-action="accept" data-cidx="${i}">${acceptLabel}</button>
             </div>
           </div>
         `;
@@ -7200,7 +7239,8 @@ function drawNpcBubble() {
         ? (() => {
             const it = ITEMS.find(x=>x.id===contracts.active.want);
             const prog = activeContractProgressLabel();
-            return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`;
+            return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g
+              <button class="cr-tab" style="margin-left:8px;padding:4px 8px;font-size:11px;" data-action="abandon">Abandon</button>`;
           })()
         : 'Pick a job. Deliver to the other city for gold + rep.';
 
@@ -7244,6 +7284,14 @@ function drawNpcBubble() {
         const idx = Number(el.getAttribute('data-cidx'));
         if (Number.isFinite(idx)) { ui.contractsSel = idx; contractsAccept(idx); }
       }));
+      uiRoot.querySelector('[data-action="abandon"]')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        contracts.active = null;
+        ui.contractsConfirmIdx = -1;
+        toast('Contract abandoned.', 2);
+        scheduleAutoSave();
+        dom.key = ''; // re-render header + board
+      });
 
       return;
     }
@@ -8012,7 +8060,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.27',
+      buildVersion: 'v0.5.28',
       savedAt: Date.now(),
       player: {
         x: player.x,

@@ -263,6 +263,70 @@ async function checkMobileMarketQtyButtons() {
   console.log('QA_PASS: mobile-market-qty-buttons');
 }
 
+// Accepting a contract while another is active must not silently discard the
+// active one: the first tap arms a confirm, the second tap replaces. The
+// active-contract line must also offer an explicit Abandon button.
+async function checkContractReplaceAndAbandon() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setActiveContract(null);
+    if (typeof api.openContractsUI !== 'function') return { ok: false, reason: 'openContractsUI QA helper missing' };
+
+    // No active contract: one tap accepts.
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not open' };
+    const firstAccept = document.querySelector('[data-action="accept"]');
+    if (!firstAccept) return { ok: false, reason: 'no accept button on board' };
+    firstAccept.click();
+    const active1 = api.snapshot().contracts.active;
+    if (!active1) return { ok: false, reason: 'plain accept did not activate a contract' };
+
+    // Active contract present: first tap must NOT replace, second tap must.
+    // A sentinel qty (board jobs never ask for 99) makes replacement detectable
+    // even when board jobs are seeded identical to each other.
+    api.setActiveContract({ want: 'ore', toId: 'ashport', qty: 99, reward: 5 });
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not reopen' };
+    const secondAccept = document.querySelector('[data-action="accept"]');
+    if (!secondAccept) return { ok: false, reason: 'no second job on board' };
+    secondAccept.click();
+    const afterFirstTap = api.snapshot().contracts.active;
+    const notReplacedYet = !!afterFirstTap && afterFirstTap.qty === 99;
+    // Re-query: the confirm re-render may rebuild the modal DOM.
+    const confirmBtn = document.querySelector('[data-action="accept"]');
+    if (!confirmBtn) return { ok: false, reason: 'accept button vanished after confirm arm' };
+    confirmBtn.click();
+    const afterSecondTap = api.snapshot().contracts.active;
+    const replaced = !!afterSecondTap && afterSecondTap.qty !== 99;
+
+    // Abandon: active-contract line offers an explicit button that clears it.
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not reopen for abandon' };
+    const abandonBtn = document.querySelector('[data-action="abandon"]');
+    if (!abandonBtn) return { ok: false, reason: 'no abandon button while contract active' };
+    abandonBtn.click();
+    const cleared = api.snapshot().contracts.active === null;
+
+    api.closeUI();
+    return { ok: notReplacedYet && replaced && cleared, notReplacedYet, replaced, cleared };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`contract-replace-abandon: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: contract-replace-abandon');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -353,6 +417,7 @@ async function checkMarketPanelNotClipped() {
     await checkMarketScrollPreservation();
     await checkSellTabFiltering();
     await checkMobileMarketQtyButtons();
+    await checkContractReplaceAndAbandon();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');

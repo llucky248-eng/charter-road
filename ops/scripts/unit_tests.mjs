@@ -1678,6 +1678,38 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Contract accept/replace decision (extracted live from src/main.js) ──────
+// Accepting a job while another contract is active used to silently discard
+// the active one. The decision helper arms a confirm step instead: first
+// activation on a row returns 'confirm', a second activation on the same row
+// returns 'accept'.
+{
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const _here = dirname(fileURLToPath(import.meta.url));
+  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
+  const _m = _mainSrc.match(/function contractAcceptDecision\([^)]*\) \{[\s\S]*?\n  \}/);
+  const contractAcceptDecision = _m ? new Function(`return (${_m[0]})`)() : null;
+
+  console.log('\n=== Contract accept/replace decision ===');
+  test('contractAcceptDecision exists in src/main.js', () => {
+    assert(typeof contractAcceptDecision === 'function', 'contractAcceptDecision not found in src/main.js');
+  });
+  test('no active contract accepts immediately', () => {
+    assertEqual(contractAcceptDecision(null, -1, 0), 'accept');
+  });
+  test('active contract arms a confirm on first activation', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, -1, 0), 'confirm');
+  });
+  test('second activation on the armed row accepts', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, 2, 2), 'accept');
+  });
+  test('activating a different row re-arms the confirm there', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, 2, 0), 'confirm');
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
