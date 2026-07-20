@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.29'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.30'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -433,7 +433,6 @@ ${line4}`;
           if (__QA.enabled) {
             ui.eventOpen = false; ui.marketOpen = false; ui.contractsOpen = false;
           }
-          if (ui.toastT > 0) ui.toastT -= d;
           ui.toasts = toastQueueTick(ui.toasts, d);
           tickBanners(d);
           updateEntities(d);
@@ -1673,7 +1672,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       } else if (c && distTiles <= 10) {
         // Close enough - open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
-        else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
+        else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsConfirmIdx = -1; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
         else if (action === 'bank') { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
         else if (action === 'inn') { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
         else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
@@ -6534,7 +6533,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.29',
+    version: 'v0.5.30',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6557,8 +6556,6 @@ function drawNpcBubble() {
 
   const ui = {
     marketOpen: false,
-    toast: 'Walk into a city. Tap the market tile to trade.',
-    toastT: 6,
     toasts: [{ msg: 'Walk into a city. Tap the market tile to trade.', t: 6 }],
     selection: 0,
     marketScroll: 0, // first visible item index
@@ -6942,15 +6939,20 @@ function drawNpcBubble() {
           const maxByGold = price > 0 ? Math.floor(player.gold / price) : 0;
           const maxBuy = ui.mode === 'buy' ? Math.max(0, Math.min(maxBySpace, maxByGold)) : have;
 
+          // One trade-button builder for both layouts — only class + inline
+          // style differ, so markup (data-action/idx/qty, disabled) can't drift.
+          const mkTradeBtn = (cls, style, label, qty, disabled) =>
+            `<button class="${cls}" style="${style}" data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+
           if (isMobile) {
             const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
             const disabled = ui.mode === 'buy' ? (maxBuy <= 0 || notAvailHere) : (have <= 0);
             // Compact side-by-side pair; min-width:0 overrides the coarse-pointer
             // 72px floor so both fit inside .cr-right on narrow phones.
-            const mBtnStyle = 'style="min-width:0;padding:6px 8px;"';
+            const mStyle = 'min-width:0;padding:6px 8px;';
             const btn = `<div style="display:flex;gap:4px;justify-content:flex-end;">` +
-              `<button class="cr-action" ${mBtnStyle} data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>` +
-              `<button class="cr-action" ${mBtnStyle} data-action="trade" data-idx="${i}" data-qty="${maxBuy > 0 ? maxBuy : 1}" ${disabled ? 'disabled' : ''}>${ui.mode === 'buy' ? 'MAX' : 'ALL'}</button>` +
+              mkTradeBtn('cr-action', mStyle, actionLabel, 1, disabled) +
+              mkTradeBtn('cr-action', mStyle, ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, disabled) +
               `</div>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
@@ -6967,8 +6969,7 @@ function drawNpcBubble() {
               </div>
             `);
           } else {
-            const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
-            const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+            const mkBtn = (label, qty, disabled) => mkTradeBtn('cr-tab', 'margin-top:6px;padding:6px 8px;font-size:12px;', label, qty, disabled);
 
             const buyDisabled = notAvailHere || maxBuy <= 0;
             const q1 = mkBtn('±1', 1, ui.mode === 'buy' ? buyDisabled : have <= 0);
@@ -7220,7 +7221,9 @@ function drawNpcBubble() {
         const selected = i === ui.contractsSel;
         const tierTag = `[T${job.tier ?? 0}]`;
         const shownReward = contractRewardForAccept(c.id, job.reward, job.tier);
-        const armed = i === ui.contractsConfirmIdx;
+        // Armed only makes sense while a contract is actually active — a stale
+        // index (e.g. active contract delivered since arming) must not warn.
+        const armed = !!contracts.active && i === ui.contractsConfirmIdx;
         const acceptLabel = armed ? 'Replace?' : 'Accept';
         return `
           <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
@@ -8062,7 +8065,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.29',
+      buildVersion: 'v0.5.30',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8745,6 +8748,7 @@ function drawNpcBubble() {
               ui.marketOpen = false;
               ui.contractsOpen = true;
               ui.contractsSel = 0;
+              ui.contractsConfirmIdx = -1;
               ui.contractsCityId = c.id;
               toast('Contracts board opened', 1.8);
             }
@@ -8995,19 +8999,18 @@ function drawNpcBubble() {
   }
 
   // Age the queue by dt seconds; each entry expires on its own timer.
+  // Empty queues return as-is: this runs every frame, so the common idle case
+  // must not allocate.
   function toastQueueTick(q, dt) {
+    if (!q || !q.length) return q || [];
     const d = Math.max(0, Number(dt) || 0);
-    return (q || []).map(it => ({ msg: it.msg, t: it.t - d })).filter(it => it.t > 0);
+    return q.map(it => ({ msg: it.msg, t: it.t - d })).filter(it => it.t > 0);
   }
 
   const TOAST_MAX_STACK = 3;
 
   function toast(msg, seconds = 3) {
     ui.toasts = toastQueuePush(ui.toasts, msg, seconds, TOAST_MAX_STACK);
-    // Legacy mirror: single-slot fields still drive the canvas-fallback HUD
-    // and any external reader; they always reflect the newest toast.
-    ui.toast = msg;
-    ui.toastT = seconds;
   }
 
   // ── Loot pickup popups ────────────────────────────────────────────────────
@@ -11984,7 +11987,7 @@ function drawEntities() {
     }
     if (atContracts && c) {
       actions.push(['📋', 'Contracts', () => {
-        ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
+        ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsConfirmIdx = -1; ui.contractsCityId = c.id;
         toast('Contracts board opened', 1.8); _fabLastKey = '';
       }]);
     }
@@ -12127,16 +12130,16 @@ if (IS_MOBILE) {
     const alphas = [0.95, 0.72, 0.5];
     ctx.font = `600 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.textAlign = 'left';
-    const newestFirst = [...ui.toasts].reverse();
-    newestFirst.forEach((t, k) => {
+    // Newest entry (last in queue) draws on top; iterate backwards in place.
+    for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
       const ty = baseY + k * stepY;
-      const label = ellipsizeText(t.msg, VIEW_W - padX * 2 - Math.round(12 * UI_SCALE));
+      const label = ellipsizeText(ui.toasts[j].msg, VIEW_W - padX * 2 - Math.round(12 * UI_SCALE));
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = `rgba(10, 14, 20, ${0.62 * (alphas[k] ?? 0.5)})`;
       ctx.fillRect(padX - 4, ty - Math.round(10 * UI_SCALE), tw + 12, Math.round(14 * UI_SCALE));
       ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
       ctx.fillText(label, padX, ty);
-    });
+    }
   }
 
   // Render the DOM minimap widget each frame (keeps it live as player moves)
@@ -12554,11 +12557,11 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       const alphas = [0.95, 0.72, 0.5];
       ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textAlign = 'left';
-      const newestFirst = [...ui.toasts].reverse();
-      newestFirst.forEach((t, k) => {
+      // Newest entry (last in queue) draws on top; iterate backwards in place.
+      for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
         ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
-        ctx.fillText(ellipsizeText(t.msg, maxTextW), titleX, baseY + k * stepY);
-      });
+        ctx.fillText(ellipsizeText(ui.toasts[j].msg, maxTextW), titleX, baseY + k * stepY);
+      }
     }
   }
 
@@ -13122,7 +13125,6 @@ function drawEvent() {
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     stateTime += dt * 1000;
-    if (ui.toastT > 0) ui.toastT -= dt;
     ui.toasts = toastQueueTick(ui.toasts, dt);
     tickBanners(dt); // advance banner TTL every frame so they actually auto-dismiss
 
@@ -13254,14 +13256,21 @@ function drawEvent() {
 
     if (ui.marketOpen) {
       const totalN = ITEMS.length + 1;
+      // Must agree with the window keydown handler: both step through the
+      // rows the renderer actually shows (marketVisibleIndices), otherwise a
+      // physical keypress fires both paths and they fight over ui.selection.
+      const visible = marketVisibleIndices(ui.mode, ITEMS, player.inv);
       if (consumeVKey('Escape')) { ui.marketOpen = false; toast('Market closed', 2); }
-      if (consumeVKey('Tab')) { ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
+      if (consumeVKey('Tab')) {
+        ui.mode = ui.mode === 'buy' ? 'sell' : 'buy';
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+      }
 
       // selection via touch/hold arrows
       ui.navT -= dt;
       if (ui.navT <= 0) {
-        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = (ui.selection + totalN - 1) % totalN; ui.navT = 0.14; }
-        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = (ui.selection + 1) % totalN; ui.navT = 0.14; }
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = marketNavStep(visible, ui.selection, -1); ui.navT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = marketNavStep(visible, ui.selection, +1); ui.navT = 0.14; }
 
         // auto-scroll selection into view (legacy canvas list; keep state consistent)
         const visibleN = Math.max(3, Math.floor((Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE)) - Math.round(110 * UI_SCALE) - Math.round(52 * UI_SCALE)) / Math.round(28 * UI_SCALE)));
@@ -13271,7 +13280,7 @@ function drawEvent() {
       }
 
       if (consumeVKey('Enter') || consumeVKey('Space')) {
-        marketTryTrade(ui.selection);
+        if (visible.includes(ui.selection)) marketTryTrade(ui.selection);
       }
     }
 

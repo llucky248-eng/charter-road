@@ -7,6 +7,20 @@
  *   node ops/scripts/unit_tests.mjs
  */
 
+// ─── Live extraction from src/main.js ────────────────────────────────────────
+// Several tested helpers live inside the game IIFE and are deliberately
+// self-contained; extract them from source (rather than copying) so the tests
+// can never drift from the shipped logic. Matches `function <name>(...) {`
+// through the function's closing 2-space-indented brace.
+import { readFileSync as _readFileSync } from 'node:fs';
+import { fileURLToPath as _fileURLToPath } from 'node:url';
+import { join as _join, dirname as _dirname } from 'node:path';
+const _mainJsSrc = _readFileSync(_join(_dirname(_fileURLToPath(import.meta.url)), '../../src/main.js'), 'utf8');
+function extractFromMain(name) {
+  const m = _mainJsSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+  return m ? new Function(`return (${m[0]})`)() : null;
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -1590,18 +1604,8 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
 // full 0..ITEMS.length index space. These helpers are extracted from the real
 // source (not copied) so the test can never drift from the game.
 {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const { join, dirname } = await import('node:path');
-  const _here = dirname(fileURLToPath(import.meta.url));
-  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
-  const _extract = (name) => {
-    const m = _mainSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
-    if (!m) return null;
-    return new Function(`return (${m[0]})`)();
-  };
-  const marketVisibleIndices = _extract('marketVisibleIndices');
-  const marketNavStep = _extract('marketNavStep');
+  const marketVisibleIndices = extractFromMain('marketVisibleIndices');
+  const marketNavStep = extractFromMain('marketNavStep');
 
   const FIX_ITEMS = [{ id: 'grain' }, { id: 'food' }, { id: 'ore' }, { id: 'herbs' }];
 
@@ -1643,13 +1647,7 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
 // the player only discovered it via a failed-swing toast. staminaMeterState
 // decides when the HUD meter is visible and what it shows.
 {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const { join, dirname } = await import('node:path');
-  const _here = dirname(fileURLToPath(import.meta.url));
-  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
-  const _m = _mainSrc.match(/function staminaMeterState\([^)]*\) \{[\s\S]*?\n  \}/);
-  const staminaMeterState = _m ? new Function(`return (${_m[0]})`)() : null;
+  const staminaMeterState = extractFromMain('staminaMeterState');
 
   console.log('\n=== Mining stamina HUD meter ===');
   test('staminaMeterState exists in src/main.js', () => {
@@ -1684,13 +1682,7 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
 // activation on a row returns 'confirm', a second activation on the same row
 // returns 'accept'.
 {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const { join, dirname } = await import('node:path');
-  const _here = dirname(fileURLToPath(import.meta.url));
-  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
-  const _m = _mainSrc.match(/function contractAcceptDecision\([^)]*\) \{[\s\S]*?\n  \}/);
-  const contractAcceptDecision = _m ? new Function(`return (${_m[0]})`)() : null;
+  const contractAcceptDecision = extractFromMain('contractAcceptDecision');
 
   console.log('\n=== Contract accept/replace decision ===');
   test('contractAcceptDecision exists in src/main.js', () => {
@@ -1716,17 +1708,8 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
 // queue keeps up to 3 concurrent toasts, dropping the oldest on overflow, and
 // each entry expires on its own timer.
 {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const { join, dirname } = await import('node:path');
-  const _here = dirname(fileURLToPath(import.meta.url));
-  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
-  const _extract = (name) => {
-    const m = _mainSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
-    return m ? new Function(`return (${m[0]})`)() : null;
-  };
-  const toastQueuePush = _extract('toastQueuePush');
-  const toastQueueTick = _extract('toastQueueTick');
+  const toastQueuePush = extractFromMain('toastQueuePush');
+  const toastQueueTick = extractFromMain('toastQueueTick');
 
   console.log('\n=== Toast queue ===');
   test('toastQueuePush exists in src/main.js', () => {
