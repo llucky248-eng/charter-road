@@ -372,6 +372,55 @@ async function checkBankDepositScaling() {
   console.log('QA_PASS: bank-deposit-scaling');
 }
 
+// The market footer must show what the pack sells for at THIS city, using
+// sell-side quotes (not buy-side) and summed over current holdings.
+async function checkPackValueReadout() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    // setPlayer merges inv onto the starting pack, so zero every other good to
+    // isolate the two items under test.
+    api.setPlayer({ gold: 100, capacity: 999, inv: { coal: 0, grain: 0, food: 4, ore: 2, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+    if (!api.openMarketUI('valdenmere', 'buy')) return { ok: false, reason: 'market UI did not open' };
+
+    const foot = document.querySelector('.cr-foot');
+    const m = (foot?.textContent || '').match(/Pack sells here for ~(\d+)g/);
+    if (!m) return { ok: false, reason: `no pack-value readout: ${foot?.textContent?.slice(0, 120)}` };
+    const shown = Number(m[1]);
+
+    // Independently sum sell quotes for the same holdings.
+    const expectSell = (api.marketQuote('valdenmere', 'food').sell * 4) + (api.marketQuote('valdenmere', 'ore').sell * 2);
+    const expectBuy = (api.marketQuote('valdenmere', 'food').buy * 4) + (api.marketQuote('valdenmere', 'ore').buy * 2);
+    const matchesSell = shown === expectSell;
+    const notBuy = shown !== expectBuy || expectSell === expectBuy;
+
+    // Empty pack: readout disappears.
+    api.setPlayer({ inv: { coal: 0, grain: 0, food: 0, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+    api.openMarketUI('valdenmere', 'buy');
+    const emptyGone = !/Pack sells here/.test(document.querySelector('.cr-foot')?.textContent || '');
+
+    api.closeUI();
+    return { ok: matchesSell && notBuy && emptyGone, shown, expectSell, expectBuy, matchesSell, notBuy, emptyGone };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`pack-value-readout: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: pack-value-readout');
+}
+
 // Contract board rows must show "You hold X/N" reflecting current inventory
 // (green when the requirement is met) plus a "cheapest at" source hint.
 async function checkContractBoardHints() {
@@ -576,6 +625,7 @@ async function checkMarketPanelNotClipped() {
     await checkBankDepositScaling();
     await checkNavPickerEta();
     await checkContractBoardHints();
+    await checkPackValueReadout();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');

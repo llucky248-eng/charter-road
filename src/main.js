@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.33'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.34'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -515,6 +515,13 @@ ${line4}`;
         } catch (e) {
           return false;
         }
+      },
+
+      /** QA helper: buy/sell/mid quote for an item at a city (for assertions). */
+      marketQuote: (cityId, itemId) => {
+        const it = ITEMS.find(x => x.id === itemId);
+        if (!it) return null;
+        return quoteFor(cityId, it);
       },
 
       /** QA helper: open the contracts board at a city and render. */
@@ -6600,7 +6607,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.33',
+    version: 'v0.5.34',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -7232,6 +7239,11 @@ function drawNpcBubble() {
             </div>
             <div class="cr-foot">
               <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity} &nbsp; ${currentGear('boots').icon} ${currentGear('boots').name} &nbsp; ${currentGear('tool').icon} ${currentGear('tool').name}</div>
+              ${(() => {
+                // What the pack would fetch at this city's sell quotes (before tax).
+                const pv = packSellValue(player.inv, ITEMS, it => quoteFor(c.id, it).sell);
+                return pv > 0 ? `<div class="cr-hint" style="color:#86efac">Pack sells here for ~${pv}g (before tax)</div>` : '';
+              })()}
               <div class="cr-hint">Esc close · Tab switch · Enter trade</div>
             </div>
           </div>
@@ -8179,7 +8191,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.33',
+      buildVersion: 'v0.5.34',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9283,6 +9295,19 @@ function drawNpcBubble() {
   function cargoMarketValue(inv, items) {
     let v = 0;
     for (const it of items) v += (inv[it.id] || 0) * it.base;
+    return v;
+  }
+
+  // Total the pack would fetch at a city's sell quotes (before tax). sellPriceOf
+  // maps an item to its per-city sell price, injected so this stays a pure
+  // function of state. Mirrored assertions in ops/scripts/unit_tests.mjs extract
+  // this from source — keep it self-contained.
+  function packSellValue(inv, items, sellPriceOf) {
+    let v = 0;
+    for (const it of items) {
+      const n = inv[it.id] || 0;
+      if (n > 0) v += n * (sellPriceOf(it) || 0);
+    }
     return v;
   }
 

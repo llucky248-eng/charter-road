@@ -1862,6 +1862,34 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Pack sell-value (extracted live from src/main.js) ───────────────────────
+// The market footer shows what the pack would fetch at the current city's sell
+// quotes, so the player can judge sell-here vs. carry-on. packSellValue sums
+// qty × sell-price via an injected price lookup (pure; no game state).
+{
+  const packSellValue = extractFromMain('packSellValue');
+  const ITEMS3 = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const prices = { a: 10, b: 5, c: 40 };
+  const sellOf = (it) => prices[it.id];
+
+  console.log('\n=== Pack sell-value ===');
+  test('packSellValue exists in src/main.js', () => {
+    assert(typeof packSellValue === 'function', 'packSellValue not found in src/main.js');
+  });
+  test('sums qty × sell price across held items', () => {
+    assertEqual(packSellValue({ a: 2, b: 3 }, ITEMS3, sellOf), 35);
+  });
+  test('ignores items the player does not hold', () => {
+    assertEqual(packSellValue({ c: 1 }, ITEMS3, sellOf), 40);
+  });
+  test('empty pack is worth zero', () => {
+    assertEqual(packSellValue({}, ITEMS3, sellOf), 0);
+  });
+  test('a zero/absent sell price contributes nothing', () => {
+    assertEqual(packSellValue({ a: 2 }, ITEMS3, () => 0), 0);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
