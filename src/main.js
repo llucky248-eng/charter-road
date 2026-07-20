@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.28'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.29'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -434,6 +434,7 @@ ${line4}`;
             ui.eventOpen = false; ui.marketOpen = false; ui.contractsOpen = false;
           }
           if (ui.toastT > 0) ui.toastT -= d;
+          ui.toasts = toastQueueTick(ui.toasts, d);
           tickBanners(d);
           updateEntities(d);
           updateAiTraders(d);
@@ -6533,7 +6534,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.28',
+    version: 'v0.5.29',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6558,6 +6559,7 @@ function drawNpcBubble() {
     marketOpen: false,
     toast: 'Walk into a city. Tap the market tile to trade.',
     toastT: 6,
+    toasts: [{ msg: 'Walk into a city. Tap the market tile to trade.', t: 6 }],
     selection: 0,
     marketScroll: 0, // first visible item index
     _marketList: null,
@@ -8060,7 +8062,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.28',
+      buildVersion: 'v0.5.29',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8981,7 +8983,29 @@ function drawNpcBubble() {
     return removed;
   }
 
+  // Append a toast to the queue (immutable; returns the new queue). Keeps at
+  // most `max` entries, dropping the oldest on overflow so rapid back-to-back
+  // toasts stack instead of overwriting each other. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract these two helpers from source — keep
+  // them self-contained.
+  function toastQueuePush(q, msg, seconds, max) {
+    const out = (q || []).concat([{ msg: String(msg), t: Math.max(0.1, Number(seconds) || 3) }]);
+    while (out.length > (max || 3)) out.shift();
+    return out;
+  }
+
+  // Age the queue by dt seconds; each entry expires on its own timer.
+  function toastQueueTick(q, dt) {
+    const d = Math.max(0, Number(dt) || 0);
+    return (q || []).map(it => ({ msg: it.msg, t: it.t - d })).filter(it => it.t > 0);
+  }
+
+  const TOAST_MAX_STACK = 3;
+
   function toast(msg, seconds = 3) {
+    ui.toasts = toastQueuePush(ui.toasts, msg, seconds, TOAST_MAX_STACK);
+    // Legacy mirror: single-slot fields still drive the canvas-fallback HUD
+    // and any external reader; they always reflect the newest toast.
     ui.toast = msg;
     ui.toastT = seconds;
   }
@@ -12095,6 +12119,26 @@ if (IS_MOBILE) {
   // Mining stamina meter: slim bar just under the HUD strip
   if (smMeter) drawStaminaBar(smMeter, padX, topH + Math.round(6 * UI_SCALE), Math.round(90 * UI_SCALE));
 
+  // Toast stack: the slim mobile HUD never rendered ui.toast at all — draw up
+  // to 3 entries (newest on top) under the strip, offset past the stamina bar.
+  if (ui.toasts && ui.toasts.length) {
+    const baseY = topH + Math.round((smMeter ? 24 : 16) * UI_SCALE);
+    const stepY = Math.round(15 * UI_SCALE);
+    const alphas = [0.95, 0.72, 0.5];
+    ctx.font = `600 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textAlign = 'left';
+    const newestFirst = [...ui.toasts].reverse();
+    newestFirst.forEach((t, k) => {
+      const ty = baseY + k * stepY;
+      const label = ellipsizeText(t.msg, VIEW_W - padX * 2 - Math.round(12 * UI_SCALE));
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = `rgba(10, 14, 20, ${0.62 * (alphas[k] ?? 0.5)})`;
+      ctx.fillRect(padX - 4, ty - Math.round(10 * UI_SCALE), tw + 12, Math.round(14 * UI_SCALE));
+      ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
+      ctx.fillText(label, padX, ty);
+    });
+  }
+
   // Render the DOM minimap widget each frame (keeps it live as player moves)
   _mmRender();
 
@@ -12502,13 +12546,19 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
   ctx.restore();
 }
 
-    // toast (inside HUD; never overlaps gameplay)
-    if (ui.toastT > 0) {
-      const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
-      ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-      ctx.fillText(ellipsizeText(ui.toast, maxTextW), titleX, toastY);
-
-
+    // Toast stack (newest on top, older entries fade below). The first line
+    // sits inside the HUD strip; overflow lines extend below it over the map.
+    if (ui.toasts && ui.toasts.length) {
+      const baseY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
+      const stepY = Math.round(14 * UI_SCALE);
+      const alphas = [0.95, 0.72, 0.5];
+      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textAlign = 'left';
+      const newestFirst = [...ui.toasts].reverse();
+      newestFirst.forEach((t, k) => {
+        ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
+        ctx.fillText(ellipsizeText(t.msg, maxTextW), titleX, baseY + k * stepY);
+      });
     }
   }
 
@@ -13073,6 +13123,7 @@ function drawEvent() {
     last = now;
     stateTime += dt * 1000;
     if (ui.toastT > 0) ui.toastT -= dt;
+    ui.toasts = toastQueueTick(ui.toasts, dt);
     tickBanners(dt); // advance banner TTL every frame so they actually auto-dismiss
 
     // Mining stamina regen: +1/sec, capped at 100. Throttled to once-per-second

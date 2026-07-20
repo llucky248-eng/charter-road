@@ -1710,6 +1710,62 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Toast queue (extracted live from src/main.js) ───────────────────────────
+// toast() was a single slot (ui.toast/ui.toastT): a sell toast followed within
+// a frame by a milestone toast erased the first before it could be read. The
+// queue keeps up to 3 concurrent toasts, dropping the oldest on overflow, and
+// each entry expires on its own timer.
+{
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const _here = dirname(fileURLToPath(import.meta.url));
+  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
+  const _extract = (name) => {
+    const m = _mainSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+    return m ? new Function(`return (${m[0]})`)() : null;
+  };
+  const toastQueuePush = _extract('toastQueuePush');
+  const toastQueueTick = _extract('toastQueueTick');
+
+  console.log('\n=== Toast queue ===');
+  test('toastQueuePush exists in src/main.js', () => {
+    assert(typeof toastQueuePush === 'function', 'toastQueuePush not found in src/main.js');
+  });
+  test('toastQueueTick exists in src/main.js', () => {
+    assert(typeof toastQueueTick === 'function', 'toastQueueTick not found in src/main.js');
+  });
+  test('rapid toasts stack instead of overwriting', () => {
+    let q = [];
+    q = toastQueuePush(q, 'Sold 5 Grain (+60g)', 2, 3);
+    q = toastQueuePush(q, 'Guild milestone!', 2, 3);
+    assertEqual(q.length, 2);
+    assertEqual(q[0].msg, 'Sold 5 Grain (+60g)');
+    assertEqual(q[1].msg, 'Guild milestone!');
+  });
+  test('overflow drops the oldest, never the newest', () => {
+    let q = [];
+    for (const m of ['a', 'b', 'c', 'd']) q = toastQueuePush(q, m, 2, 3);
+    assertEqual(q.length, 3);
+    assertEqual(JSON.stringify(q.map(t => t.msg)), JSON.stringify(['b', 'c', 'd']));
+  });
+  test('entries expire independently on their own timers', () => {
+    let q = [];
+    q = toastQueuePush(q, 'short', 0.5, 3);
+    q = toastQueuePush(q, 'long', 3, 3);
+    q = toastQueueTick(q, 1);
+    assertEqual(q.length, 1);
+    assertEqual(q[0].msg, 'long');
+    assertClose(q[0].t, 2);
+  });
+  test('tick with no elapsed time changes nothing', () => {
+    let q = toastQueuePush([], 'x', 2, 3);
+    q = toastQueueTick(q, 0);
+    assertEqual(q.length, 1);
+    assertClose(q[0].t, 2);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
