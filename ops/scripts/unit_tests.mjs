@@ -1785,6 +1785,42 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Navigate ETA (extracted live from src/main.js) ──────────────────────────
+// The navigate picker now shows trip distance + ETA so the player can judge a
+// trip's cost before committing. pathLengthPx sums the waypoint segments;
+// etaSeconds divides by the player's effective boots speed.
+{
+  const pathLengthPx = extractFromMain('pathLengthPx');
+  const etaSeconds = extractFromMain('etaSeconds');
+
+  console.log('\n=== Navigate ETA ===');
+  test('pathLengthPx exists in src/main.js', () => {
+    assert(typeof pathLengthPx === 'function', 'pathLengthPx not found in src/main.js');
+  });
+  test('etaSeconds exists in src/main.js', () => {
+    assert(typeof etaSeconds === 'function', 'etaSeconds not found in src/main.js');
+  });
+  test('single segment measures Euclidean distance', () => {
+    assertClose(pathLengthPx([{ x: 0, y: 0 }, { x: 3, y: 4 }]), 5);
+  });
+  test('multi-segment path sums each leg', () => {
+    assertClose(pathLengthPx([{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]), 20);
+  });
+  test('degenerate paths are zero length', () => {
+    assertClose(pathLengthPx([{ x: 5, y: 5 }]), 0);
+    assertClose(pathLengthPx([]), 0);
+    assertClose(pathLengthPx(null), 0);
+  });
+  test('ETA is distance over speed', () => {
+    assertClose(etaSeconds(180, 90), 2);
+    assertClose(etaSeconds(45, 90), 0.5);
+  });
+  test('non-positive speed yields zero ETA (no divide-by-zero)', () => {
+    assertEqual(etaSeconds(100, 0), 0);
+    assertEqual(etaSeconds(100, -5), 0);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {

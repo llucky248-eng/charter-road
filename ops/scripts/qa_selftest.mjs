@@ -372,6 +372,60 @@ async function checkBankDepositScaling() {
   console.log('QA_PASS: bank-deposit-scaling');
 }
 
+// The navigate picker must show trip distance + ETA per destination so the
+// player can judge a trip before committing, and the ETA must scale with boots.
+async function checkNavPickerEta() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    if (typeof api.openNavPicker !== 'function') return { ok: false, reason: 'openNavPicker QA helper missing' };
+
+    // Slow boots: every destination shows a tiles + ETA line.
+    api.setPlayer({ gear: { boots: 0 } });
+    if (!api.openNavPicker('valdenmere')) return { ok: false, reason: 'nav picker did not open' };
+    const slowBtns = [...document.querySelectorAll('#cr-nav-picker [data-city]')];
+    if (slowBtns.length === 0) return { ok: false, reason: 'no destination buttons' };
+    const parseEta = (btn) => {
+      const m = (btn.textContent || '').match(/~(?:(\d+)m )?(\d+)s at/);
+      if (!m) return null;
+      return (Number(m[1] || 0) * 60) + Number(m[2]);
+    };
+    const slowEtas = slowBtns.map(parseEta);
+    const allHaveTrip = slowEtas.every(e => e !== null && e > 0);
+    const tilesShown = slowBtns.every(b => /~\d+ tiles/.test(b.textContent || ''));
+    // Pick a reference destination to compare across boots tiers.
+    const refCity = slowBtns[0].getAttribute('data-city');
+    const slowEta = parseEta(slowBtns[0]);
+
+    // Faster boots: same route, strictly shorter ETA.
+    api.setPlayer({ gear: { boots: 3 } });
+    api.openNavPicker('valdenmere');
+    const fastBtn = document.querySelector(`#cr-nav-picker [data-city="${refCity}"]`);
+    const fastEta = parseEta(fastBtn);
+    const fasterIsQuicker = fastEta !== null && slowEta !== null && fastEta < slowEta;
+
+    api.closeUI();
+    return { ok: allHaveTrip && tilesShown && fasterIsQuicker, allHaveTrip, tilesShown, fasterIsQuicker, slowEta, fastEta };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`nav-picker-eta: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: nav-picker-eta');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -464,6 +518,7 @@ async function checkMarketPanelNotClipped() {
     await checkMobileMarketQtyButtons();
     await checkContractReplaceAndAbandon();
     await checkBankDepositScaling();
+    await checkNavPickerEta();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');

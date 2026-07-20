@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.31'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.32'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -549,12 +549,26 @@ ${line4}`;
         }
       },
 
+      /** QA helper: open the navigate picker from a given origin city and
+       *  return whether the picker rendered. */
+      openNavPicker: (fromCityId = 'valdenmere') => {
+        try {
+          __QA.api.teleportToCity(fromCityId);
+          document.getElementById('cr-nav-picker')?.remove(); // ensure a fresh open
+          showNavPicker();
+          return !!document.getElementById('cr-nav-picker');
+        } catch (e) {
+          return false;
+        }
+      },
+
       /** QA helper: close any open modal and re-render. */
       closeUI: () => {
         ui.marketOpen = false;
         ui.contractsOpen = false;
         ui.eventOpen = false;
         ui.bankOpen = false;
+        document.getElementById('cr-nav-picker')?.remove();
         domRender();
       },
 
@@ -1049,6 +1063,13 @@ ${line4}`;
       background:rgba(0,0,0,0.55); font-family:system-ui,sans-serif;
     `;
     const currentC = currentCity();
+    // Trips are measured from the city the player would depart (current city, or
+    // nearest when on the road) — the same origin startNavTo uses.
+    const navFromId = currentC ? currentC.id : _nearestCityId();
+    const fmtEta = (secs) => {
+      const s = Math.round(secs);
+      return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+    };
     const buttons = world.cities
       .filter(c2 => !currentC || c2.id !== currentC.id)
       .map(c2 => {
@@ -1061,6 +1082,12 @@ ${line4}`;
         const treVal   = (_tre && _tre.gold > 0) ? `${_tre.gold}g` : '-';
         const hungerPct= _cpop ? Math.round(_cpop.hunger * 100) : 0;
         const hungerCol= hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
+        // Distance + ETA at current boots speed (buildTraderPath is cached per route).
+        const _path    = navFromId && navFromId !== c2.id ? buildTraderPath(navFromId, c2.id) : null;
+        const _len     = pathLengthPx(_path);
+        const tripLine = _len > 0
+          ? `🚶 ~${Math.round(_len / TILE)} tiles · ~${fmtEta(etaSeconds(_len, player.speed))} at ${currentGear('boots').icon}`
+          : '';
         return `
           <button data-city="${c2.id}" style="
             display:flex; flex-direction:column; align-items:flex-start;
@@ -1077,6 +1104,7 @@ ${line4}`;
               &nbsp;·&nbsp;
               Hunger: <b style="color:${hungerCol}">${hungerPct}%</b>
             </span>
+            ${tripLine ? `<span style="font-size:11px;color:#7fbf83;margin-top:4px">${htmlEscape(tripLine)}</span>` : ''}
           </button>`;
       }).join('');
 
@@ -6550,7 +6578,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.31',
+    version: 'v0.5.32',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6669,6 +6697,26 @@ function drawNpcBubble() {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  // Total pixel length of a waypoint path (sum of segment distances). Used to
+  // estimate travel distance + ETA in the navigate picker. Mirrored assertions
+  // in ops/scripts/unit_tests.mjs extract this from source — keep it
+  // self-contained.
+  function pathLengthPx(path) {
+    if (!path || path.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < path.length; i++) {
+      total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+    }
+    return total;
+  }
+
+  // Estimated seconds to walk `lengthPx` at `speed` px/sec. Zero (not Infinity)
+  // when speed is non-positive so the picker shows a clean fallback.
+  function etaSeconds(lengthPx, speed) {
+    const s = Number(speed) || 0;
+    return s > 0 ? (Number(lengthPx) || 0) / s : 0;
   }
 
   // Bank deposit quick-amounts scaled to the player's wealth: 10% / 50% / 100%
@@ -8100,7 +8148,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.31',
+      buildVersion: 'v0.5.32',
       savedAt: Date.now(),
       player: {
         x: player.x,
