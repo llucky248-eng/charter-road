@@ -372,6 +372,62 @@ async function checkBankDepositScaling() {
   console.log('QA_PASS: bank-deposit-scaling');
 }
 
+// Contract board rows must show "You hold X/N" reflecting current inventory
+// (green when the requirement is met) plus a "cheapest at" source hint.
+async function checkContractBoardHints() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setActiveContract(null);
+
+    // Empty pack: first job shows "You hold 0/N" and a "cheapest at" hint.
+    api.setPlayer({ gold: 50, inv: {}, capacity: 999 });
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not open' };
+    const firstCard = document.querySelector('.cr-list .cr-card[data-cidx]');
+    if (!firstCard) return { ok: false, reason: 'no job cards' };
+    const emptyText = firstCard.textContent || '';
+    const showsZeroHold = /You hold 0\/\d+/.test(emptyText);
+    const showsCheapest = /cheapest at /i.test(emptyText);
+
+    // Read what the first job wants (data-want) and how many (from the title).
+    const m = emptyText.match(/Deliver (\d+)×/);
+    if (!m) return { ok: false, reason: `could not parse job qty: ${emptyText.slice(0, 80)}` };
+    const needQty = Number(m[1]);
+    const wantId = firstCard.getAttribute('data-want');
+    if (!wantId) return { ok: false, reason: 'card missing data-want' };
+
+    // Stock the requirement: the label must flip to met (green + ✓).
+    const inv = {}; inv[wantId] = needQty;
+    api.setPlayer({ inv, capacity: 999 });
+    api.openContractsUI('valdenmere');
+    const metCard = document.querySelector('.cr-list .cr-card[data-cidx]');
+    const metText = metCard.textContent || '';
+    const showsMet = new RegExp(`You hold ${needQty}/${needQty} ✓`).test(metText);
+    const metSub = metCard.querySelector('.cr-card-sub[style*="86efac"]');
+    const isGreen = !!metSub;
+
+    api.closeUI();
+    return { ok: showsZeroHold && showsCheapest && showsMet && isGreen, showsZeroHold, showsCheapest, showsMet, isGreen, wantId, needQty };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`contract-board-hints: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: contract-board-hints');
+}
+
 // The navigate picker must show trip distance + ETA per destination so the
 // player can judge a trip before committing, and the ETA must scale with boots.
 async function checkNavPickerEta() {
@@ -519,6 +575,7 @@ async function checkMarketPanelNotClipped() {
     await checkContractReplaceAndAbandon();
     await checkBankDepositScaling();
     await checkNavPickerEta();
+    await checkContractBoardHints();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');

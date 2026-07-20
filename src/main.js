@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.32'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.33'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3512,17 +3512,39 @@ const NPC_INTERACT_RADIUS = 18;
     return 0.97 + u * 0.06; // [0.97, 1.03]
   }
 
+  // Per-city price multipliers — the canonical balance table, mirrored in
+  // world_service.mjs + lib/mining.mjs and checked by economy_parity_test.mjs
+  // (edit all copies together). Also drives the contract board's "cheapest at"
+  // hint, so it must stay a plain literal the parity regex can parse.
+  const CITY_MULTS = {
+    valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
+    ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
+    crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
+    ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
+  };
+
+  // Contract board hints (public knowledge — no live prices). contractHoldLabel
+  // reports progress toward a job from current inventory; cheapestCityFor names
+  // the lowest-multiplier city for an item. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract both from source — keep self-contained.
+  function contractHoldLabel(inv, job) {
+    const need = Math.max(0, Math.floor(job?.qty || 0));
+    const have = Math.max(0, Math.floor((inv && inv[job?.want]) || 0));
+    return { have, need, met: need > 0 && have >= need };
+  }
+
+  function cheapestCityFor(itemId, cityMults) {
+    let best = null, bestMult = Infinity;
+    for (const cityId of Object.keys(cityMults || {})) {
+      const m = cityMults[cityId]?.[itemId];
+      if (typeof m === 'number' && m < bestMult) { bestMult = m; best = cityId; }
+    }
+    return best;
+  }
+
   // midPriceFor uses the hardcoded mults table (same as priceFor) + daily wobble.
   // This is now the canonical mid-price for all market purposes.
   function midPriceFor(cityId, item) {
-    // Get the city multiplier from the hardcoded mults table in priceFor.
-    // We inline the mults here to keep them consistent.
-    const CITY_MULTS = {
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
-    };
     const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
     const wob   = dayWobble(cityId, item);
@@ -6578,7 +6600,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.32',
+    version: 'v0.5.33',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6924,6 +6946,9 @@ function drawNpcBubble() {
     } else if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
       key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${ui.contractsConfirmIdx}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
+      // Board rows show "You hold X/N" per job, so a holdings change must
+      // re-render: fold the wanted-item counts for the visible jobs into the key.
+      if (c) for (const j of (contracts.byCity[c.id] || [])) key += `|${j.want}:${player.inv[j.want] || 0}`;
     } else if (kind === 'event') {
       key += `|${ui.eventTitle}|${ui.eventText}|${ui.eventSel}|${ui.eventChoices.length}|${ui.eventKind}|${ui.eventDismissable ? 1 : 0}|${ui.eventStakes}`;
     } else if (kind === 'bank') {
@@ -7303,11 +7328,17 @@ function drawNpcBubble() {
         // index (e.g. active contract delivered since arming) must not warn.
         const armed = !!contracts.active && i === ui.contractsConfirmIdx;
         const acceptLabel = armed ? 'Replace?' : 'Accept';
+        // Progress from current pack + where the good is cheapest (public info).
+        const hold = contractHoldLabel(player.inv, job);
+        const cheapId = cheapestCityFor(job.want, CITY_MULTS);
+        const srcHint = cheapId ? ` · 🏷️ cheapest at ${htmlEscape(cityName(cheapId))}` : '';
+        const holdLine = `<div class="cr-card-sub" style="color:${hold.met ? '#86efac' : '#a09060'}">You hold ${hold.have}/${hold.need}${hold.met ? ' ✓' : ''}${srcHint}</div>`;
         return `
-          <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
+          <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" data-want="${htmlEscape(job.want)}" aria-current="${selected}">
             <div>
               <div class="cr-card-title">${htmlEscape(tierTag)} Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
               <div class="cr-card-sub">Reward: ${shownReward}g</div>
+              ${holdLine}
               ${armed ? '<div class="cr-card-sub" style="color:#fbbf24">⚠️ Replaces your active contract</div>' : ''}
             </div>
             <div class="cr-right">
@@ -8148,7 +8179,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.32',
+      buildVersion: 'v0.5.33',
       savedAt: Date.now(),
       player: {
         x: player.x,

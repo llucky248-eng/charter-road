@@ -1821,6 +1821,47 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Contract board hints (extracted live from src/main.js) ──────────────────
+// Board rows now show what the player already holds toward each job and where
+// the item is cheapest, using static public knowledge (no live prices).
+{
+  const contractHoldLabel = extractFromMain('contractHoldLabel');
+  const cheapestCityFor = extractFromMain('cheapestCityFor');
+  const MULTS = {
+    valdenmere: { grain: 1.10, ore: 1.20 },
+    ashport:    { grain: 1.05, ore: 1.05 },
+    crosshaven: { grain: 0.90, ore: 1.00 },
+    ironholt:   { grain: 1.15, ore: 0.65 },
+  };
+
+  console.log('\n=== Contract board hints ===');
+  test('contractHoldLabel exists in src/main.js', () => {
+    assert(typeof contractHoldLabel === 'function', 'contractHoldLabel not found in src/main.js');
+  });
+  test('cheapestCityFor exists in src/main.js', () => {
+    assert(typeof cheapestCityFor === 'function', 'cheapestCityFor not found in src/main.js');
+  });
+  test('holdings under the requirement are not met', () => {
+    const l = contractHoldLabel({ ore: 3 }, { want: 'ore', qty: 5 });
+    assertEqual(l.have, 3); assertEqual(l.need, 5); assertEqual(l.met, false);
+  });
+  test('holdings at or above the requirement are met', () => {
+    assertEqual(contractHoldLabel({ ore: 5 }, { want: 'ore', qty: 5 }).met, true);
+    assertEqual(contractHoldLabel({ ore: 9 }, { want: 'ore', qty: 5 }).met, true);
+  });
+  test('no holdings reads zero, not NaN', () => {
+    const l = contractHoldLabel({}, { want: 'ore', qty: 5 });
+    assertEqual(l.have, 0); assertEqual(l.met, false);
+  });
+  test('cheapestCityFor returns the lowest-multiplier city', () => {
+    assertEqual(cheapestCityFor('grain', MULTS), 'crosshaven');
+    assertEqual(cheapestCityFor('ore', MULTS), 'ironholt');
+  });
+  test('cheapestCityFor returns null for an unknown item', () => {
+    assertEqual(cheapestCityFor('mithril', MULTS), null);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
