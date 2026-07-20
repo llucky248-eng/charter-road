@@ -2,8 +2,9 @@
 
 Audit date: 2026-07-20 · Baseline: `e842a01` · All line refs are `src/main.js` unless noted.
 
-**Status:** items 1–5 (all P1) shipped on this branch — v0.5.25 through v0.5.29,
-one commit each. Items 6–10 (P2) remain open.
+**Status:** ALL 10 items shipped on this branch, one commit each.
+- P1 items 1–5: v0.5.25–v0.5.29 (+ review fixes v0.5.30).
+- P2 items 7, 8, 9, 10, 6: v0.5.31–v0.5.35.
 
 Each item lists the problem (with code evidence), the planned fix, and the test to
 write **first** (red → green, per the Test-first rule). Items touching `src/main.js`
