@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.26'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.27'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -721,6 +721,8 @@ ${line4}`;
       qaGetMiningState: () => ({
         stamina: player.mineStamina,
         cooldowns: { ...(player.mineCooldown || {}) },
+        // HUD meter as drawHUD would render it right now (null = hidden)
+        hudMeter: staminaMeterState(player.mineStamina ?? 100, !!nearMineTile(), player.miningStaminaCost ?? 15),
       }),
       /** Set player stamina directly (for cooldown/full-cargo isolation tests). */
       qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
@@ -6515,7 +6517,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.26',
+    version: 'v0.5.27',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -8010,7 +8012,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.26',
+      buildVersion: 'v0.5.27',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8455,6 +8457,19 @@ function drawNpcBubble() {
       }
     }
     return null;
+  }
+
+  // HUD stamina meter visibility: hidden only at full stamina away from any
+  // vein; otherwise shows fill fraction and a color ramp keyed to how many
+  // swings remain at the current pickaxe's cost (2+ green, 1 amber, 0 red).
+  // Mirrored assertions in ops/scripts/unit_tests.mjs extract this function
+  // from source — keep it self-contained (no outer-scope references).
+  function staminaMeterState(stamina, nearVein, swingCost) {
+    const s = Math.min(100, Math.max(0, Math.round(Number(stamina) || 0)));
+    if (s >= 100 && !nearVein) return null;
+    const cost = Math.max(1, Number(swingCost) || 15);
+    const color = s < cost ? '#ef4444' : s < cost * 2 ? '#fbbf24' : '#4ade80';
+    return { frac: s / 100, color, label: `${s}/100` };
   }
 
   // Player-active mining: 30s per-vein cooldown, 15 stamina per swing,
@@ -11934,10 +11949,30 @@ function drawEntities() {
     }
   }
 
+  // Small ⛏-labelled stamina bar. sm comes from staminaMeterState (non-null).
+  function drawStaminaBar(sm, x, y, w) {
+    const h = Math.max(4, Math.round(5 * UI_SCALE));
+    ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(232,237,242,0.9)';
+    ctx.fillText('⛏', x, y + h);
+    const bx = x + Math.round(14 * UI_SCALE);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(bx - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(bx, y, w, h);
+    ctx.fillStyle = sm.color;
+    ctx.fillRect(bx, y, Math.round(w * sm.frac), h);
+  }
+
   function drawHUD() {
     const c = currentCity();
     const rules = c ? CITY_RULES[c.id] : null;
     const w = invWeight();
+    // Mining stamina meter: computed every frame so the QA api and both HUD
+    // layouts (mobile strip, desktop under-minimap) agree on visibility.
+    const smMeter = staminaMeterState(player.mineStamina ?? 100, !!nearMineTile(), player.miningStaminaCost ?? 15);
+    ui._staminaMeter = smMeter;
 
     const pad = Math.round(14 * UI_SCALE);
 
@@ -12008,6 +12043,9 @@ if (IS_MOBILE) {
     ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 4 * UI_SCALE));
   }
+
+  // Mining stamina meter: slim bar just under the HUD strip
+  if (smMeter) drawStaminaBar(smMeter, padX, topH + Math.round(6 * UI_SCALE), Math.round(90 * UI_SCALE));
 
   // Render the DOM minimap widget each frame (keeps it live as player moves)
   _mmRender();
@@ -12109,6 +12147,8 @@ if (IS_MOBILE) {
     }
     // contract compass
     drawCompassArrowOnMinimap(mmX, mmY, mmSize);
+    // Mining stamina meter: under the minimap
+    if (smMeter) drawStaminaBar(smMeter, mmX, mmY + mmSize + Math.round(10 * UI_SCALE), mmSize - Math.round(14 * UI_SCALE));
     // camera viewport box
     const vx = (camera.x / (MAP_W * TILE)) * mmSize;
     const vy = (camera.y / (MAP_H * TILE)) * mmSize;

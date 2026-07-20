@@ -1638,6 +1638,46 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   });
 }
 
+// ─── Mining stamina HUD meter (extracted live from src/main.js) ──────────────
+// Stamina is a real resource (8–15/swing, regen 1/s) but was never drawn;
+// the player only discovered it via a failed-swing toast. staminaMeterState
+// decides when the HUD meter is visible and what it shows.
+{
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const _here = dirname(fileURLToPath(import.meta.url));
+  const _mainSrc = readFileSync(join(_here, '../../src/main.js'), 'utf8');
+  const _m = _mainSrc.match(/function staminaMeterState\([^)]*\) \{[\s\S]*?\n  \}/);
+  const staminaMeterState = _m ? new Function(`return (${_m[0]})`)() : null;
+
+  console.log('\n=== Mining stamina HUD meter ===');
+  test('staminaMeterState exists in src/main.js', () => {
+    assert(typeof staminaMeterState === 'function', 'staminaMeterState not found in src/main.js');
+  });
+  test('hidden at full stamina away from veins', () => {
+    assertEqual(staminaMeterState(100, false, 15), null);
+  });
+  test('shown at full stamina when near a vein', () => {
+    const s = staminaMeterState(100, true, 15);
+    assert(s && s.frac === 1, `expected frac 1, got ${JSON.stringify(s)}`);
+  });
+  test('shown whenever stamina is below max', () => {
+    const s = staminaMeterState(40, false, 15);
+    assert(s && Math.abs(s.frac - 0.4) < 1e-9, `expected frac 0.4, got ${JSON.stringify(s)}`);
+  });
+  test('color ramps green → amber → red as swings run out', () => {
+    assertEqual(staminaMeterState(40, false, 15).color, '#4ade80', 'two+ swings left = green');
+    assertEqual(staminaMeterState(20, false, 15).color, '#fbbf24', 'one swing left = amber');
+    assertEqual(staminaMeterState(10, false, 15).color, '#ef4444', 'cannot swing = red');
+  });
+  test('out-of-range stamina is clamped', () => {
+    assertEqual(staminaMeterState(120, false, 15), null, '>=100 hides off-vein');
+    const s = staminaMeterState(-5, false, 15);
+    assert(s && s.frac === 0 && s.color === '#ef4444', `expected clamped 0/red, got ${JSON.stringify(s)}`);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
