@@ -245,6 +245,7 @@ function migrateSave(raw) {
       s.player.permits[cid] ??= false;
     }
     s.player.facing ||= { x: 0, y: 1 };
+    s.player.priceLedger ||= {};
     s.time ||= { day: 1, frac: 0, seed: 1 };
     s.marketDrift ||= {};
     for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) s.marketDrift[cid] ||= {};
@@ -255,6 +256,7 @@ function migrateSave(raw) {
     if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
   }
   if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+  if (s.player && !isObj(s.player.priceLedger)) s.player.priceLedger = {};
   return s;
 }
 
@@ -1628,6 +1630,10 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
     const vis = marketVisibleIndices('sell', FIX_ITEMS, { food: 0 });
     assertEqual(JSON.stringify(vis), JSON.stringify([]));
   });
+  test('non-trading tabs (gear/prices) list nothing selectable', () => {
+    assertEqual(JSON.stringify(marketVisibleIndices('gear', FIX_ITEMS, { food: 5 })), JSON.stringify([]));
+    assertEqual(JSON.stringify(marketVisibleIndices('prices', FIX_ITEMS, { food: 5 })), JSON.stringify([]));
+  });
   test('nav steps forward within visible rows and wraps', () => {
     assertEqual(marketNavStep([1, 3], 1, +1), 3);
     assertEqual(marketNavStep([1, 3], 3, +1), 1, 'wraps to first');
@@ -1889,6 +1895,44 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
     assertEqual(packSellValue({ a: 2 }, ITEMS3, () => 0), 0);
   });
 }
+
+// ─── Price ledger (extracted live from src/main.js) ──────────────────────────
+// The market PRICES tab shows last-seen quotes per visited city. makePriceLedgerEntry
+// snapshots a quote map with the visit day, dropping malformed quotes.
+{
+  const makePriceLedgerEntry = extractFromMain('makePriceLedgerEntry');
+
+  console.log('\n=== Price ledger ===');
+  test('makePriceLedgerEntry exists in src/main.js', () => {
+    assert(typeof makePriceLedgerEntry === 'function', 'makePriceLedgerEntry not found in src/main.js');
+  });
+  test('captures buy/sell per item and stamps the day', () => {
+    const e = makePriceLedgerEntry({ grain: { buy: 11, sell: 10 }, ore: { buy: 26, sell: 24 } }, 12.9);
+    assertEqual(e.day, 12);
+    assertEqual(JSON.stringify(e.quotes), JSON.stringify({ grain: { buy: 11, sell: 10 }, ore: { buy: 26, sell: 24 } }));
+  });
+  test('drops malformed quotes (missing/NaN buy or sell)', () => {
+    const e = makePriceLedgerEntry({ grain: { buy: 11, sell: 10 }, bad: { buy: 5 }, worse: null, nan: { buy: NaN, sell: 3 } }, 1);
+    assertEqual(JSON.stringify(Object.keys(e.quotes)), JSON.stringify(['grain']));
+  });
+  test('empty or missing quote map yields an empty entry', () => {
+    assertEqual(JSON.stringify(makePriceLedgerEntry({}, 5)), JSON.stringify({ day: 5, quotes: {} }));
+    assertEqual(JSON.stringify(makePriceLedgerEntry(null, 5)), JSON.stringify({ day: 5, quotes: {} }));
+  });
+}
+
+// migrateSave must default player.priceLedger to {} on saves that predate it.
+console.log('\n=== Price ledger migration ===');
+test('migrateSave defaults a missing priceLedger to {}', () => {
+  const legacy = migrateSave({ saveVersion: 0, player: {}, time: { day: 1, frac: 0, seed: 1 } });
+  assert(isObj(legacy.player.priceLedger), 'priceLedger should be defaulted to an object');
+  assertEqual(JSON.stringify(legacy.player.priceLedger), '{}');
+});
+test('migrateSave preserves an existing priceLedger', () => {
+  const led = { valdenmere: { day: 3, quotes: { grain: { buy: 11, sell: 10 } } } };
+  const s = migrateSave({ saveVersion: 1, player: { priceLedger: led }, time: { day: 4, frac: 0, seed: 1 } });
+  assertEqual(JSON.stringify(s.player.priceLedger), JSON.stringify(led));
+});
 
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');

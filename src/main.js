@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.34'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.35'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -523,6 +523,9 @@ ${line4}`;
         if (!it) return null;
         return quoteFor(cityId, it);
       },
+
+      /** QA helper: snapshot of the player's price ledger (for assertions). */
+      priceLedger: () => structuredClone(player.priceLedger || {}),
 
       /** QA helper: open the contracts board at a city and render. */
       openContractsUI: (cityId = 'valdenmere') => {
@@ -2988,9 +2991,6 @@ const NPC_INTERACT_RADIUS = 18;
   // - Provide profit clarity via "reference/base" and "last seen" prices.
   const MARKET = {
     spread: 0.06,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2) - reduced from 0.10 so margins survive
-    lastSeen: {
-      // cityId: { itemId: { buy:number, sell:number, t:number } }
-    },
   };
 
   // ── GLOBAL ECONOMY (Supabase) ────────────────────────────────────────────
@@ -3570,13 +3570,27 @@ const NPC_INTERACT_RADIUS = 18;
     return { mid, buy, sell };
   }
 
-  function rememberLastSeen(cityId, itemId, q) {
-    if (!MARKET.lastSeen[cityId]) MARKET.lastSeen[cityId] = {};
-    MARKET.lastSeen[cityId][itemId] = { buy: q.buy, sell: q.sell, t: stateTime };
+  // Build a price-ledger entry from a {itemId: {buy,sell}} quote map, keeping
+  // only well-formed numeric quotes and stamping the visit day. Pure — mirrored
+  // assertions in ops/scripts/unit_tests.mjs extract it from source.
+  function makePriceLedgerEntry(quotes, day) {
+    const clean = {};
+    for (const id of Object.keys(quotes || {})) {
+      const q = quotes[id];
+      if (q && Number.isFinite(q.buy) && Number.isFinite(q.sell)) clean[id] = { buy: q.buy, sell: q.sell };
+    }
+    return { day: Math.floor(Number(day) || 0), quotes: clean };
   }
 
-  function lastSeenFor(cityId, itemId) {
-    return MARKET.lastSeen?.[cityId]?.[itemId] || null;
+  // Snapshot the current city's market quotes into the player's price ledger,
+  // stamped with today's day. Called when a market opens so the PRICES tab can
+  // show what each visited city last charged.
+  function recordMarketVisit(cityId) {
+    if (!cityId) return;
+    const quotes = {};
+    for (const it of ITEMS) quotes[it.id] = quoteFor(cityId, it);
+    if (!player.priceLedger || typeof player.priceLedger !== 'object') player.priceLedger = {};
+    player.priceLedger[cityId] = makePriceLedgerEntry(quotes, time.day);
   }
 
   function fmtDeltaPct(cur, ref) {
@@ -6607,7 +6621,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.34',
+    version: 'v0.5.35',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6767,12 +6781,15 @@ function drawNpcBubble() {
   // renderer shows — mirrored assertions live in ops/scripts/unit_tests.mjs
   // (extracted from this source, keep the signature stable).
   function marketVisibleIndices(mode, items, inv) {
+    // Only BUY/SELL have tradeable rows; GEAR and PRICES are non-trading tabs,
+    // so keyboard nav has nothing to select there (and Enter must not trade).
+    if (mode !== 'buy' && mode !== 'sell') return [];
     const out = [];
     for (let i = 0; i < items.length; i++) {
       if (mode === 'sell' && ((inv[items[i].id] || 0) <= 0)) continue;
       out.push(i);
     }
-    if (mode !== 'sell') out.push(items.length);
+    if (mode === 'buy') out.push(items.length); // permit row is buy-only
     return out;
   }
 
@@ -6990,6 +7007,10 @@ function drawNpcBubble() {
     if (kind === 'market') {
       const c = currentCity();
       if (!c) { domCloseAll(); return; }
+      // Snapshot this city's quotes for the PRICES tab. Runs on the market
+      // rebuild path (past the dom.key early-return above), so it fires on open
+      // and stays cheap — not every frame.
+      recordMarketVisit(c.id);
       const rules = CITY_RULES[c.id];
       const isMobile = IS_MOBILE;
       const showTabs = true; // always show - gear tab always visible
@@ -7173,6 +7194,7 @@ function drawNpcBubble() {
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'gear'}" data-action="mode" data-mode="gear">⚙ GEAR</button>
+              <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'prices'}" data-action="mode" data-mode="prices">📒 PRICES</button>
             </div>
 ` : ''}            <div class="cr-body">
               <div class="cr-list" aria-label="Items">
@@ -7232,6 +7254,35 @@ function drawNpcBubble() {
                         </div>`;
                       }).join('')}
                       ${hiddenAfter ? `<div style="font-size:10px;color:#555;margin-top:4px;padding-left:4px">▼ ${maxT - showTo} more tiers locked</div>` : ''}
+                    </div>`;
+                  }).join('');
+                })() : ui.mode === 'prices' ? (() => {
+                  // Read-only ledger of last-seen quotes per visited city.
+                  const ledger = player.priceLedger || {};
+                  const cityIds = Object.keys(ledger).filter(cid => getCityById(cid));
+                  if (!cityIds.length) return `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">📒 No prices recorded yet.<br><span style="font-size:12px;color:#a89a78;">Open markets in other cities and their prices are remembered here.</span></div>`;
+                  const today = Math.floor(time.day);
+                  // Current city first, then the rest most-recently-seen first.
+                  const ordered = cityIds.slice().sort((a, b) =>
+                    a === c.id ? -1 : b === c.id ? 1 : ((ledger[b].day || 0) - (ledger[a].day || 0)));
+                  return ordered.map(cid => {
+                    const e = ledger[cid];
+                    const isHere = cid === c.id;
+                    const ageDays = Math.max(0, today - (e.day || 0));
+                    const stale = isHere ? 'now' : ageDays === 0 ? 'today' : `${ageDays}d ago`;
+                    const itemRows = ITEMS.filter(it => e.quotes && e.quotes[it.id]).map(it => {
+                      const q = e.quotes[it.id];
+                      return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 6px">
+                        <span style="color:#b0a070">${htmlEscape(it.name)}</span>
+                        <span style="color:#8a7a5a">buy <b style="color:#e0b060">${q.buy}g</b> · sell <b style="color:#86efac">${q.sell}g</b></span>
+                      </div>`;
+                    }).join('');
+                    return `<div style="margin-bottom:12px;border:1px solid ${isHere ? '#4a3a10' : '#2a2a1a'};border-radius:8px;padding:8px 10px;background:#0f0e0a">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-weight:700;color:#f0d080">📍 ${htmlEscape(cityName(cid))}${isHere ? ' (here)' : ''}</span>
+                        <span style="font-size:10px;color:#888">seen ${stale}</span>
+                      </div>
+                      ${itemRows}
                     </div>`;
                   }).join('');
                 })() : `${rumorsHtml}${rows.length ? rows.join('') : `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">🎒 Nothing to sell — your pack is empty.<br><span style="font-size:12px;color:#a89a78;">Buy goods here or mine ore, then sell where prices are higher.</span></div>`}`}
@@ -8095,6 +8146,9 @@ function drawNpcBubble() {
 
     guildMember: false, // true once Merchant Guild milestone is achieved
     seenFirstVein: false, // one-shot tutorial: fires the first time the player stands near any mining vein
+    // Last-seen market quotes per visited city: { cityId: { day, quotes: { itemId: {buy,sell} } } }.
+    // Populated when the player opens a market; surfaced by the market PRICES tab.
+    priceLedger: {},
     _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
@@ -8191,7 +8245,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.34',
+      buildVersion: 'v0.5.35',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8208,6 +8262,11 @@ function drawNpcBubble() {
         guildMember: player.guildMember || false,
         seenFirstVein: player.seenFirstVein || false,
         gear: { ...player.gear },
+        // Last-seen market quotes per city (deep-copied so the serialized state
+        // never aliases the live ledger). Surfaced by the market PRICES tab.
+        priceLedger: Object.fromEntries(
+          Object.entries(player.priceLedger || {}).map(([cid, e]) => [cid, { day: e.day, quotes: { ...e.quotes } }])
+        ),
         // mineCooldown is intentionally NOT persisted: its values are stateTime
         // offsets, and stateTime resets to 0 on every page reload, so saving
         // them would either strand veins as "still recovering" forever (cross-
@@ -8355,6 +8414,7 @@ function drawNpcBubble() {
         s.player.permits[cid] ??= false;
       }
       s.player.facing ||= { x: 0, y: 1 };
+      s.player.priceLedger ||= {};
 
       s.time ||= { day: 1, frac: 0, seed: 1 };
       s.marketDrift ||= {};
@@ -8371,6 +8431,8 @@ function drawNpcBubble() {
 
     // Ensure openedCaches exists for newer saves too.
     if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+    // Ensure priceLedger exists on saves that predate the market PRICES tab.
+    if (s.player && !isObj(s.player.priceLedger)) s.player.priceLedger = {};
 
     return s;
   }
@@ -8392,6 +8454,7 @@ function drawNpcBubble() {
       player.mineCooldown = {};
     }
     if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
+    if (!player.priceLedger || typeof player.priceLedger !== 'object') player.priceLedger = {};
     // Ensure new items appear in inv after schema upgrade.
     for (const it of ITEMS) if (player.inv[it.id] === undefined) player.inv[it.id] = 0;
     applyGearStats();

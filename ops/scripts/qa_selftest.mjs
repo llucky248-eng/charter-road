@@ -531,6 +531,61 @@ async function checkNavPickerEta() {
   console.log('QA_PASS: nav-picker-eta');
 }
 
+// The market PRICES tab must remember last-seen quotes per visited city, and
+// those quotes must survive a save round-trip.
+async function checkPriceLedger() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 500, capacity: 999 });
+
+    // Visiting a market records that city's quotes.
+    if (!api.openMarketUI('valdenmere', 'buy')) return { ok: false, reason: 'valdenmere market did not open' };
+    if (!api.openMarketUI('ashport', 'buy')) return { ok: false, reason: 'ashport market did not open' };
+
+    // The PRICES tab lists both visited cities; the current one is marked (here).
+    api.openMarketUI('ashport', 'prices');
+    const list = document.querySelector('.cr-list');
+    const text = list?.textContent || '';
+    const showsValden = /Valdenmere/.test(text);
+    const showsAshport = /Ashport/.test(text) && /\(here\)/.test(text);
+
+    // The recorded valdenmere sell quote must match a fresh quote for a spot item.
+    const q = api.marketQuote('valdenmere', 'food');
+    const led = api.priceLedger ? api.priceLedger() : null;
+    const recordedSell = led?.valdenmere?.quotes?.food?.sell ?? null;
+    const quoteMatches = recordedSell === q.sell;
+
+    // Save round-trip: trigger an autosave, flush it, and confirm the serialized
+    // save carries the ledger for both cities.
+    api.marketBuy('food', 1, 'ashport'); // schedules an autosave
+    api.flushAutosave();
+    const save = api.readSave();
+    const persisted = !!(save && save.player && save.player.priceLedger
+      && save.player.priceLedger.valdenmere && save.player.priceLedger.ashport);
+
+    api.closeUI();
+    return { ok: showsValden && showsAshport && quoteMatches && persisted, showsValden, showsAshport, quoteMatches, persisted, recordedSell, qSell: q.sell };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`price-ledger: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: price-ledger');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -626,6 +681,7 @@ async function checkMarketPanelNotClipped() {
     await checkNavPickerEta();
     await checkContractBoardHints();
     await checkPackValueReadout();
+    await checkPriceLedger();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');
