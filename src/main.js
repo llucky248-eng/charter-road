@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.24'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.25'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6515,7 +6515,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.24',
+    version: 'v0.5.25',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6880,7 +6880,13 @@ function drawNpcBubble() {
           if (isMobile) {
             const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
             const disabled = ui.mode === 'buy' ? (maxBuy <= 0 || notAvailHere) : (have <= 0);
-            const btn = `<button class="cr-action" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
+            // Compact side-by-side pair; min-width:0 overrides the coarse-pointer
+            // 72px floor so both fit inside .cr-right on narrow phones.
+            const mBtnStyle = 'style="min-width:0;padding:6px 8px;"';
+            const btn = `<div style="display:flex;gap:4px;justify-content:flex-end;">` +
+              `<button class="cr-action" ${mBtnStyle} data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>` +
+              `<button class="cr-action" ${mBtnStyle} data-action="trade" data-idx="${i}" data-qty="${maxBuy > 0 ? maxBuy : 1}" ${disabled ? 'disabled' : ''}>${ui.mode === 'buy' ? 'MAX' : 'ALL'}</button>` +
+              `</div>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
                 <div class="cr-card-left">
@@ -7975,7 +7981,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.24',
+      buildVersion: 'v0.5.25',
       savedAt: Date.now(),
       player: {
         x: player.x,

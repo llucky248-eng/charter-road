@@ -205,6 +205,64 @@ async function checkSellTabFiltering() {
   console.log('QA_PASS: sell-tab-filtering');
 }
 
+// Mobile market cards must offer a MAX/ALL quantity button, not just single-unit
+// trades — emptying a 20-item pack should be one tap, not twenty. Runs under an
+// iPhone 12 context so IS_MOBILE (viewport-based) selects the mobile card branch.
+async function checkMobileMarketQtyButtons() {
+  const browser = await chromium.launch(launchOptions);
+  const context = await browser.newContext({ ...devices['iPhone 12'] });
+  const page = await context.newPage();
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 500, inv: { coal: 0, grain: 0, food: 7, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 }, capacity: 999 });
+
+    // SELL tab: the held item's card must expose an ALL button (qty = holdings)
+    if (!api.openMarketUI('valdenmere', 'sell')) return { ok: false, reason: 'market UI did not open' };
+    const sellCard = document.querySelector('.cr-list .cr-card[data-idx]');
+    if (!sellCard) return { ok: false, reason: 'no sell card rendered' };
+    const sellBtns = [...sellCard.querySelectorAll('[data-action="trade"]')];
+    const allBtn = sellBtns.find(b => Number(b.getAttribute('data-qty')) === 7);
+    if (!allBtn) return { ok: false, reason: `no ALL(qty=7) button; qtys=[${sellBtns.map(b => b.getAttribute('data-qty')).join(',')}]` };
+    allBtn.click();
+    const soldOut = (api.snapshot().player.inv.food || 0) === 0;
+
+    // BUY tab: cards must expose a MAX button with qty > 1
+    api.openMarketUI('valdenmere', 'buy');
+    const buyCard = document.querySelector('.cr-list .cr-card[data-idx="0"]');
+    if (!buyCard) return { ok: false, reason: 'no buy card rendered' };
+    const buyBtns = [...buyCard.querySelectorAll('[data-action="trade"]')];
+    const maxBtn = buyBtns.find(b => Number(b.getAttribute('data-qty')) > 1 && !b.disabled);
+    if (!maxBtn) return { ok: false, reason: `no MAX(qty>1) buy button; qtys=[${buyBtns.map(b => b.getAttribute('data-qty')).join(',')}]` };
+    const maxQty = Number(maxBtn.getAttribute('data-qty'));
+    const invBefore = api.snapshot().player.inv;
+    const idBefore = JSON.stringify(invBefore);
+    maxBtn.click();
+    const after = api.snapshot().player.inv;
+    // Exactly one item id gained exactly maxQty units in a single tap.
+    const gained = Object.keys(after).filter(k => (after[k] || 0) !== (invBefore[k] || 0));
+    const boughtMax = gained.length === 1 && (after[gained[0]] || 0) - (invBefore[gained[0]] || 0) === maxQty;
+
+    api.closeUI();
+    return { ok: soldOut && boughtMax, soldOut, boughtMax, maxQty, gained, idBefore };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`mobile-market-qty-buttons: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: mobile-market-qty-buttons');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -294,6 +352,7 @@ async function checkMarketPanelNotClipped() {
 
     await checkMarketScrollPreservation();
     await checkSellTabFiltering();
+    await checkMobileMarketQtyButtons();
     await checkMarketPanelNotClipped();
 
     console.log('QA_PASS: all');
