@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.24'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.25'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1103,6 +1103,9 @@ ${line4}`;
     autoNav.destMarkerT = stateTime;
     // Reset ALL per-trip state so a re-navigate never resumes old tracking
     autoNav._blockedFrames = 0;
+    autoNav._stallKey = -1;
+    autoNav._stallFrames = 0;
+    autoNav._stallBestDist = Infinity;
     // _startX/_startY must be set AFTER the snap so minTravelMet counts from new position
     autoNav._startX = player.x;
     autoNav._startY = player.y;
@@ -1211,6 +1214,30 @@ ${line4}`;
       }
     } else {
       autoNav._blockedFrames = 0;
+    }
+
+    // Progress-stall recovery: the full-block escape above only fires when BOTH
+    // axes are blocked. When the player can still slide along one axis (e.g.
+    // hugging a coastline toward a waypoint it can't reach), it never gets closer
+    // yet _blockedFrames keeps resetting — so auto-nav could wedge on a waypoint
+    // forever. Track the best (nearest) distance to the current waypoint; if it
+    // stops improving, skip ahead. Mirrors the click-move stall-replan (which
+    // auto-nav lacked). pathIdx caps at the last waypoint, whose arrival snaps
+    // into the city, so this always terminates.
+    if (autoNav._stallKey !== autoNav.pathIdx) {
+      autoNav._stallKey = autoNav.pathIdx;
+      autoNav._stallFrames = 0;
+      autoNav._stallBestDist = dist;
+    } else if (dist < (autoNav._stallBestDist ?? dist) - 1) {
+      autoNav._stallBestDist = dist;
+      autoNav._stallFrames = 0;
+    } else if ((autoNav._stallFrames = (autoNav._stallFrames || 0) + 1) > 45) {
+      autoNav._stallFrames = 0;
+      autoNav._stallBestDist = Infinity;
+      // Cap at path.length (not length-1): if we stall on the FINAL waypoint,
+      // advancing to path.length lets the "path exhausted" branch above snap the
+      // player into the destination city next frame, instead of wedging there.
+      autoNav.pathIdx = Math.min(autoNav.pathIdx + 2, autoNav.path.length);
     }
 
     player.x = clamp(player.x, TILE, MAP_W*TILE - TILE);
@@ -6515,7 +6542,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.24',
+    version: 'v0.5.25',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -7975,7 +8002,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.24',
+      buildVersion: 'v0.5.25',
       savedAt: Date.now(),
       player: {
         x: player.x,
