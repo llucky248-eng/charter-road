@@ -63,6 +63,7 @@ npm run setup        # install pre-commit version-guard hook (one-time)
 npm run smoke        # local smoke check — no Python, no browser
 npm run test:unit    # unit + parity tests (fast, offline, no browser)
 npm run qa:selftest  # Playwright end-to-end (desktop + mobile)
+npm run qa:player-sim -- --steps 4000 --seed 7 --pretty  # autonomous bot; discovers stuck/balance/qol issues
 npm run deploy       # bump version + commit + push + poll Pages live
 ```
 
@@ -92,11 +93,14 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 | `ops/scripts/unit_tests.mjs` | Pure-function unit tests: hash, price, save validation/migration, DB mock, smoothing | **Fully offline, no browser** |
 | `ops/scripts/economy_parity_test.mjs` | Validates client (`src/main.js`) and server (`world_service.mjs`) economy constants match | Imports `world_service.mjs`; offline but reads both files |
 | `ops/scripts/mining_tests.mjs` | Mining redesign: 2 sites, metal variants, rarity-based pricing, NPC+player production, warehouse conservation, trader+player shipping, deterministic report | Imports `lib/mining.mjs`; **fully offline, no browser** |
+| `ops/scripts/player_sim_tests.mjs` | Unit tests for the autonomous player-sim brain (`lib/player_ai.mjs`): `decideAction` policy + `detectStuck`/`detectBalance`/`detectQoL` detectors | Imports `lib/player_ai.mjs`; **fully offline, no browser** |
 | `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'` | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
 | `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_gameplay_sim.mjs` | Measures trade cycles to reach endgame (gear maxed + rep 7 + 500g) | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_mobile_dialog_layout.mjs` | Checks modal proportions on iPhone 12; saves screenshots to `ops/screenshots/` | Requires Playwright |
 | `ops/scripts/qa_player_speed.mjs` | Verifies player move speed ≈90 px/sec ±20%, faster than fastest trader | Requires Playwright |
+| `ops/scripts/qa_player_sim.mjs` | **Autonomous player simulation for issue discovery.** Plays the real game like a human through `window.__QA.api` — walks city-to-city with the game's A* auto-nav, reads live market prices off the DOM, trades on margin, mines to recover when broke, buys gear when flush — while detectors flag **stuck** (auto-nav freezes, economic softlock), **balance** (negative gold, runaway wealth, bankruptcy), and **qol** (dead-click loops, event theme-integrity) issues. Emits a grouped findings report; exits non-zero on any high-severity find. `npm run qa:player-sim -- --steps 4000 --seed 7 [--pretty] [--json]`. Decision/detector logic is the offline-tested `lib/player_ai.mjs`. | Requires Playwright + `window.__QA.api`; auto-starts server on 8080; `QA_URL`/argv override; `PW_EXECUTABLE_PATH` env picks a pre-provisioned browser |
+| `ops/scripts/lib/player_ai.mjs` | Pure brain for the player-sim: `decideAction(obs)` (human-greedy trade/mine/gear policy), `detectStuck`/`detectBalance`/`detectQoL`/`runDetectors`, and `ITEM_ORDER`/`CITIES` mirrored from `src/main.js`. Deterministic; no browser. | **Fully offline** — unit-tested by `player_sim_tests.mjs` |
 
 ### Deploy pipeline
 
