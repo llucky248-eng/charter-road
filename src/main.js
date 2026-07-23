@@ -1176,6 +1176,9 @@ ${line4}`;
     autoNav.destMarkerT = stateTime;
     // Reset ALL per-trip state so a re-navigate never resumes old tracking
     autoNav._blockedFrames = 0;
+    autoNav._stallKey = -1;
+    autoNav._stallFrames = 0;
+    autoNav._stallBestDist = Infinity;
     // _startX/_startY must be set AFTER the snap so minTravelMet counts from new position
     autoNav._startX = player.x;
     autoNav._startY = player.y;
@@ -1284,6 +1287,30 @@ ${line4}`;
       }
     } else {
       autoNav._blockedFrames = 0;
+    }
+
+    // Progress-stall recovery: the full-block escape above only fires when BOTH
+    // axes are blocked. When the player can still slide along one axis (e.g.
+    // hugging a coastline toward a waypoint it can't reach), it never gets closer
+    // yet _blockedFrames keeps resetting — so auto-nav could wedge on a waypoint
+    // forever. Track the best (nearest) distance to the current waypoint; if it
+    // stops improving, skip ahead. Mirrors the click-move stall-replan (which
+    // auto-nav lacked). pathIdx caps at the last waypoint, whose arrival snaps
+    // into the city, so this always terminates.
+    if (autoNav._stallKey !== autoNav.pathIdx) {
+      autoNav._stallKey = autoNav.pathIdx;
+      autoNav._stallFrames = 0;
+      autoNav._stallBestDist = dist;
+    } else if (dist < (autoNav._stallBestDist ?? dist) - 1) {
+      autoNav._stallBestDist = dist;
+      autoNav._stallFrames = 0;
+    } else if ((autoNav._stallFrames = (autoNav._stallFrames || 0) + 1) > 45) {
+      autoNav._stallFrames = 0;
+      autoNav._stallBestDist = Infinity;
+      // Cap at path.length (not length-1): if we stall on the FINAL waypoint,
+      // advancing to path.length lets the "path exhausted" branch above snap the
+      // player into the destination city next frame, instead of wedging there.
+      autoNav.pathIdx = Math.min(autoNav.pathIdx + 2, autoNav.path.length);
     }
 
     player.x = clamp(player.x, TILE, MAP_W*TILE - TILE);

@@ -27,7 +27,12 @@ let activeUrl = process.argv[2] || process.env.QA_URL || 'http://127.0.0.1:8080/
 // Chromium's sandbox can't initialize as uid 0, which is how the Playwright CI
 // container runs. Drop it only in that case; local (non-root) runs keep it on.
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-const launchOptions = isRoot ? { args: ['--no-sandbox'] } : {};
+const launchOptions = {
+  ...(isRoot ? { args: ['--no-sandbox'] } : {}),
+  // Opt-in override for environments with a pre-provisioned browser whose build
+  // differs from the pinned Playwright (unset in CI → normal resolution).
+  ...(process.env.PW_EXECUTABLE_PATH ? { executablePath: process.env.PW_EXECUTABLE_PATH } : {}),
+};
 
 async function runOnce({ name, contextOptions }) {
   const browser = await chromium.launch(launchOptions);
@@ -643,6 +648,57 @@ async function checkMarketPanelNotClipped() {
   console.log('QA_PASS: market-panel-clipping');
 }
 
+// Every city must be reachable from every other by auto-nav. A route that
+// wedges (auto-nav slides against an obstacle without progressing and never
+// recovers) is a movement softlock — the player taps "Navigate To" and is
+// stranded on the road. Drive all 12 ordered routes on foot and require each to
+// arrive within a generous step budget; a stall aborts that route early.
+async function checkAutoNavReachability() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    const CITIES = ['valdenmere', 'ashport', 'crosshaven', 'ironholt'];
+    const failures = [];
+    for (const from of CITIES) {
+      for (const to of CITIES) {
+        if (from === to) continue;
+        api.teleportToCity(from);
+        api.startAutoNav(to);
+        let arrived = false, last = api.getPlayerPos(), frozen = 0;
+        for (let i = 0; i < 200; i++) { // 200 chunks × 30 steps = generous
+          api.walkSteps(30);
+          const nav = api.getAutoNav();
+          if (!nav.active) { arrived = true; break; }
+          const p = api.getPlayerPos();
+          if (Math.hypot(p.x - last.x, p.y - last.y) < 2) {
+            if (++frozen >= 15) break; // stalled: no progress for 15 chunks
+          } else frozen = 0;
+          last = p;
+        }
+        if (!arrived) {
+          const p = api.getPlayerPos();
+          failures.push(`${from}->${to} wedged at (${Math.round(p.x)},${Math.round(p.y)})`);
+        }
+      }
+    }
+    return { ok: failures.length === 0, failures };
+  });
+
+  await browser.close();
+  if (!outcome || !outcome.ok) {
+    die(`autonav-reachability: ${outcome?.failures?.length || '?'} route(s) unreachable — ${(outcome?.failures || []).join('; ')}`);
+  }
+  console.log('QA_PASS: autonav-reachability (all 12 routes)');
+}
+
 (async () => {
   let server = null;
 
@@ -685,6 +741,7 @@ async function checkMarketPanelNotClipped() {
     await checkPackValueReadout();
     await checkPriceLedger();
     await checkMarketPanelNotClipped();
+    await checkAutoNavReachability();
 
     console.log('QA_PASS: all');
   } finally {
