@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.36'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.37'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2498,7 +2498,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
         else if (id === 9) { r=156; g=163; b=175; } // ruins
         else if (id === 10) { r=18;  g=68;  b=38;  } // forest (dark green)
         else if (id === 11) { r=40;  g=62;  b=54;  } // swamp (dark teal-grey)
-        else if (id === 13) { r=246; g=196; b=74; } // cache
+        else if (id === 13) { r=47;  g=143; b=150; } // bank / cache (verdigris)
         else if (id === 16) { r=100; g=70;  b=30;  } // vacant lot
         const i = (y * mini.w + x) * 4;
         d[i+0]=r; d[i+1]=g; d[i+2]=b; d[i+3]=255;
@@ -6648,7 +6648,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.36',
+    version: 'v0.5.37',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -8278,7 +8278,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.36',
+      buildVersion: 'v0.5.37',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10347,16 +10347,17 @@ function drawNpcBubble() {
     }
 
     if (id === 3) {
-      // Stone wall — cream dressed stone with chunky ink mortar and battlements
+      // Stone wall — weathered grey-tan stone: clearly darker than the cream
+      // city floor so ramparts read as solid barriers, with ink mortar + battlements
       const n = hash2(tx, ty);
-      const wallBase = n < 0.5 ? '#e6d4b0' : '#d8c9a2';
+      const wallBase = n < 0.5 ? '#8a7a5a' : '#7a6b4e';
       ctx.fillStyle = wallBase;
       ctx.fillRect(x, y, TILE, TILE);
       // Horizontal mortar line
-      ctx.fillStyle = 'rgba(140,100,60,0.32)';
+      ctx.fillStyle = 'rgba(40,28,16,0.42)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
       // Block highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
       ctx.fillRect(x+1, y+1, TILE-2, 2);
       ctx.fillRect(x+1, y+Math.floor(TILE/2)+1, TILE-2, 2);
       // Battlements on top row of walls (decorative notch)
@@ -10732,10 +10733,10 @@ function drawNpcBubble() {
         ctx.fillStyle = 'rgba(0,0,0,0.12)';
         ctx.fillRect(x+1, y+7, TILE-2, 1);
         ctx.fillRect(x+1, y+11, TILE-2, 1);
-        // Flat stone roof
-        ctx.fillStyle = '#5a5048';
+        // Verdigris copper roof (matches the 3D bank sprite; stands out vs market)
+        ctx.fillStyle = '#2f8f96';
         ctx.fillRect(x, y+2, TILE, 3);
-        ctx.fillStyle = '#6a6058';
+        ctx.fillStyle = '#48b0b8';
         ctx.fillRect(x+1, y+3, TILE-2, 1);
         // Columns (pillars on front)
         ctx.fillStyle = '#8a8070';
@@ -10982,10 +10983,10 @@ function drawNpcBubble() {
           wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
           doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.75)';
           break;
-        case 13: // Bank — honey-deep roof on creamy stone
-          roofTop   = '#a8753a'; roofFace  = '#d18816';
+        case 13: // Bank — verdigris copper roof (distinct from the honey market)
+          roofTop   = '#2f8f96'; roofFace  = '#48b0b8';
           wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.85)';
+          doorColor = '#3b2a1d'; windowColor = 'rgba(72,176,184,0.85)';
           break;
         case 4: // Foreman HQ / Barracks — slate roof, cream walls
           roofTop   = '#5b6b78'; roofFace  = '#7a8a96';

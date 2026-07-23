@@ -1934,6 +1934,72 @@ test('migrateSave preserves an existing priceLedger', () => {
   assertEqual(JSON.stringify(s.player.priceLedger), JSON.stringify(led));
 });
 
+// ─── Map palette contrast (walls + bank must visually stand out) ─────────────
+// Regression guard for "wall and bank color did not stand out": walls (tile 3)
+// blended into the cream city floor (tile 4), and the bank roof (building type
+// 13) shared the market's (type 6) honey hue. These extract the shipped colors
+// straight from src/main.js so the guard can never drift from what renders.
+console.log('\n=== Map palette contrast ===');
+{
+  const hexToRgb = (h) => {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(h);
+    if (!m) throw new Error(`bad hex: ${h}`);
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  // WCAG relative luminance + contrast ratio.
+  const relLum = (rgb) => {
+    const [r, g, b] = rgb.map((c) => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => {
+    const la = relLum(hexToRgb(a)), lb = relLum(hexToRgb(b));
+    const hi = Math.max(la, lb), lo = Math.min(la, lb);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const hue = (h) => {
+    let [r, g, b] = hexToRgb(h).map((c) => c / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return -1; // achromatic
+    let deg;
+    if (max === r) deg = ((g - b) / d) % 6;
+    else if (max === g) deg = (b - r) / d + 2;
+    else deg = (r - g) / d + 4;
+    deg *= 60;
+    return deg < 0 ? deg + 360 : deg;
+  };
+  const hueDist = (a, b) => {
+    const ha = hue(a), hb = hue(b);
+    if (ha < 0 || hb < 0) return 360; // achromatic vs chromatic → maximally distinct
+    const d = Math.abs(ha - hb) % 360;
+    return d > 180 ? 360 - d : d;
+  };
+  const first = (re, label) => {
+    const m = _mainJsSrc.match(re);
+    if (!m) throw new Error(`could not extract ${label} from src/main.js`);
+    return m[1];
+  };
+
+  const wallBase = first(/const wallBase = n < 0\.5 \? '(#[0-9a-fA-F]{6})'/, 'wall base color');
+  const floorBase = first(/const base = n < 0\.33 \? '(#[0-9a-fA-F]{6})'/, 'city floor base color');
+  const bankRoof = first(/case 13: \/\/ Bank[\s\S]*?roofTop\s*=\s*'(#[0-9a-fA-F]{6})'/, 'bank roof color');
+  const marketRoof = first(/case 6: \/\/ Market[\s\S]*?roofTop\s*=\s*'(#[0-9a-fA-F]{6})'/, 'market roof color');
+
+  test('wall stands out from the city floor (WCAG contrast ≥ 2.0)', () => {
+    const c = contrast(wallBase, floorBase);
+    assert(c >= 2.0, `wall ${wallBase} vs floor ${floorBase} contrast ${c.toFixed(2)} < 2.0`);
+  });
+  test('bank roof is a different hue from the market roof (≥ 40°)', () => {
+    assert(bankRoof.toLowerCase() !== marketRoof.toLowerCase(),
+      `bank roof ${bankRoof} must not equal market roof ${marketRoof}`);
+    const d = hueDist(bankRoof, marketRoof);
+    assert(d >= 40, `bank roof ${bankRoof} vs market roof ${marketRoof} hue distance ${d.toFixed(0)}° < 40°`);
+  });
+}
+
 // Run async tests
 console.log('\n=== DB layer (fetch-mocked) ===');
 for (const { name, fn } of _asyncTests) {
