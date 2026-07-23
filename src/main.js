@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.25'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.36'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -433,7 +433,7 @@ ${line4}`;
           if (__QA.enabled) {
             ui.eventOpen = false; ui.marketOpen = false; ui.contractsOpen = false;
           }
-          if (ui.toastT > 0) ui.toastT -= d;
+          ui.toasts = toastQueueTick(ui.toasts, d);
           tickBanners(d);
           updateEntities(d);
           updateAiTraders(d);
@@ -517,11 +517,68 @@ ${line4}`;
         }
       },
 
+      /** QA helper: buy/sell/mid quote for an item at a city (for assertions). */
+      marketQuote: (cityId, itemId) => {
+        const it = ITEMS.find(x => x.id === itemId);
+        if (!it) return null;
+        return quoteFor(cityId, it);
+      },
+
+      /** QA helper: snapshot of the player's price ledger (for assertions). */
+      priceLedger: () => structuredClone(player.priceLedger || {}),
+
+      /** QA helper: open the contracts board at a city and render. */
+      openContractsUI: (cityId = 'valdenmere') => {
+        try {
+          __QA.api.forceCityEntry(cityId);
+          ui.marketOpen = false;
+          ui.contractsOpen = true;
+          ui.contractsSel = 0;
+          ui.contractsConfirmIdx = -1;
+          ui.contractsCityId = cityId;
+          domRender();
+          return !!document.querySelector('.cr-panel');
+        } catch (e) {
+          return false;
+        }
+      },
+
+      /** QA helper: open the bank UI at a city on a given tab and render. */
+      openBankUI: (cityId = 'valdenmere', tab = 'deposit') => {
+        try {
+          __QA.api.forceCityEntry(cityId);
+          ui.marketOpen = false;
+          ui.contractsOpen = false;
+          ui.bankOpen = true;
+          ui.bankTab = tab;
+          dom.key = '';
+          domRender();
+          return !!document.querySelector('.cr-panel');
+        } catch (e) {
+          return false;
+        }
+      },
+
+      /** QA helper: open the navigate picker from a given origin city and
+       *  return whether the picker rendered. */
+      openNavPicker: (fromCityId = 'valdenmere') => {
+        try {
+          __QA.api.teleportToCity(fromCityId);
+          document.getElementById('cr-nav-picker')?.remove(); // ensure a fresh open
+          showNavPicker();
+          return !!document.getElementById('cr-nav-picker');
+        } catch (e) {
+          return false;
+        }
+      },
+
       /** QA helper: close any open modal and re-render. */
       closeUI: () => {
         ui.marketOpen = false;
         ui.contractsOpen = false;
         ui.eventOpen = false;
+        ui.bankOpen = false;
+        document.getElementById('cr-nav-picker')?.remove();
         domRender();
       },
 
@@ -721,6 +778,8 @@ ${line4}`;
       qaGetMiningState: () => ({
         stamina: player.mineStamina,
         cooldowns: { ...(player.mineCooldown || {}) },
+        // HUD meter as drawHUD would render it right now (null = hidden)
+        hudMeter: staminaMeterState(player.mineStamina ?? 100, !!nearMineTile(), player.miningStaminaCost ?? 15),
       }),
       /** Set player stamina directly (for cooldown/full-cargo isolation tests). */
       qaSetStamina: (v) => { player.mineStamina = clamp(Math.floor(Number(v) || 0), 0, 100); },
@@ -1014,6 +1073,13 @@ ${line4}`;
       background:rgba(0,0,0,0.55); font-family:system-ui,sans-serif;
     `;
     const currentC = currentCity();
+    // Trips are measured from the city the player would depart (current city, or
+    // nearest when on the road) — the same origin startNavTo uses.
+    const navFromId = currentC ? currentC.id : _nearestCityId();
+    const fmtEta = (secs) => {
+      const s = Math.round(secs);
+      return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+    };
     const buttons = world.cities
       .filter(c2 => !currentC || c2.id !== currentC.id)
       .map(c2 => {
@@ -1026,6 +1092,12 @@ ${line4}`;
         const treVal   = (_tre && _tre.gold > 0) ? `${_tre.gold}g` : '-';
         const hungerPct= _cpop ? Math.round(_cpop.hunger * 100) : 0;
         const hungerCol= hungerPct >= 60 ? '#f87171' : hungerPct >= 30 ? '#fbbf24' : '#86efac';
+        // Distance + ETA at current boots speed (buildTraderPath is cached per route).
+        const _path    = navFromId && navFromId !== c2.id ? buildTraderPath(navFromId, c2.id) : null;
+        const _len     = pathLengthPx(_path);
+        const tripLine = _len > 0
+          ? `🚶 ~${Math.round(_len / TILE)} tiles · ~${fmtEta(etaSeconds(_len, player.speed))} at ${currentGear('boots').icon}`
+          : '';
         return `
           <button data-city="${c2.id}" style="
             display:flex; flex-direction:column; align-items:flex-start;
@@ -1042,6 +1114,7 @@ ${line4}`;
               &nbsp;·&nbsp;
               Hunger: <b style="color:${hungerCol}">${hungerPct}%</b>
             </span>
+            ${tripLine ? `<span style="font-size:11px;color:#7fbf83;margin-top:4px">${htmlEscape(tripLine)}</span>` : ''}
           </button>`;
       }).join('');
 
@@ -1681,7 +1754,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
       } else if (c && distTiles <= 10) {
         // Close enough - open immediately
         if (action === 'market') { ui.contractsOpen = false; ui.marketOpen = true; ui.selection = 0; ui.mode = 'buy'; toast(`Market opened in ${c.name}`, 1.8); }
-        else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
+        else if (action === 'contracts') { ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsConfirmIdx = -1; ui.contractsCityId = c.id; toast('Contracts board opened', 1.8); }
         else if (action === 'bank') { ui.bankOpen = true; ui.bankTab = 'deposit'; domEnsureOpen(); dom.key = ''; domRender(); toast(`Bank of ${c.name} opened.`, 2); }
         else if (action === 'inn') { ui.innOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast(`${c.name} Inn.`, 2); }
         else if (action === 'guild') { ui.guildOpen = true; domEnsureOpen(); dom.key = ''; domRender(); toast('Merchants Guild.', 2); }
@@ -2945,9 +3018,6 @@ const NPC_INTERACT_RADIUS = 18;
   // - Provide profit clarity via "reference/base" and "last seen" prices.
   const MARKET = {
     spread: 0.06,          // buy price = mid*(1+spread/2), sell price = mid*(1-spread/2) - reduced from 0.10 so margins survive
-    lastSeen: {
-      // cityId: { itemId: { buy:number, sell:number, t:number } }
-    },
   };
 
   // ── GLOBAL ECONOMY (Supabase) ────────────────────────────────────────────
@@ -3476,17 +3546,39 @@ const NPC_INTERACT_RADIUS = 18;
     return 0.97 + u * 0.06; // [0.97, 1.03]
   }
 
+  // Per-city price multipliers — the canonical balance table, mirrored in
+  // world_service.mjs + lib/mining.mjs and checked by economy_parity_test.mjs
+  // (edit all copies together). Also drives the contract board's "cheapest at"
+  // hint, so it must stay a plain literal the parity regex can parse.
+  const CITY_MULTS = {
+    valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
+    ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
+    crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
+    ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
+  };
+
+  // Contract board hints (public knowledge — no live prices). contractHoldLabel
+  // reports progress toward a job from current inventory; cheapestCityFor names
+  // the lowest-multiplier city for an item. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract both from source — keep self-contained.
+  function contractHoldLabel(inv, job) {
+    const need = Math.max(0, Math.floor(job?.qty || 0));
+    const have = Math.max(0, Math.floor((inv && inv[job?.want]) || 0));
+    return { have, need, met: need > 0 && have >= need };
+  }
+
+  function cheapestCityFor(itemId, cityMults) {
+    let best = null, bestMult = Infinity;
+    for (const cityId of Object.keys(cityMults || {})) {
+      const m = cityMults[cityId]?.[itemId];
+      if (typeof m === 'number' && m < bestMult) { bestMult = m; best = cityId; }
+    }
+    return best;
+  }
+
   // midPriceFor uses the hardcoded mults table (same as priceFor) + daily wobble.
   // This is now the canonical mid-price for all market purposes.
   function midPriceFor(cityId, item) {
-    // Get the city multiplier from the hardcoded mults table in priceFor.
-    // We inline the mults here to keep them consistent.
-    const CITY_MULTS = {
-      valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
-      ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
-      crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
-      ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
-    };
     const mult  = (CITY_MULTS[cityId]?.[item.id]) ?? 1.0;
     const drift = (marketDrift[cityId]?.[item.id]) ?? 1;
     const wob   = dayWobble(cityId, item);
@@ -3505,13 +3597,27 @@ const NPC_INTERACT_RADIUS = 18;
     return { mid, buy, sell };
   }
 
-  function rememberLastSeen(cityId, itemId, q) {
-    if (!MARKET.lastSeen[cityId]) MARKET.lastSeen[cityId] = {};
-    MARKET.lastSeen[cityId][itemId] = { buy: q.buy, sell: q.sell, t: stateTime };
+  // Build a price-ledger entry from a {itemId: {buy,sell}} quote map, keeping
+  // only well-formed numeric quotes and stamping the visit day. Pure — mirrored
+  // assertions in ops/scripts/unit_tests.mjs extract it from source.
+  function makePriceLedgerEntry(quotes, day) {
+    const clean = {};
+    for (const id of Object.keys(quotes || {})) {
+      const q = quotes[id];
+      if (q && Number.isFinite(q.buy) && Number.isFinite(q.sell)) clean[id] = { buy: q.buy, sell: q.sell };
+    }
+    return { day: Math.floor(Number(day) || 0), quotes: clean };
   }
 
-  function lastSeenFor(cityId, itemId) {
-    return MARKET.lastSeen?.[cityId]?.[itemId] || null;
+  // Snapshot the current city's market quotes into the player's price ledger,
+  // stamped with today's day. Called when a market opens so the PRICES tab can
+  // show what each visited city last charged.
+  function recordMarketVisit(cityId) {
+    if (!cityId) return;
+    const quotes = {};
+    for (const it of ITEMS) quotes[it.id] = quoteFor(cityId, it);
+    if (!player.priceLedger || typeof player.priceLedger !== 'object') player.priceLedger = {};
+    player.priceLedger[cityId] = makePriceLedgerEntry(quotes, time.day);
   }
 
   function fmtDeltaPct(cur, ref) {
@@ -6542,7 +6648,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.25',
+    version: 'v0.5.36',
     whatsNew: [
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
@@ -6565,8 +6671,7 @@ function drawNpcBubble() {
 
   const ui = {
     marketOpen: false,
-    toast: 'Walk into a city. Tap the market tile to trade.',
-    toastT: 6,
+    toasts: [{ msg: 'Walk into a city. Tap the market tile to trade.', t: 6 }],
     selection: 0,
     marketScroll: 0, // first visible item index
     _marketList: null,
@@ -6606,6 +6711,7 @@ function drawNpcBubble() {
 
     contractsSel: 0,
     contractsNavT: 0,
+    contractsConfirmIdx: -1, // row armed for replace-confirm (-1 = none)
 
     bankOpen: false,
     bankTab: 'deposit', // 'deposit'|'withdraw'|'loan'
@@ -6645,6 +6751,7 @@ function drawNpcBubble() {
     ui.guildOpen = false;
     ui.warehouseOpen = false;
     ui.buildingDonateOpen = false;
+    ui.contractsConfirmIdx = -1; // closing the board disarms any replace-confirm
   }
 
   function domEnsureOpen() {
@@ -6660,6 +6767,67 @@ function drawNpcBubble() {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+  }
+
+  // Total pixel length of a waypoint path (sum of segment distances). Used to
+  // estimate travel distance + ETA in the navigate picker. Mirrored assertions
+  // in ops/scripts/unit_tests.mjs extract this from source — keep it
+  // self-contained.
+  function pathLengthPx(path) {
+    if (!path || path.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < path.length; i++) {
+      total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+    }
+    return total;
+  }
+
+  // Estimated seconds to walk `lengthPx` at `speed` px/sec. Zero (not Infinity)
+  // when speed is non-positive so the picker shows a clean fallback.
+  function etaSeconds(lengthPx, speed) {
+    const s = Number(speed) || 0;
+    return s > 0 ? (Number(lengthPx) || 0) / s : 0;
+  }
+
+  // Bank deposit quick-amounts scaled to the player's wealth: 10% / 50% / 100%
+  // of current gold, each floored at 10g but never above what the player holds,
+  // so MAX (the third value) always equals gold. Fixed +10/+50/+100 buttons are
+  // meaningless once gear costs six figures. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract this from source — keep it self-contained.
+  function bankQuickAmounts(gold) {
+    const g = Math.max(0, Math.floor(Number(gold) || 0));
+    const max = g;
+    const half = Math.min(max, Math.max(10, Math.round(g / 2)));
+    const tenth = Math.min(half, Math.max(10, Math.round(g / 10)));
+    return [tenth, half, max];
+  }
+
+  // Visible market rows for a tab: BUY lists every item plus the permit row
+  // (index items.length); SELL lists only items the player holds and never the
+  // permit row. The keyboard handler must cycle through exactly the rows the
+  // renderer shows — mirrored assertions live in ops/scripts/unit_tests.mjs
+  // (extracted from this source, keep the signature stable).
+  function marketVisibleIndices(mode, items, inv) {
+    // Only BUY/SELL have tradeable rows; GEAR and PRICES are non-trading tabs,
+    // so keyboard nav has nothing to select there (and Enter must not trade).
+    if (mode !== 'buy' && mode !== 'sell') return [];
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      if (mode === 'sell' && ((inv[items[i].id] || 0) <= 0)) continue;
+      out.push(i);
+    }
+    if (mode === 'buy') out.push(items.length); // permit row is buy-only
+    return out;
+  }
+
+  // Step the market selection within the visible rows, wrapping at the ends.
+  // A selection that is no longer visible (item sold out, tab switched) snaps
+  // to the first row on down / last row on up instead of walking hidden rows.
+  function marketNavStep(visible, current, dir) {
+    if (!visible.length) return current;
+    const pos = visible.indexOf(current);
+    if (pos < 0) return dir > 0 ? visible[0] : visible[visible.length - 1];
+    return visible[(pos + dir + visible.length) % visible.length];
   }
 
   function marketTryTrade(index, qty = 1) {
@@ -6764,6 +6932,16 @@ function drawNpcBubble() {
     return Math.max(0, r);
   }
 
+  // Accepting a job while another contract is active must not silently discard
+  // the active one: the first activation on a row arms a confirm ('confirm'),
+  // a second activation on the same armed row goes through ('accept').
+  // Mirrored assertions in ops/scripts/unit_tests.mjs extract this function
+  // from source — keep it self-contained.
+  function contractAcceptDecision(active, confirmIdx, idx) {
+    if (!active) return 'accept';
+    return confirmIdx === idx ? 'accept' : 'confirm';
+  }
+
   function contractsAccept(idx) {
     const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
     if (!c) return;
@@ -6772,6 +6950,14 @@ function drawNpcBubble() {
     const jobs = (contracts.byCity[c.id] || []).filter(j => (j?.tier ?? 0) <= repTier);
     const job = jobs[idx];
     if (!job) return;
+
+    if (contractAcceptDecision(contracts.active, ui.contractsConfirmIdx, idx) === 'confirm') {
+      ui.contractsConfirmIdx = idx;
+      toast('This replaces your active contract — press Accept again to confirm.', 2.6);
+      dom.key = ''; // re-render so the armed row's button relabels
+      return;
+    }
+    ui.contractsConfirmIdx = -1;
 
     const finalReward = contractRewardForAccept(c.id, job.reward, job.tier);
     contracts.active = { ...job, reward: finalReward };
@@ -6810,7 +6996,10 @@ function drawNpcBubble() {
       for (const it of ITEMS) key += `|${player.inv[it.id] || 0}`;
     } else if (kind === 'contracts') {
       const c = currentCity() || (ui.contractsCityId ? getCityById(ui.contractsCityId) : null);
-      key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
+      key += `|${c ? c.id : 'none'}|${ui.contractsSel}|${ui.contractsConfirmIdx}|${contracts.active ? (contracts.active.want+contracts.active.toId+contracts.active.qty) : 'none'}`;
+      // Board rows show "You hold X/N" per job, so a holdings change must
+      // re-render: fold the wanted-item counts for the visible jobs into the key.
+      if (c) for (const j of (contracts.byCity[c.id] || [])) key += `|${j.want}:${player.inv[j.want] || 0}`;
     } else if (kind === 'event') {
       key += `|${ui.eventTitle}|${ui.eventText}|${ui.eventSel}|${ui.eventChoices.length}|${ui.eventKind}|${ui.eventDismissable ? 1 : 0}|${ui.eventStakes}`;
     } else if (kind === 'bank') {
@@ -6845,6 +7034,11 @@ function drawNpcBubble() {
     if (kind === 'market') {
       const c = currentCity();
       if (!c) { domCloseAll(); return; }
+      // Snapshot this city's quotes for the PRICES tab. Runs on every market
+      // rebuild (past the dom.key early-return above) — so on open and on each
+      // buy/sell/tab change, but not every frame. Re-snapshotting is idempotent
+      // (same quotes within a visit) and keeps the current city's stamp current.
+      recordMarketVisit(c.id);
       const rules = CITY_RULES[c.id];
       const isMobile = IS_MOBILE;
       const showTabs = true; // always show - gear tab always visible
@@ -6852,7 +7046,10 @@ function drawNpcBubble() {
 
       const totalN = ITEMS.length + 1;
       const rows = [];
-      for (let i = 0; i < totalN; i++) {
+      // Only BUY/SELL render tradeable item rows; GEAR and PRICES have their own
+      // bodies, so skip the per-item quote+HTML work for them entirely.
+      const buildItemRows = ui.mode === 'buy' || ui.mode === 'sell';
+      for (let i = 0; buildItemRows && i < totalN; i++) {
         const selected = i === ui.selection;
         const isPermitRow = i === ITEMS.length;
         const it = isPermitRow ? null : ITEMS[i];
@@ -6904,10 +7101,21 @@ function drawNpcBubble() {
           const maxByGold = price > 0 ? Math.floor(player.gold / price) : 0;
           const maxBuy = ui.mode === 'buy' ? Math.max(0, Math.min(maxBySpace, maxByGold)) : have;
 
+          // One trade-button builder for both layouts — only class + inline
+          // style differ, so markup (data-action/idx/qty, disabled) can't drift.
+          const mkTradeBtn = (cls, style, label, qty, disabled) =>
+            `<button class="${cls}" style="${style}" data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+
           if (isMobile) {
             const actionLabel = ui.mode === 'buy' ? 'BUY' : 'SELL';
             const disabled = ui.mode === 'buy' ? (maxBuy <= 0 || notAvailHere) : (have <= 0);
-            const btn = `<button class="cr-action" data-action="trade" data-idx="${i}" data-qty="1" ${disabled ? 'disabled' : ''}>${actionLabel}</button>`;
+            // Compact side-by-side pair; min-width:0 overrides the coarse-pointer
+            // 72px floor so both fit inside .cr-right on narrow phones.
+            const mStyle = 'min-width:0;padding:6px 8px;';
+            const btn = `<div style="display:flex;gap:4px;justify-content:flex-end;">` +
+              mkTradeBtn('cr-action', mStyle, actionLabel, 1, disabled) +
+              mkTradeBtn('cr-action', mStyle, ui.mode === 'buy' ? 'MAX' : 'ALL', maxBuy > 0 ? maxBuy : 1, disabled) +
+              `</div>`;
             rows.push(`
               <div class="cr-card" role="button" tabindex="0" data-idx="${i}" aria-current="${selected}">
                 <div class="cr-card-left">
@@ -6923,8 +7131,7 @@ function drawNpcBubble() {
               </div>
             `);
           } else {
-            const btnBase = 'style="margin-top:6px;padding:6px 8px;font-size:12px;"';
-            const mkBtn = (label, qty, disabled) => `<button class="cr-tab" ${btnBase} data-action="trade" data-idx="${i}" data-qty="${qty}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+            const mkBtn = (label, qty, disabled) => mkTradeBtn('cr-tab', 'margin-top:6px;padding:6px 8px;font-size:12px;', label, qty, disabled);
 
             const buyDisabled = notAvailHere || maxBuy <= 0;
             const q1 = mkBtn('±1', 1, ui.mode === 'buy' ? buyDisabled : have <= 0);
@@ -7018,6 +7225,7 @@ function drawNpcBubble() {
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'buy'}" data-action="mode" data-mode="buy">BUY</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'sell'}" data-action="mode" data-mode="sell">SELL</button>
               <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'gear'}" data-action="mode" data-mode="gear">⚙ GEAR</button>
+              <button class="cr-tab" role="tab" aria-selected="${ui.mode === 'prices'}" data-action="mode" data-mode="prices">📒 PRICES</button>
             </div>
 ` : ''}            <div class="cr-body">
               <div class="cr-list" aria-label="Items">
@@ -7079,11 +7287,47 @@ function drawNpcBubble() {
                       ${hiddenAfter ? `<div style="font-size:10px;color:#555;margin-top:4px;padding-left:4px">▼ ${maxT - showTo} more tiers locked</div>` : ''}
                     </div>`;
                   }).join('');
+                })() : ui.mode === 'prices' ? (() => {
+                  // Read-only ledger of last-seen quotes per visited city.
+                  const ledger = player.priceLedger || {};
+                  // Only well-formed entries for real cities (a tampered save
+                  // could carry a null/garbage entry that would throw below).
+                  const cityIds = Object.keys(ledger).filter(cid => getCityById(cid) && ledger[cid] && typeof ledger[cid] === 'object');
+                  if (!cityIds.length) return `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">📒 No prices recorded yet.<br><span style="font-size:12px;color:#a89a78;">Open markets in other cities and their prices are remembered here.</span></div>`;
+                  const today = Math.floor(time.day);
+                  // Current city first, then the rest most-recently-seen first.
+                  const ordered = cityIds.slice().sort((a, b) =>
+                    a === c.id ? -1 : b === c.id ? 1 : ((ledger[b].day || 0) - (ledger[a].day || 0)));
+                  return ordered.map(cid => {
+                    const e = ledger[cid];
+                    const isHere = cid === c.id;
+                    const ageDays = Math.max(0, today - (e.day || 0));
+                    const stale = isHere ? 'now' : ageDays === 0 ? 'today' : `${ageDays}d ago`;
+                    const itemRows = ITEMS.filter(it => e.quotes && e.quotes[it.id]).map(it => {
+                      const q = e.quotes[it.id];
+                      return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 6px">
+                        <span style="color:#b0a070">${htmlEscape(it.name)}</span>
+                        <span style="color:#8a7a5a">buy <b style="color:#e0b060">${q.buy}g</b> · sell <b style="color:#86efac">${q.sell}g</b></span>
+                      </div>`;
+                    }).join('');
+                    return `<div style="margin-bottom:12px;border:1px solid ${isHere ? '#4a3a10' : '#2a2a1a'};border-radius:8px;padding:8px 10px;background:#0f0e0a">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-weight:700;color:#f0d080">📍 ${htmlEscape(cityName(cid))}${isHere ? ' (here)' : ''}</span>
+                        <span style="font-size:10px;color:#888">seen ${stale}</span>
+                      </div>
+                      ${itemRows}
+                    </div>`;
+                  }).join('');
                 })() : `${rumorsHtml}${rows.length ? rows.join('') : `<div class="cr-empty" style="text-align:center;padding:28px 16px;color:#8a7a5a;font-size:14px;">🎒 Nothing to sell — your pack is empty.<br><span style="font-size:12px;color:#a89a78;">Buy goods here or mine ore, then sell where prices are higher.</span></div>`}`}
               </div>
             </div>
             <div class="cr-foot">
               <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity} &nbsp; ${currentGear('boots').icon} ${currentGear('boots').name} &nbsp; ${currentGear('tool').icon} ${currentGear('tool').name}</div>
+              ${(() => {
+                // What the pack would fetch at this city's sell quotes (before tax).
+                const pv = packSellValue(player.inv, ITEMS, it => quoteFor(c.id, it).sell);
+                return pv > 0 ? `<div class="cr-hint" style="color:#86efac">Pack sells here for ~${pv}g (before tax)</div>` : '';
+              })()}
               <div class="cr-hint">Esc close · Tab switch · Enter trade</div>
             </div>
           </div>
@@ -7107,7 +7351,11 @@ function drawNpcBubble() {
 
       // Bind events (re-bound on re-render)
       uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }));
-      uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => { ui.mode = el.getAttribute('data-mode'); toast(ui.mode.toUpperCase(), 0.7); }));
+      uiRoot.querySelectorAll('[data-action="mode"]').forEach(el => el.addEventListener('click', () => {
+        ui.mode = el.getAttribute('data-mode');
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+        toast(ui.mode.toUpperCase(), 0.7);
+      }));
       uiRoot.querySelectorAll('[data-idx]').forEach(el => {
         el.addEventListener('click', (ev) => {
           const idx = Number(el.getAttribute('data-idx'));
@@ -7172,15 +7420,26 @@ function drawNpcBubble() {
         const selected = i === ui.contractsSel;
         const tierTag = `[T${job.tier ?? 0}]`;
         const shownReward = contractRewardForAccept(c.id, job.reward, job.tier);
+        // Armed only makes sense while a contract is actually active — a stale
+        // index (e.g. active contract delivered since arming) must not warn.
+        const armed = !!contracts.active && i === ui.contractsConfirmIdx;
+        const acceptLabel = armed ? 'Replace?' : 'Accept';
+        // Progress from current pack + where the good is cheapest (public info).
+        const hold = contractHoldLabel(player.inv, job);
+        const cheapId = cheapestCityFor(job.want, CITY_MULTS);
+        const srcHint = cheapId ? ` · 🏷️ cheapest at ${htmlEscape(cityName(cheapId))}` : '';
+        const holdLine = `<div class="cr-card-sub" style="color:${hold.met ? '#86efac' : '#a09060'}">You hold ${hold.have}/${hold.need}${hold.met ? ' ✓' : ''}${srcHint}</div>`;
         return `
-          <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" aria-current="${selected}">
+          <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" data-want="${htmlEscape(job.want)}" aria-current="${selected}">
             <div>
               <div class="cr-card-title">${htmlEscape(tierTag)} Deliver ${job.qty}× ${htmlEscape(it ? it.name : job.want)} → ${htmlEscape(job.toId)}</div>
               <div class="cr-card-sub">Reward: ${shownReward}g</div>
+              ${holdLine}
+              ${armed ? '<div class="cr-card-sub" style="color:#fbbf24">⚠️ Replaces your active contract</div>' : ''}
             </div>
             <div class="cr-right">
               <div class="cr-price">${shownReward}g</div>
-              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;" data-action="accept" data-cidx="${i}">Accept</button>
+              <button class="cr-tab" style="margin-top:10px; padding:10px 10px;${armed ? 'border-color:#fbbf24;color:#fbbf24;' : ''}" data-action="accept" data-cidx="${i}">${acceptLabel}</button>
             </div>
           </div>
         `;
@@ -7190,7 +7449,8 @@ function drawNpcBubble() {
         ? (() => {
             const it = ITEMS.find(x=>x.id===contracts.active.want);
             const prog = activeContractProgressLabel();
-            return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g`;
+            return `Active: Deliver ${contracts.active.qty} ${htmlEscape(it ? it.name : contracts.active.want)} (${htmlEscape(prog)}) → ${htmlEscape(contracts.active.toId)} for ${contracts.active.reward}g
+              <button class="cr-tab" style="margin-left:8px;padding:4px 8px;font-size:11px;" data-action="abandon">Abandon</button>`;
           })()
         : 'Pick a job. Deliver to the other city for gold + rep.';
 
@@ -7234,6 +7494,14 @@ function drawNpcBubble() {
         const idx = Number(el.getAttribute('data-cidx'));
         if (Number.isFinite(idx)) { ui.contractsSel = idx; contractsAccept(idx); }
       }));
+      uiRoot.querySelector('[data-action="abandon"]')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        contracts.active = null;
+        ui.contractsConfirmIdx = -1;
+        toast('Contract abandoned.', 2);
+        scheduleAutoSave();
+        dom.key = ''; // re-render header + board
+      });
 
       return;
     }
@@ -7355,14 +7623,18 @@ function drawNpcBubble() {
           </div>`;
       } else if (ui.bankTab === 'deposit') {
         const rateLabel = `${(BANK_INTEREST_RATE * 100).toFixed(1)}%/day`;
+        // Buttons scale with gold; dedupe so low-gold players don't see three
+        // identical amounts. Disabled entirely when the player is broke.
+        const depAmts = [...new Set(bankQuickAmounts(player.gold))].filter(a => a > 0);
+        const depBtns = depAmts.length
+          ? depAmts.map(a => `<button class="cr-tab" data-action="dep" data-amt="${a}">+${a}g</button>`).join('')
+          : '<span class="cr-sub" style="color:#fbbf24">No gold to deposit.</span>';
         bodyHtml = `
           <div class="cr-sub">Deposits earn <b>${rateLabel}</b> interest.</div>
           <div class="cr-sub">Vault reserve: <b style="color:${vaultHealthColor}">${vault.reserve}g</b> - <span style="color:${vaultHealthColor}">${vaultHealthLabel}</span></div>
           <div class="cr-sub" style="margin-top:2px">Your gold: <b>${player.gold}g</b>${dep ? ` · On deposit: <b>${depTotal}g</b> (+${interest}g interest)` : ''}</div>
-          <div style="display:flex;gap:8px;margin-top:10px;">
-            <button class="cr-tab" data-action="dep10">+10g</button>
-            <button class="cr-tab" data-action="dep50">+50g</button>
-            <button class="cr-tab" data-action="dep100">+100g</button>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            ${depBtns}
           </div>`;
       } else if (ui.bankTab === 'withdraw') {
         bodyHtml = dep
@@ -7458,9 +7730,10 @@ function drawNpcBubble() {
             }
           });
         };
-        uiRoot.querySelector('[data-action="dep10"]')?.addEventListener('click', () => bankDeposit(10));
-        uiRoot.querySelector('[data-action="dep50"]')?.addEventListener('click', () => bankDeposit(50));
-        uiRoot.querySelector('[data-action="dep100"]')?.addEventListener('click', () => bankDeposit(100));
+        uiRoot.querySelectorAll('[data-action="dep"]').forEach(el => el.addEventListener('click', () => {
+          const amt = Math.floor(Number(el.getAttribute('data-amt')) || 0);
+          if (amt > 0) bankDeposit(amt);
+        }));
 
         uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
           if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
@@ -7906,6 +8179,9 @@ function drawNpcBubble() {
 
     guildMember: false, // true once Merchant Guild milestone is achieved
     seenFirstVein: false, // one-shot tutorial: fires the first time the player stands near any mining vein
+    // Last-seen market quotes per visited city: { cityId: { day, quotes: { itemId: {buy,sell} } } }.
+    // Populated when the player opens a market; surfaced by the market PRICES tab.
+    priceLedger: {},
     _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
@@ -8002,7 +8278,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.25',
+      buildVersion: 'v0.5.36',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -8019,6 +8295,15 @@ function drawNpcBubble() {
         guildMember: player.guildMember || false,
         seenFirstVein: player.seenFirstVein || false,
         gear: { ...player.gear },
+        // Last-seen market quotes per city (deep-copied so the serialized state
+        // never aliases the live ledger). Surfaced by the market PRICES tab.
+        // Skip any malformed entry (e.g. from a tampered save) so serialization
+        // can't throw on a non-object entry.
+        priceLedger: Object.fromEntries(
+          Object.entries(player.priceLedger || {})
+            .filter(([, e]) => e && typeof e === 'object')
+            .map(([cid, e]) => [cid, { day: e.day, quotes: { ...(e.quotes || {}) } }])
+        ),
         // mineCooldown is intentionally NOT persisted: its values are stateTime
         // offsets, and stateTime resets to 0 on every page reload, so saving
         // them would either strand veins as "still recovering" forever (cross-
@@ -8166,6 +8451,7 @@ function drawNpcBubble() {
         s.player.permits[cid] ??= false;
       }
       s.player.facing ||= { x: 0, y: 1 };
+      s.player.priceLedger ||= {};
 
       s.time ||= { day: 1, frac: 0, seed: 1 };
       s.marketDrift ||= {};
@@ -8182,6 +8468,8 @@ function drawNpcBubble() {
 
     // Ensure openedCaches exists for newer saves too.
     if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+    // Ensure priceLedger exists on saves that predate the market PRICES tab.
+    if (s.player && !isObj(s.player.priceLedger)) s.player.priceLedger = {};
 
     return s;
   }
@@ -8203,6 +8491,7 @@ function drawNpcBubble() {
       player.mineCooldown = {};
     }
     if (typeof player.mineStamina !== 'number') player.mineStamina = 100;
+    if (!player.priceLedger || typeof player.priceLedger !== 'object') player.priceLedger = {};
     // Ensure new items appear in inv after schema upgrade.
     for (const it of ITEMS) if (player.inv[it.id] === undefined) player.inv[it.id] = 0;
     applyGearStats();
@@ -8449,6 +8738,19 @@ function drawNpcBubble() {
     return null;
   }
 
+  // HUD stamina meter visibility: hidden only at full stamina away from any
+  // vein; otherwise shows fill fraction and a color ramp keyed to how many
+  // swings remain at the current pickaxe's cost (2+ green, 1 amber, 0 red).
+  // Mirrored assertions in ops/scripts/unit_tests.mjs extract this function
+  // from source — keep it self-contained (no outer-scope references).
+  function staminaMeterState(stamina, nearVein, swingCost) {
+    const s = Math.min(100, Math.max(0, Math.round(Number(stamina) || 0)));
+    if (s >= 100 && !nearVein) return null;
+    const cost = Math.max(1, Number(swingCost) || 15);
+    const color = s < cost ? '#ef4444' : s < cost * 2 ? '#fbbf24' : '#4ade80';
+    return { frac: s / 100, color, label: `${s}/100` };
+  }
+
   // Player-active mining: 30s per-vein cooldown, 15 stamina per swing,
   // drops 2..4 ore + 10% chance +1 coal + 5% chance +1 gem.
   function playerMineNode(tx, ty) {
@@ -8672,6 +8974,7 @@ function drawNpcBubble() {
               ui.marketOpen = false;
               ui.contractsOpen = true;
               ui.contractsSel = 0;
+              ui.contractsConfirmIdx = -1;
               ui.contractsCityId = c.id;
               toast('Contracts board opened', 1.8);
             }
@@ -8910,9 +9213,30 @@ function drawNpcBubble() {
     return removed;
   }
 
+  // Append a toast to the queue (immutable; returns the new queue). Keeps at
+  // most `max` entries, dropping the oldest on overflow so rapid back-to-back
+  // toasts stack instead of overwriting each other. Mirrored assertions in
+  // ops/scripts/unit_tests.mjs extract these two helpers from source — keep
+  // them self-contained.
+  function toastQueuePush(q, msg, seconds, max) {
+    const out = (q || []).concat([{ msg: String(msg), t: Math.max(0.1, Number(seconds) || 3) }]);
+    while (out.length > (max || 3)) out.shift();
+    return out;
+  }
+
+  // Age the queue by dt seconds; each entry expires on its own timer.
+  // Empty queues return as-is: this runs every frame, so the common idle case
+  // must not allocate.
+  function toastQueueTick(q, dt) {
+    if (!q || !q.length) return q || [];
+    const d = Math.max(0, Number(dt) || 0);
+    return q.map(it => ({ msg: it.msg, t: it.t - d })).filter(it => it.t > 0);
+  }
+
+  const TOAST_MAX_STACK = 3;
+
   function toast(msg, seconds = 3) {
-    ui.toast = msg;
-    ui.toastT = seconds;
+    ui.toasts = toastQueuePush(ui.toasts, msg, seconds, TOAST_MAX_STACK);
   }
 
   // ── Loot pickup popups ────────────────────────────────────────────────────
@@ -9071,6 +9395,19 @@ function drawNpcBubble() {
   function cargoMarketValue(inv, items) {
     let v = 0;
     for (const it of items) v += (inv[it.id] || 0) * it.base;
+    return v;
+  }
+
+  // Total the pack would fetch at a city's sell quotes (before tax). sellPriceOf
+  // maps an item to its per-city sell price, injected so this stays a pure
+  // function of state. Mirrored assertions in ops/scripts/unit_tests.mjs extract
+  // this from source — keep it self-contained.
+  function packSellValue(inv, items, sellPriceOf) {
+    let v = 0;
+    for (const it of items) {
+      const n = inv[it.id] || 0;
+      if (n > 0) v += n * (sellPriceOf(it) || 0);
+    }
     return v;
   }
 
@@ -9842,13 +10179,17 @@ function drawNpcBubble() {
 
 
     if (ui.marketOpen) {
-      const totalN = ITEMS.length + 1; // +1 permit row
+      const visible = marketVisibleIndices(ui.mode, ITEMS, player.inv);
       if (e.code === 'Escape') { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }
-      if (e.code === 'Tab') { e.preventDefault(); ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
-      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = (ui.selection + totalN - 1) % totalN;
-      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = (ui.selection + 1) % totalN;
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        ui.mode = ui.mode === 'buy' ? 'sell' : 'buy';
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+      }
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') ui.selection = marketNavStep(visible, ui.selection, -1);
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') ui.selection = marketNavStep(visible, ui.selection, +1);
       if (e.code === 'Enter' || e.code === 'Space') {
-        marketTryTrade(ui.selection);
+        if (visible.includes(ui.selection)) marketTryTrade(ui.selection);
       }
     }
 
@@ -11885,7 +12226,7 @@ function drawEntities() {
     }
     if (atContracts && c) {
       actions.push(['📋', 'Contracts', () => {
-        ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsCityId = c.id;
+        ui.marketOpen = false; ui.contractsOpen = true; ui.contractsSel = 0; ui.contractsConfirmIdx = -1; ui.contractsCityId = c.id;
         toast('Contracts board opened', 1.8); _fabLastKey = '';
       }]);
     }
@@ -11922,10 +12263,30 @@ function drawEntities() {
     }
   }
 
+  // Small ⛏-labelled stamina bar. sm comes from staminaMeterState (non-null).
+  function drawStaminaBar(sm, x, y, w) {
+    const h = Math.max(4, Math.round(5 * UI_SCALE));
+    ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(232,237,242,0.9)';
+    ctx.fillText('⛏', x, y + h);
+    const bx = x + Math.round(14 * UI_SCALE);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(bx - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(bx, y, w, h);
+    ctx.fillStyle = sm.color;
+    ctx.fillRect(bx, y, Math.round(w * sm.frac), h);
+  }
+
   function drawHUD() {
     const c = currentCity();
     const rules = c ? CITY_RULES[c.id] : null;
     const w = invWeight();
+    // Mining stamina meter: computed every frame so the QA api and both HUD
+    // layouts (mobile strip, desktop under-minimap) agree on visibility.
+    const smMeter = staminaMeterState(player.mineStamina ?? 100, !!nearMineTile(), player.miningStaminaCost ?? 15);
+    ui._staminaMeter = smMeter;
 
     const pad = Math.round(14 * UI_SCALE);
 
@@ -11995,6 +12356,29 @@ if (IS_MOBILE) {
     ctx.fillStyle = 'rgba(239,68,68,0.9)';
     ctx.font = `${Math.round(10 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
     ctx.fillText(ellipsizeText(ui._hudTapDebug, VIEW_W - padX * 2), padX, Math.round(topH - 4 * UI_SCALE));
+  }
+
+  // Mining stamina meter: slim bar just under the HUD strip
+  if (smMeter) drawStaminaBar(smMeter, padX, topH + Math.round(6 * UI_SCALE), Math.round(90 * UI_SCALE));
+
+  // Toast stack: the slim mobile HUD never rendered ui.toast at all — draw up
+  // to 3 entries (newest on top) under the strip, offset past the stamina bar.
+  if (ui.toasts && ui.toasts.length) {
+    const baseY = topH + Math.round((smMeter ? 24 : 16) * UI_SCALE);
+    const stepY = Math.round(15 * UI_SCALE);
+    const alphas = [0.95, 0.72, 0.5];
+    ctx.font = `600 ${Math.round(11 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    ctx.textAlign = 'left';
+    // Newest entry (last in queue) draws on top; iterate backwards in place.
+    for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
+      const ty = baseY + k * stepY;
+      const label = ellipsizeText(ui.toasts[j].msg, VIEW_W - padX * 2 - Math.round(12 * UI_SCALE));
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = `rgba(10, 14, 20, ${0.62 * (alphas[k] ?? 0.5)})`;
+      ctx.fillRect(padX - 4, ty - Math.round(10 * UI_SCALE), tw + 12, Math.round(14 * UI_SCALE));
+      ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
+      ctx.fillText(label, padX, ty);
+    }
   }
 
   // Render the DOM minimap widget each frame (keeps it live as player moves)
@@ -12097,6 +12481,8 @@ if (IS_MOBILE) {
     }
     // contract compass
     drawCompassArrowOnMinimap(mmX, mmY, mmSize);
+    // Mining stamina meter: under the minimap
+    if (smMeter) drawStaminaBar(smMeter, mmX, mmY + mmSize + Math.round(10 * UI_SCALE), mmSize - Math.round(14 * UI_SCALE));
     // camera viewport box
     const vx = (camera.x / (MAP_W * TILE)) * mmSize;
     const vy = (camera.y / (MAP_H * TILE)) * mmSize;
@@ -12402,13 +12788,19 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
   ctx.restore();
 }
 
-    // toast (inside HUD; never overlaps gameplay)
-    if (ui.toastT > 0) {
-      const toastY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
-      ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-      ctx.fillText(ellipsizeText(ui.toast, maxTextW), titleX, toastY);
-
-
+    // Toast stack (newest on top, older entries fade below). The first line
+    // sits inside the HUD strip; overflow lines extend below it over the map.
+    if (ui.toasts && ui.toasts.length) {
+      const baseY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
+      const stepY = Math.round(14 * UI_SCALE);
+      const alphas = [0.95, 0.72, 0.5];
+      ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.textAlign = 'left';
+      // Newest entry (last in queue) draws on top; iterate backwards in place.
+      for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
+        ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
+        ctx.fillText(ellipsizeText(ui.toasts[j].msg, maxTextW), titleX, baseY + k * stepY);
+      }
     }
   }
 
@@ -12972,7 +13364,7 @@ function drawEvent() {
     const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     stateTime += dt * 1000;
-    if (ui.toastT > 0) ui.toastT -= dt;
+    ui.toasts = toastQueueTick(ui.toasts, dt);
     tickBanners(dt); // advance banner TTL every frame so they actually auto-dismiss
 
     // Mining stamina regen: +1/sec, capped at 100. Throttled to once-per-second
@@ -13103,14 +13495,21 @@ function drawEvent() {
 
     if (ui.marketOpen) {
       const totalN = ITEMS.length + 1;
+      // Must agree with the window keydown handler: both step through the
+      // rows the renderer actually shows (marketVisibleIndices), otherwise a
+      // physical keypress fires both paths and they fight over ui.selection.
+      const visible = marketVisibleIndices(ui.mode, ITEMS, player.inv);
       if (consumeVKey('Escape')) { ui.marketOpen = false; toast('Market closed', 2); }
-      if (consumeVKey('Tab')) { ui.mode = ui.mode === 'buy' ? 'sell' : 'buy'; }
+      if (consumeVKey('Tab')) {
+        ui.mode = ui.mode === 'buy' ? 'sell' : 'buy';
+        ui.selection = marketVisibleIndices(ui.mode, ITEMS, player.inv)[0] ?? 0;
+      }
 
       // selection via touch/hold arrows
       ui.navT -= dt;
       if (ui.navT <= 0) {
-        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = (ui.selection + totalN - 1) % totalN; ui.navT = 0.14; }
-        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = (ui.selection + 1) % totalN; ui.navT = 0.14; }
+        if (isDown('ArrowUp') || isDown('KeyW')) { ui.selection = marketNavStep(visible, ui.selection, -1); ui.navT = 0.14; }
+        else if (isDown('ArrowDown') || isDown('KeyS')) { ui.selection = marketNavStep(visible, ui.selection, +1); ui.navT = 0.14; }
 
         // auto-scroll selection into view (legacy canvas list; keep state consistent)
         const visibleN = Math.max(3, Math.floor((Math.min(420, VIEW_H - HUD_H - Math.round(24 * UI_SCALE)) - Math.round(110 * UI_SCALE) - Math.round(52 * UI_SCALE)) / Math.round(28 * UI_SCALE)));
@@ -13120,7 +13519,7 @@ function drawEvent() {
       }
 
       if (consumeVKey('Enter') || consumeVKey('Space')) {
-        marketTryTrade(ui.selection);
+        if (visible.includes(ui.selection)) marketTryTrade(ui.selection);
       }
     }
 

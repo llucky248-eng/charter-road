@@ -210,6 +210,389 @@ async function checkSellTabFiltering() {
   console.log('QA_PASS: sell-tab-filtering');
 }
 
+// Mobile market cards must offer a MAX/ALL quantity button, not just single-unit
+// trades — emptying a 20-item pack should be one tap, not twenty. Runs under an
+// iPhone 12 context so IS_MOBILE (viewport-based) selects the mobile card branch.
+async function checkMobileMarketQtyButtons() {
+  const browser = await chromium.launch(launchOptions);
+  const context = await browser.newContext({ ...devices['iPhone 12'] });
+  const page = await context.newPage();
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 500, inv: { coal: 0, grain: 0, food: 7, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 }, capacity: 999 });
+
+    // SELL tab: the held item's card must expose an ALL button (qty = holdings)
+    if (!api.openMarketUI('valdenmere', 'sell')) return { ok: false, reason: 'market UI did not open' };
+    const sellCard = document.querySelector('.cr-list .cr-card[data-idx]');
+    if (!sellCard) return { ok: false, reason: 'no sell card rendered' };
+    const sellBtns = [...sellCard.querySelectorAll('[data-action="trade"]')];
+    const allBtn = sellBtns.find(b => Number(b.getAttribute('data-qty')) === 7);
+    if (!allBtn) return { ok: false, reason: `no ALL(qty=7) button; qtys=[${sellBtns.map(b => b.getAttribute('data-qty')).join(',')}]` };
+    allBtn.click();
+    const soldOut = (api.snapshot().player.inv.food || 0) === 0;
+
+    // BUY tab: cards must expose a MAX button with qty > 1
+    api.openMarketUI('valdenmere', 'buy');
+    const buyCard = document.querySelector('.cr-list .cr-card[data-idx="0"]');
+    if (!buyCard) return { ok: false, reason: 'no buy card rendered' };
+    const buyBtns = [...buyCard.querySelectorAll('[data-action="trade"]')];
+    const maxBtn = buyBtns.find(b => Number(b.getAttribute('data-qty')) > 1 && !b.disabled);
+    if (!maxBtn) return { ok: false, reason: `no MAX(qty>1) buy button; qtys=[${buyBtns.map(b => b.getAttribute('data-qty')).join(',')}]` };
+    const maxQty = Number(maxBtn.getAttribute('data-qty'));
+    const invBefore = api.snapshot().player.inv;
+    const idBefore = JSON.stringify(invBefore);
+    maxBtn.click();
+    const after = api.snapshot().player.inv;
+    // Exactly one item id gained exactly maxQty units in a single tap.
+    const gained = Object.keys(after).filter(k => (after[k] || 0) !== (invBefore[k] || 0));
+    const boughtMax = gained.length === 1 && (after[gained[0]] || 0) - (invBefore[gained[0]] || 0) === maxQty;
+
+    api.closeUI();
+    return { ok: soldOut && boughtMax, soldOut, boughtMax, maxQty, gained, idBefore };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`mobile-market-qty-buttons: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: mobile-market-qty-buttons');
+}
+
+// Accepting a contract while another is active must not silently discard the
+// active one: the first tap arms a confirm, the second tap replaces. The
+// active-contract line must also offer an explicit Abandon button.
+async function checkContractReplaceAndAbandon() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setActiveContract(null);
+    if (typeof api.openContractsUI !== 'function') return { ok: false, reason: 'openContractsUI QA helper missing' };
+
+    // No active contract: one tap accepts.
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not open' };
+    const firstAccept = document.querySelector('[data-action="accept"]');
+    if (!firstAccept) return { ok: false, reason: 'no accept button on board' };
+    firstAccept.click();
+    const active1 = api.snapshot().contracts.active;
+    if (!active1) return { ok: false, reason: 'plain accept did not activate a contract' };
+
+    // Active contract present: first tap must NOT replace, second tap must.
+    // A sentinel qty (board jobs never ask for 99) makes replacement detectable
+    // even when board jobs are seeded identical to each other.
+    api.setActiveContract({ want: 'ore', toId: 'ashport', qty: 99, reward: 5 });
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not reopen' };
+    const secondAccept = document.querySelector('[data-action="accept"]');
+    if (!secondAccept) return { ok: false, reason: 'no second job on board' };
+    secondAccept.click();
+    const afterFirstTap = api.snapshot().contracts.active;
+    const notReplacedYet = !!afterFirstTap && afterFirstTap.qty === 99;
+    // Re-query: the confirm re-render may rebuild the modal DOM.
+    const confirmBtn = document.querySelector('[data-action="accept"]');
+    if (!confirmBtn) return { ok: false, reason: 'accept button vanished after confirm arm' };
+    confirmBtn.click();
+    const afterSecondTap = api.snapshot().contracts.active;
+    const replaced = !!afterSecondTap && afterSecondTap.qty !== 99;
+
+    // Abandon: active-contract line offers an explicit button that clears it.
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not reopen for abandon' };
+    const abandonBtn = document.querySelector('[data-action="abandon"]');
+    if (!abandonBtn) return { ok: false, reason: 'no abandon button while contract active' };
+    abandonBtn.click();
+    const cleared = api.snapshot().contracts.active === null;
+
+    api.closeUI();
+    return { ok: notReplacedYet && replaced && cleared, notReplacedYet, replaced, cleared };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`contract-replace-abandon: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: contract-replace-abandon');
+}
+
+// Bank deposit buttons must scale with the player's wealth (10%/50%/100% of
+// gold) rather than the old fixed +10/+50/+100, and a click must deposit the
+// labelled amount.
+async function checkBankDepositScaling() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 1000, capacity: 999 });
+    if (typeof api.openBankUI !== 'function') return { ok: false, reason: 'openBankUI QA helper missing' };
+    if (!api.openBankUI('valdenmere', 'deposit')) return { ok: false, reason: 'bank UI did not open' };
+
+    const btns = [...document.querySelectorAll('[data-action="dep"]')];
+    const amts = btns.map(b => Number(b.getAttribute('data-amt')));
+    // 10% / 50% / 100% of 1000g.
+    const scaled = JSON.stringify(amts) === JSON.stringify([100, 500, 1000]);
+    if (!scaled) return { ok: false, reason: `unexpected deposit amounts: ${JSON.stringify(amts)}` };
+
+    const goldBefore = api.snapshot().player.gold;
+    // Click the +500 (half) button.
+    btns.find(b => Number(b.getAttribute('data-amt')) === 500).click();
+    const goldAfter = api.snapshot().player.gold;
+    const deposited = goldBefore - goldAfter === 500;
+
+    api.closeUI();
+    return { ok: scaled && deposited, scaled, deposited, goldBefore, goldAfter };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`bank-deposit-scaling: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: bank-deposit-scaling');
+}
+
+// The market footer must show what the pack sells for at THIS city, using
+// sell-side quotes (not buy-side) and summed over current holdings.
+async function checkPackValueReadout() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    // setPlayer merges inv onto the starting pack, so zero every other good to
+    // isolate the two items under test.
+    api.setPlayer({ gold: 100, capacity: 999, inv: { coal: 0, grain: 0, food: 4, ore: 2, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+    if (!api.openMarketUI('valdenmere', 'buy')) return { ok: false, reason: 'market UI did not open' };
+
+    const foot = document.querySelector('.cr-foot');
+    const m = (foot?.textContent || '').match(/Pack sells here for ~(\d+)g/);
+    if (!m) return { ok: false, reason: `no pack-value readout: ${foot?.textContent?.slice(0, 120)}` };
+    const shown = Number(m[1]);
+
+    // Independently sum sell quotes for the same holdings.
+    const expectSell = (api.marketQuote('valdenmere', 'food').sell * 4) + (api.marketQuote('valdenmere', 'ore').sell * 2);
+    const expectBuy = (api.marketQuote('valdenmere', 'food').buy * 4) + (api.marketQuote('valdenmere', 'ore').buy * 2);
+    const matchesSell = shown === expectSell;
+    const notBuy = shown !== expectBuy || expectSell === expectBuy;
+
+    // Empty pack: readout disappears.
+    api.setPlayer({ inv: { coal: 0, grain: 0, food: 0, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+    api.openMarketUI('valdenmere', 'buy');
+    const emptyGone = !/Pack sells here/.test(document.querySelector('.cr-foot')?.textContent || '');
+
+    api.closeUI();
+    return { ok: matchesSell && notBuy && emptyGone, shown, expectSell, expectBuy, matchesSell, notBuy, emptyGone };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`pack-value-readout: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: pack-value-readout');
+}
+
+// Contract board rows must show "You hold X/N" reflecting current inventory
+// (green when the requirement is met) plus a "cheapest at" source hint.
+async function checkContractBoardHints() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setActiveContract(null);
+
+    // Empty pack: first job shows "You hold 0/N" and a "cheapest at" hint.
+    // setPlayer merges inv, so zero every good explicitly (clearSave only wipes
+    // localStorage, not the in-memory pack the in-page self-test left behind).
+    api.setPlayer({ gold: 50, capacity: 999, inv: { coal: 0, grain: 0, food: 0, ore: 0, herbs: 0, potion: 0, relic: 0, ink: 0, gem: 0, copper: 0, silver: 0, gold: 0 } });
+    if (!api.openContractsUI('valdenmere')) return { ok: false, reason: 'contracts UI did not open' };
+    const firstCard = document.querySelector('.cr-list .cr-card[data-cidx]');
+    if (!firstCard) return { ok: false, reason: 'no job cards' };
+    const emptyText = firstCard.textContent || '';
+    const showsZeroHold = /You hold 0\/\d+/.test(emptyText);
+    const showsCheapest = /cheapest at /i.test(emptyText);
+
+    // Read what the first job wants (data-want) and how many (from the title).
+    const m = emptyText.match(/Deliver (\d+)×/);
+    if (!m) return { ok: false, reason: `could not parse job qty: ${emptyText.slice(0, 80)}` };
+    const needQty = Number(m[1]);
+    const wantId = firstCard.getAttribute('data-want');
+    if (!wantId) return { ok: false, reason: 'card missing data-want' };
+
+    // Stock the requirement: the label must flip to met (green + ✓).
+    const inv = {}; inv[wantId] = needQty;
+    api.setPlayer({ inv, capacity: 999 });
+    api.openContractsUI('valdenmere');
+    const metCard = document.querySelector('.cr-list .cr-card[data-cidx]');
+    const metText = metCard.textContent || '';
+    const showsMet = new RegExp(`You hold ${needQty}/${needQty} ✓`).test(metText);
+    const metSub = metCard.querySelector('.cr-card-sub[style*="86efac"]');
+    const isGreen = !!metSub;
+
+    api.closeUI();
+    return { ok: showsZeroHold && showsCheapest && showsMet && isGreen, showsZeroHold, showsCheapest, showsMet, isGreen, wantId, needQty };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`contract-board-hints: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: contract-board-hints');
+}
+
+// The navigate picker must show trip distance + ETA per destination so the
+// player can judge a trip before committing, and the ETA must scale with boots.
+async function checkNavPickerEta() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    if (typeof api.openNavPicker !== 'function') return { ok: false, reason: 'openNavPicker QA helper missing' };
+
+    // Slow boots: every destination shows a tiles + ETA line.
+    api.setPlayer({ gear: { boots: 0 } });
+    if (!api.openNavPicker('valdenmere')) return { ok: false, reason: 'nav picker did not open' };
+    const slowBtns = [...document.querySelectorAll('#cr-nav-picker [data-city]')];
+    if (slowBtns.length === 0) return { ok: false, reason: 'no destination buttons' };
+    const parseEta = (btn) => {
+      const m = (btn.textContent || '').match(/~(?:(\d+)m )?(\d+)s at/);
+      if (!m) return null;
+      return (Number(m[1] || 0) * 60) + Number(m[2]);
+    };
+    const slowEtas = slowBtns.map(parseEta);
+    const allHaveTrip = slowEtas.every(e => e !== null && e > 0);
+    const tilesShown = slowBtns.every(b => /~\d+ tiles/.test(b.textContent || ''));
+    // Pick a reference destination to compare across boots tiers.
+    const refCity = slowBtns[0].getAttribute('data-city');
+    const slowEta = parseEta(slowBtns[0]);
+
+    // Faster boots: same route, strictly shorter ETA.
+    api.setPlayer({ gear: { boots: 3 } });
+    api.openNavPicker('valdenmere');
+    const fastBtn = document.querySelector(`#cr-nav-picker [data-city="${refCity}"]`);
+    const fastEta = parseEta(fastBtn);
+    const fasterIsQuicker = fastEta !== null && slowEta !== null && fastEta < slowEta;
+
+    api.closeUI();
+    return { ok: allHaveTrip && tilesShown && fasterIsQuicker, allHaveTrip, tilesShown, fasterIsQuicker, slowEta, fastEta };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`nav-picker-eta: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: nav-picker-eta');
+}
+
+// The market PRICES tab must remember last-seen quotes per visited city, and
+// those quotes must survive a save round-trip.
+async function checkPriceLedger() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+
+  await page.goto(activeUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => {
+    // @ts-ignore
+    return window.__QA && window.__QA.status && window.__QA.status !== 'pending';
+  }, { timeout: 30_000 });
+
+  const outcome = await page.evaluate(() => {
+    // @ts-ignore
+    const api = window.__QA.api;
+    api.clearSave();
+    api.setPlayer({ gold: 500, capacity: 999 });
+
+    // Visiting a market records that city's quotes.
+    if (!api.openMarketUI('valdenmere', 'buy')) return { ok: false, reason: 'valdenmere market did not open' };
+    if (!api.openMarketUI('ashport', 'buy')) return { ok: false, reason: 'ashport market did not open' };
+
+    // The PRICES tab lists both visited cities; the current one is marked (here).
+    api.openMarketUI('ashport', 'prices');
+    const list = document.querySelector('.cr-list');
+    const text = list?.textContent || '';
+    const showsValden = /Valdenmere/.test(text);
+    const showsAshport = /Ashport/.test(text) && /\(here\)/.test(text);
+
+    // The recorded valdenmere sell quote must match a fresh quote for a spot item.
+    const q = api.marketQuote('valdenmere', 'food');
+    const led = api.priceLedger ? api.priceLedger() : null;
+    const recordedSell = led?.valdenmere?.quotes?.food?.sell ?? null;
+    const quoteMatches = recordedSell === q.sell;
+
+    // Save round-trip: trigger an autosave, flush it, and confirm the serialized
+    // save carries the ledger for both cities.
+    api.marketBuy('food', 1, 'ashport'); // schedules an autosave
+    api.flushAutosave();
+    const save = api.readSave();
+    const persisted = !!(save && save.player && save.player.priceLedger
+      && save.player.priceLedger.valdenmere && save.player.priceLedger.ashport);
+
+    api.closeUI();
+    return { ok: showsValden && showsAshport && quoteMatches && persisted, showsValden, showsAshport, quoteMatches, persisted, recordedSell, qSell: q.sell };
+  });
+
+  await browser.close();
+
+  if (!outcome || !outcome.ok) {
+    die(`price-ledger: ${outcome?.reason || JSON.stringify(outcome)}`);
+  }
+  console.log('QA_PASS: price-ledger');
+}
+
 // The market panel must never clip its own footer or item list. The panel is
 // capped (max-height + overflow:hidden), so unless the body/list flex-shrink,
 // a long list pushes the footer past the clip edge and the list looks "cut
@@ -350,6 +733,13 @@ async function checkAutoNavReachability() {
 
     await checkMarketScrollPreservation();
     await checkSellTabFiltering();
+    await checkMobileMarketQtyButtons();
+    await checkContractReplaceAndAbandon();
+    await checkBankDepositScaling();
+    await checkNavPickerEta();
+    await checkContractBoardHints();
+    await checkPackValueReadout();
+    await checkPriceLedger();
     await checkMarketPanelNotClipped();
     await checkAutoNavReachability();
 

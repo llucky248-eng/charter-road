@@ -7,6 +7,20 @@
  *   node ops/scripts/unit_tests.mjs
  */
 
+// ─── Live extraction from src/main.js ────────────────────────────────────────
+// Several tested helpers live inside the game IIFE and are deliberately
+// self-contained; extract them from source (rather than copying) so the tests
+// can never drift from the shipped logic. Matches `function <name>(...) {`
+// through the function's closing 2-space-indented brace.
+import { readFileSync as _readFileSync } from 'node:fs';
+import { fileURLToPath as _fileURLToPath } from 'node:url';
+import { join as _join, dirname as _dirname } from 'node:path';
+const _mainJsSrc = _readFileSync(_join(_dirname(_fileURLToPath(import.meta.url)), '../../src/main.js'), 'utf8');
+function extractFromMain(name) {
+  const m = _mainJsSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+  return m ? new Function(`return (${m[0]})`)() : null;
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -231,6 +245,7 @@ function migrateSave(raw) {
       s.player.permits[cid] ??= false;
     }
     s.player.facing ||= { x: 0, y: 1 };
+    s.player.priceLedger ||= {};
     s.time ||= { day: 1, frac: 0, seed: 1 };
     s.marketDrift ||= {};
     for (const cid of ['valdenmere','ashport','crosshaven','ironholt']) s.marketDrift[cid] ||= {};
@@ -241,6 +256,7 @@ function migrateSave(raw) {
     if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
   }
   if (!Array.isArray(s.openedCaches)) s.openedCaches = [];
+  if (s.player && !isObj(s.player.priceLedger)) s.player.priceLedger = {};
   return s;
 }
 
@@ -1582,6 +1598,340 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   await ctx.ready;
   assert(!ctx.lootApplied, 'real already-looted must not grant loot');
   assert(/Already looted/.test(ctx.toastMsg || ''), 'should show the already-looted toast');
+});
+
+// ─── Market keyboard navigation (extracted live from src/main.js) ────────────
+// The SELL tab renders only held items (and no permit row), so the keyboard
+// handler must cycle through exactly the rows the renderer shows — not the
+// full 0..ITEMS.length index space. These helpers are extracted from the real
+// source (not copied) so the test can never drift from the game.
+{
+  const marketVisibleIndices = extractFromMain('marketVisibleIndices');
+  const marketNavStep = extractFromMain('marketNavStep');
+
+  const FIX_ITEMS = [{ id: 'grain' }, { id: 'food' }, { id: 'ore' }, { id: 'herbs' }];
+
+  console.log('\n=== Market keyboard navigation ===');
+  test('marketVisibleIndices exists in src/main.js', () => {
+    assert(typeof marketVisibleIndices === 'function', 'marketVisibleIndices not found in src/main.js');
+  });
+  test('marketNavStep exists in src/main.js', () => {
+    assert(typeof marketNavStep === 'function', 'marketNavStep not found in src/main.js');
+  });
+  test('buy mode lists every item plus the permit row', () => {
+    const vis = marketVisibleIndices('buy', FIX_ITEMS, {});
+    assertEqual(JSON.stringify(vis), JSON.stringify([0, 1, 2, 3, 4]));
+  });
+  test('sell mode lists only held items, no permit row', () => {
+    const vis = marketVisibleIndices('sell', FIX_ITEMS, { food: 5, herbs: 2, ore: 0 });
+    assertEqual(JSON.stringify(vis), JSON.stringify([1, 3]));
+  });
+  test('sell mode with empty pack lists nothing', () => {
+    const vis = marketVisibleIndices('sell', FIX_ITEMS, { food: 0 });
+    assertEqual(JSON.stringify(vis), JSON.stringify([]));
+  });
+  test('non-trading tabs (gear/prices) list nothing selectable', () => {
+    assertEqual(JSON.stringify(marketVisibleIndices('gear', FIX_ITEMS, { food: 5 })), JSON.stringify([]));
+    assertEqual(JSON.stringify(marketVisibleIndices('prices', FIX_ITEMS, { food: 5 })), JSON.stringify([]));
+  });
+  test('nav steps forward within visible rows and wraps', () => {
+    assertEqual(marketNavStep([1, 3], 1, +1), 3);
+    assertEqual(marketNavStep([1, 3], 3, +1), 1, 'wraps to first');
+    assertEqual(marketNavStep([1, 3], 1, -1), 3, 'wraps back to last');
+  });
+  test('nav snaps a hidden selection to a visible row', () => {
+    assertEqual(marketNavStep([1, 3], 2, +1), 1, 'hidden selection snaps to first on down');
+    assertEqual(marketNavStep([1, 3], 2, -1), 3, 'hidden selection snaps to last on up');
+  });
+  test('nav on an empty list leaves selection unchanged', () => {
+    assertEqual(marketNavStep([], 2, +1), 2);
+  });
+}
+
+// ─── Mining stamina HUD meter (extracted live from src/main.js) ──────────────
+// Stamina is a real resource (8–15/swing, regen 1/s) but was never drawn;
+// the player only discovered it via a failed-swing toast. staminaMeterState
+// decides when the HUD meter is visible and what it shows.
+{
+  const staminaMeterState = extractFromMain('staminaMeterState');
+
+  console.log('\n=== Mining stamina HUD meter ===');
+  test('staminaMeterState exists in src/main.js', () => {
+    assert(typeof staminaMeterState === 'function', 'staminaMeterState not found in src/main.js');
+  });
+  test('hidden at full stamina away from veins', () => {
+    assertEqual(staminaMeterState(100, false, 15), null);
+  });
+  test('shown at full stamina when near a vein', () => {
+    const s = staminaMeterState(100, true, 15);
+    assert(s && s.frac === 1, `expected frac 1, got ${JSON.stringify(s)}`);
+  });
+  test('shown whenever stamina is below max', () => {
+    const s = staminaMeterState(40, false, 15);
+    assert(s && Math.abs(s.frac - 0.4) < 1e-9, `expected frac 0.4, got ${JSON.stringify(s)}`);
+  });
+  test('color ramps green → amber → red as swings run out', () => {
+    assertEqual(staminaMeterState(40, false, 15).color, '#4ade80', 'two+ swings left = green');
+    assertEqual(staminaMeterState(20, false, 15).color, '#fbbf24', 'one swing left = amber');
+    assertEqual(staminaMeterState(10, false, 15).color, '#ef4444', 'cannot swing = red');
+  });
+  test('out-of-range stamina is clamped', () => {
+    assertEqual(staminaMeterState(120, false, 15), null, '>=100 hides off-vein');
+    const s = staminaMeterState(-5, false, 15);
+    assert(s && s.frac === 0 && s.color === '#ef4444', `expected clamped 0/red, got ${JSON.stringify(s)}`);
+  });
+}
+
+// ─── Contract accept/replace decision (extracted live from src/main.js) ──────
+// Accepting a job while another contract is active used to silently discard
+// the active one. The decision helper arms a confirm step instead: first
+// activation on a row returns 'confirm', a second activation on the same row
+// returns 'accept'.
+{
+  const contractAcceptDecision = extractFromMain('contractAcceptDecision');
+
+  console.log('\n=== Contract accept/replace decision ===');
+  test('contractAcceptDecision exists in src/main.js', () => {
+    assert(typeof contractAcceptDecision === 'function', 'contractAcceptDecision not found in src/main.js');
+  });
+  test('no active contract accepts immediately', () => {
+    assertEqual(contractAcceptDecision(null, -1, 0), 'accept');
+  });
+  test('active contract arms a confirm on first activation', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, -1, 0), 'confirm');
+  });
+  test('second activation on the armed row accepts', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, 2, 2), 'accept');
+  });
+  test('activating a different row re-arms the confirm there', () => {
+    assertEqual(contractAcceptDecision({ want: 'ore' }, 2, 0), 'confirm');
+  });
+}
+
+// ─── Toast queue (extracted live from src/main.js) ───────────────────────────
+// toast() was a single slot (ui.toast/ui.toastT): a sell toast followed within
+// a frame by a milestone toast erased the first before it could be read. The
+// queue keeps up to 3 concurrent toasts, dropping the oldest on overflow, and
+// each entry expires on its own timer.
+{
+  const toastQueuePush = extractFromMain('toastQueuePush');
+  const toastQueueTick = extractFromMain('toastQueueTick');
+
+  console.log('\n=== Toast queue ===');
+  test('toastQueuePush exists in src/main.js', () => {
+    assert(typeof toastQueuePush === 'function', 'toastQueuePush not found in src/main.js');
+  });
+  test('toastQueueTick exists in src/main.js', () => {
+    assert(typeof toastQueueTick === 'function', 'toastQueueTick not found in src/main.js');
+  });
+  test('rapid toasts stack instead of overwriting', () => {
+    let q = [];
+    q = toastQueuePush(q, 'Sold 5 Grain (+60g)', 2, 3);
+    q = toastQueuePush(q, 'Guild milestone!', 2, 3);
+    assertEqual(q.length, 2);
+    assertEqual(q[0].msg, 'Sold 5 Grain (+60g)');
+    assertEqual(q[1].msg, 'Guild milestone!');
+  });
+  test('overflow drops the oldest, never the newest', () => {
+    let q = [];
+    for (const m of ['a', 'b', 'c', 'd']) q = toastQueuePush(q, m, 2, 3);
+    assertEqual(q.length, 3);
+    assertEqual(JSON.stringify(q.map(t => t.msg)), JSON.stringify(['b', 'c', 'd']));
+  });
+  test('entries expire independently on their own timers', () => {
+    let q = [];
+    q = toastQueuePush(q, 'short', 0.5, 3);
+    q = toastQueuePush(q, 'long', 3, 3);
+    q = toastQueueTick(q, 1);
+    assertEqual(q.length, 1);
+    assertEqual(q[0].msg, 'long');
+    assertClose(q[0].t, 2);
+  });
+  test('tick with no elapsed time changes nothing', () => {
+    let q = toastQueuePush([], 'x', 2, 3);
+    q = toastQueueTick(q, 0);
+    assertEqual(q.length, 1);
+    assertClose(q[0].t, 2);
+  });
+}
+
+// ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
+// Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
+// figures; bankQuickAmounts scales the three buttons to the player's wealth.
+{
+  const bankQuickAmounts = extractFromMain('bankQuickAmounts');
+
+  console.log('\n=== Bank deposit quick-amounts ===');
+  test('bankQuickAmounts exists in src/main.js', () => {
+    assert(typeof bankQuickAmounts === 'function', 'bankQuickAmounts not found in src/main.js');
+  });
+  test('scales to 10% / 50% / 100% for a wealthy player', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(1000)), JSON.stringify([100, 500, 1000]));
+  });
+  test('MAX always equals current gold', () => {
+    assertEqual(bankQuickAmounts(1000)[2], 1000);
+    assertEqual(bankQuickAmounts(37)[2], 37);
+    assertEqual(bankQuickAmounts(5)[2], 5);
+  });
+  test('amounts round to whole gold', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(255)), JSON.stringify([26, 128, 255]));
+  });
+  test('smallest button floors at 10g while it fits under MAX', () => {
+    // 10% of 50 = 5, floored up to 10; half = 25; max = 50.
+    assertEqual(JSON.stringify(bankQuickAmounts(50)), JSON.stringify([10, 25, 50]));
+  });
+  test('never offers more than the player holds', () => {
+    // gold below the 10g floor: every button clamps down to gold, MAX == gold.
+    const a = bankQuickAmounts(5);
+    assert(a.every(v => v <= 5), `amounts exceed gold: ${JSON.stringify(a)}`);
+    assertEqual(a[2], 5);
+  });
+  test('zero gold yields all-zero amounts', () => {
+    assertEqual(JSON.stringify(bankQuickAmounts(0)), JSON.stringify([0, 0, 0]));
+  });
+}
+
+// ─── Navigate ETA (extracted live from src/main.js) ──────────────────────────
+// The navigate picker now shows trip distance + ETA so the player can judge a
+// trip's cost before committing. pathLengthPx sums the waypoint segments;
+// etaSeconds divides by the player's effective boots speed.
+{
+  const pathLengthPx = extractFromMain('pathLengthPx');
+  const etaSeconds = extractFromMain('etaSeconds');
+
+  console.log('\n=== Navigate ETA ===');
+  test('pathLengthPx exists in src/main.js', () => {
+    assert(typeof pathLengthPx === 'function', 'pathLengthPx not found in src/main.js');
+  });
+  test('etaSeconds exists in src/main.js', () => {
+    assert(typeof etaSeconds === 'function', 'etaSeconds not found in src/main.js');
+  });
+  test('single segment measures Euclidean distance', () => {
+    assertClose(pathLengthPx([{ x: 0, y: 0 }, { x: 3, y: 4 }]), 5);
+  });
+  test('multi-segment path sums each leg', () => {
+    assertClose(pathLengthPx([{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]), 20);
+  });
+  test('degenerate paths are zero length', () => {
+    assertClose(pathLengthPx([{ x: 5, y: 5 }]), 0);
+    assertClose(pathLengthPx([]), 0);
+    assertClose(pathLengthPx(null), 0);
+  });
+  test('ETA is distance over speed', () => {
+    assertClose(etaSeconds(180, 90), 2);
+    assertClose(etaSeconds(45, 90), 0.5);
+  });
+  test('non-positive speed yields zero ETA (no divide-by-zero)', () => {
+    assertEqual(etaSeconds(100, 0), 0);
+    assertEqual(etaSeconds(100, -5), 0);
+  });
+}
+
+// ─── Contract board hints (extracted live from src/main.js) ──────────────────
+// Board rows now show what the player already holds toward each job and where
+// the item is cheapest, using static public knowledge (no live prices).
+{
+  const contractHoldLabel = extractFromMain('contractHoldLabel');
+  const cheapestCityFor = extractFromMain('cheapestCityFor');
+  const MULTS = {
+    valdenmere: { grain: 1.10, ore: 1.20 },
+    ashport:    { grain: 1.05, ore: 1.05 },
+    crosshaven: { grain: 0.90, ore: 1.00 },
+    ironholt:   { grain: 1.15, ore: 0.65 },
+  };
+
+  console.log('\n=== Contract board hints ===');
+  test('contractHoldLabel exists in src/main.js', () => {
+    assert(typeof contractHoldLabel === 'function', 'contractHoldLabel not found in src/main.js');
+  });
+  test('cheapestCityFor exists in src/main.js', () => {
+    assert(typeof cheapestCityFor === 'function', 'cheapestCityFor not found in src/main.js');
+  });
+  test('holdings under the requirement are not met', () => {
+    const l = contractHoldLabel({ ore: 3 }, { want: 'ore', qty: 5 });
+    assertEqual(l.have, 3); assertEqual(l.need, 5); assertEqual(l.met, false);
+  });
+  test('holdings at or above the requirement are met', () => {
+    assertEqual(contractHoldLabel({ ore: 5 }, { want: 'ore', qty: 5 }).met, true);
+    assertEqual(contractHoldLabel({ ore: 9 }, { want: 'ore', qty: 5 }).met, true);
+  });
+  test('no holdings reads zero, not NaN', () => {
+    const l = contractHoldLabel({}, { want: 'ore', qty: 5 });
+    assertEqual(l.have, 0); assertEqual(l.met, false);
+  });
+  test('cheapestCityFor returns the lowest-multiplier city', () => {
+    assertEqual(cheapestCityFor('grain', MULTS), 'crosshaven');
+    assertEqual(cheapestCityFor('ore', MULTS), 'ironholt');
+  });
+  test('cheapestCityFor returns null for an unknown item', () => {
+    assertEqual(cheapestCityFor('mithril', MULTS), null);
+  });
+}
+
+// ─── Pack sell-value (extracted live from src/main.js) ───────────────────────
+// The market footer shows what the pack would fetch at the current city's sell
+// quotes, so the player can judge sell-here vs. carry-on. packSellValue sums
+// qty × sell-price via an injected price lookup (pure; no game state).
+{
+  const packSellValue = extractFromMain('packSellValue');
+  const ITEMS3 = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const prices = { a: 10, b: 5, c: 40 };
+  const sellOf = (it) => prices[it.id];
+
+  console.log('\n=== Pack sell-value ===');
+  test('packSellValue exists in src/main.js', () => {
+    assert(typeof packSellValue === 'function', 'packSellValue not found in src/main.js');
+  });
+  test('sums qty × sell price across held items', () => {
+    assertEqual(packSellValue({ a: 2, b: 3 }, ITEMS3, sellOf), 35);
+  });
+  test('ignores items the player does not hold', () => {
+    assertEqual(packSellValue({ c: 1 }, ITEMS3, sellOf), 40);
+  });
+  test('empty pack is worth zero', () => {
+    assertEqual(packSellValue({}, ITEMS3, sellOf), 0);
+  });
+  test('a zero/absent sell price contributes nothing', () => {
+    assertEqual(packSellValue({ a: 2 }, ITEMS3, () => 0), 0);
+  });
+}
+
+// ─── Price ledger (extracted live from src/main.js) ──────────────────────────
+// The market PRICES tab shows last-seen quotes per visited city. makePriceLedgerEntry
+// snapshots a quote map with the visit day, dropping malformed quotes.
+{
+  const makePriceLedgerEntry = extractFromMain('makePriceLedgerEntry');
+
+  console.log('\n=== Price ledger ===');
+  test('makePriceLedgerEntry exists in src/main.js', () => {
+    assert(typeof makePriceLedgerEntry === 'function', 'makePriceLedgerEntry not found in src/main.js');
+  });
+  test('captures buy/sell per item and stamps the day', () => {
+    const e = makePriceLedgerEntry({ grain: { buy: 11, sell: 10 }, ore: { buy: 26, sell: 24 } }, 12.9);
+    assertEqual(e.day, 12);
+    assertEqual(JSON.stringify(e.quotes), JSON.stringify({ grain: { buy: 11, sell: 10 }, ore: { buy: 26, sell: 24 } }));
+  });
+  test('drops malformed quotes (missing/NaN buy or sell)', () => {
+    const e = makePriceLedgerEntry({ grain: { buy: 11, sell: 10 }, bad: { buy: 5 }, worse: null, nan: { buy: NaN, sell: 3 } }, 1);
+    assertEqual(JSON.stringify(Object.keys(e.quotes)), JSON.stringify(['grain']));
+  });
+  test('empty or missing quote map yields an empty entry', () => {
+    assertEqual(JSON.stringify(makePriceLedgerEntry({}, 5)), JSON.stringify({ day: 5, quotes: {} }));
+    assertEqual(JSON.stringify(makePriceLedgerEntry(null, 5)), JSON.stringify({ day: 5, quotes: {} }));
+  });
+}
+
+// migrateSave must default player.priceLedger to {} on saves that predate it.
+console.log('\n=== Price ledger migration ===');
+test('migrateSave defaults a missing priceLedger to {}', () => {
+  const legacy = migrateSave({ saveVersion: 0, player: {}, time: { day: 1, frac: 0, seed: 1 } });
+  assert(isObj(legacy.player.priceLedger), 'priceLedger should be defaulted to an object');
+  assertEqual(JSON.stringify(legacy.player.priceLedger), '{}');
+});
+test('migrateSave preserves an existing priceLedger', () => {
+  const led = { valdenmere: { day: 3, quotes: { grain: { buy: 11, sell: 10 } } } };
+  const s = migrateSave({ saveVersion: 1, player: { priceLedger: led }, time: { day: 4, frac: 0, seed: 1 } });
+  assertEqual(JSON.stringify(s.player.priceLedger), JSON.stringify(led));
 });
 
 // Run async tests
