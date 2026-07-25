@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.37'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.38'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5932,6 +5932,13 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.beginPath(); ctx.ellipse(leftLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.ellipse(rightLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
 
+  // Adult build (player): smaller head, jaw + brow, stubble, no baby blush.
+  // NPCs keep the chibi child proportions below.
+  if (opts.adult) {
+    _drawChibiAdultUpper(opts, ink, walkPhase);
+    return;
+  }
+
   // Body / shirt
   ctx.fillStyle = opts.shirt;
   ctx.strokeStyle = ink;
@@ -6006,6 +6013,140 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.beginPath();
   ctx.moveTo(17, 22.5);
   ctx.quadraticCurveTo(20, 24.5, 23, 22.5);
+  ctx.stroke();
+}
+
+// Adult-proportioned upper body for the player chibi: broader shoulders, a
+// smaller head with a real jaw/chin, a neck, brow + nose + light stubble, and
+// a short side-swept adult hairstyle. Called from _drawChibi when opts.adult
+// is set, after the shared legs/boots have already been drawn.
+function _drawChibiAdultUpper(opts, ink, walkPhase = 0) {
+  // Body / shirt — broader shoulders, longer torso
+  ctx.fillStyle = opts.shirt;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(6, 38);
+  ctx.quadraticCurveTo(6, 29, 20, 29);
+  ctx.quadraticCurveTo(34, 29, 34, 38);
+  ctx.lineTo(34, 44);
+  ctx.quadraticCurveTo(34, 46, 32, 46);
+  ctx.lineTo(8, 46);
+  ctx.quadraticCurveTo(6, 46, 6, 44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Arms (swing opposite to legs when walking)
+  const leftArmY  = 38 + walkPhase * 1.5;
+  const rightArmY = 38 - walkPhase * 1.5;
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.ellipse(6,  leftArmY,  3.8, 3.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(34, rightArmY, 3.8, 3.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Collar V
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(16, 29); ctx.lineTo(20, 33); ctx.lineTo(24, 29);
+  ctx.stroke();
+
+  // Neck
+  ctx.fillStyle = opts.skin;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(17.5, 24.5); ctx.lineTo(17.5, 30); ctx.lineTo(22.5, 30); ctx.lineTo(22.5, 24.5);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // Head — smaller than the child head, with a defined jaw + chin
+  ctx.fillStyle = opts.skin;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(12.5, 15);
+  ctx.quadraticCurveTo(12.5, 8, 20, 8);
+  ctx.quadraticCurveTo(27.5, 8, 27.5, 15);
+  ctx.quadraticCurveTo(27, 21, 24, 24);
+  ctx.quadraticCurveTo(20, 26.5, 16, 24);
+  ctx.quadraticCurveTo(13, 21, 12.5, 15);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Ears
+  ctx.beginPath(); ctx.ellipse(12.5, 17, 1.5, 2.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(27.5, 17, 1.5, 2.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Light stubble along the jaw (clipped to the lower face)
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(13, 19);
+  ctx.quadraticCurveTo(13, 21.5, 16, 24);
+  ctx.quadraticCurveTo(20, 26.5, 24, 24);
+  ctx.quadraticCurveTo(27, 21.5, 27, 19);
+  ctx.quadraticCurveTo(24, 22, 20, 22.5);
+  ctx.quadraticCurveTo(16, 22, 13, 19);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(59,42,29,0.20)';
+  ctx.fillRect(12, 18, 16, 9);
+  ctx.restore();
+
+  // Adult hair — short, side-swept with a part (uses opts.hair)
+  ctx.fillStyle = opts.hair;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(12, 16);
+  ctx.quadraticCurveTo(11, 6, 20, 6);
+  ctx.quadraticCurveTo(29, 6, 28, 16);
+  ctx.quadraticCurveTo(27, 12, 24, 11.5);
+  ctx.quadraticCurveTo(23, 9, 18, 10.5);
+  ctx.quadraticCurveTo(15, 9.5, 13.5, 12.5);
+  ctx.quadraticCurveTo(12.5, 14, 12, 16);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // Sideburns
+  ctx.fillStyle = opts.hair;
+  ctx.fillRect(12.4, 13.5, 1.5, 4);
+  ctx.fillRect(26.1, 13.5, 1.5, 4);
+
+  _drawChibiHat(opts.hat || 'none', ink);
+
+  // Subtle cheek tone (far lighter than the child's blush)
+  ctx.fillStyle = '#d98a72';
+  ctx.globalAlpha = 0.26;
+  ctx.beginPath(); ctx.ellipse(15, 19.5, 1.8, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(25, 19.5, 1.8, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Eyebrows
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(14.5, 14.5); ctx.lineTo(18, 15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22, 15); ctx.lineTo(25.5, 14.5); ctx.stroke();
+
+  // Eyes (smaller, set lower than the child's)
+  ctx.fillStyle = ink;
+  ctx.beginPath(); ctx.arc(16.5, 17.5, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(23.5, 17.5, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(16.9, 17.1, 0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(23.9, 17.1, 0.4, 0, Math.PI * 2); ctx.fill();
+
+  // Nose
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(20, 18); ctx.lineTo(19.2, 20); ctx.lineTo(20.4, 20.2);
+  ctx.stroke();
+
+  // Mouth (calm, understated)
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(17.5, 22.3);
+  ctx.quadraticCurveTo(20, 23.0, 22.5, 22.3);
   ctx.stroke();
 }
 
@@ -6648,8 +6789,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.37',
+    version: 'v0.5.38',
     whatsNew: [
+      'The trader avatar grew up: the on-foot character now has adult proportions — a smaller head with a real jaw and neck, broader shoulders, brows, a nose and light stubble, and a short adult hairstyle — instead of the old baby-faced chibi that read as a child. Gear still changes the hat, shirt and boots as before.',
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -8278,7 +8420,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.37',
+      buildVersion: 'v0.5.38',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -11917,7 +12059,7 @@ function drawEntities() {
                 : bootsTier >= 1 ? '#8a5a30'   // sturdy road boots
                 :                  '#5a3018';  // worn, beaten boots
 
-    return { skin: '#f5d2b8', hair: '#5a3a1a', shirt, hat, boots };
+    return { skin: '#f5d2b8', hair: '#4a3320', shirt, hat, boots, adult: true };
   }
 
   function drawPlayer() {
