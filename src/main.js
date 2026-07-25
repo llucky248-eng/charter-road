@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.38'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.39'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5932,13 +5932,6 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.beginPath(); ctx.ellipse(leftLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.ellipse(rightLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
 
-  // Adult build (player): smaller head, jaw + brow, stubble, no baby blush.
-  // NPCs keep the chibi child proportions below.
-  if (opts.adult) {
-    _drawChibiAdultUpper(opts, ink, walkPhase);
-    return;
-  }
-
   // Body / shirt
   ctx.fillStyle = opts.shirt;
   ctx.strokeStyle = ink;
@@ -6016,138 +6009,171 @@ function _drawChibi(opts, scale, flip, walkPhase = 0) {
   ctx.stroke();
 }
 
-// Adult-proportioned upper body for the player chibi: broader shoulders, a
-// smaller head with a real jaw/chin, a neck, brow + nose + light stubble, and
-// a short side-swept adult hairstyle. Called from _drawChibi when opts.adult
-// is set, after the shared legs/boots have already been drawn.
-function _drawChibiAdultUpper(opts, ink, walkPhase = 0) {
-  // Body / shirt — broader shoulders, longer torso
-  ctx.fillStyle = opts.shirt;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(6, 38);
-  ctx.quadraticCurveTo(6, 29, 20, 29);
-  ctx.quadraticCurveTo(34, 29, 34, 38);
-  ctx.lineTo(34, 44);
-  ctx.quadraticCurveTo(34, 46, 32, 46);
-  ctx.lineTo(8, 46);
-  ctx.quadraticCurveTo(6, 46, 6, 44);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+// ── Painterly / storybook player figure ───────────────────────────────────
+// Adult-proportioned figure with gradient shading, soft outlines and
+// highlights. Used for the on-foot PLAYER only; NPCs keep the flat chibi
+// (_drawChibi) look. Shares the global `ctx`; caller sets up translate/bob.
 
-  // Arms (swing opposite to legs when walking)
-  const leftArmY  = 38 + walkPhase * 1.5;
-  const rightArmY = 38 - walkPhase * 1.5;
-  ctx.fillStyle = opts.skin;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.ellipse(6,  leftArmY,  3.8, 3.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(34, rightArmY, 3.8, 3.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+// Lighten (f>0, toward white) or darken (f<0, toward black) a #rgb/#rrggbb hex.
+function _shade(hex, f) {
+  hex = String(hex).replace('#', '');
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  let r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+  if (f >= 0) { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; }
+  else { r *= (1 + f); g *= (1 + f); b *= (1 + f); }
+  const h = v => ('0' + Math.max(0, Math.min(255, Math.round(v))).toString(16)).slice(-2);
+  return '#' + h(r) + h(g) + h(b);
+}
 
-  // Collar V
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.4;
+// Painterly hats for the player's gear tiers (straw / travelhat / tophat).
+function _playerHat(kind) {
+  const P2 = Math.PI * 2;
+  if (kind === 'straw') {
+    const g = ctx.createLinearGradient(0, 3, 0, 10); g.addColorStop(0, '#f2d492'); g.addColorStop(1, '#cf9f56');
+    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(120,80,30,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(20, 8.5, 14, 3, 0, 0, P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13.5, 8.5); ctx.quadraticCurveTo(13, 2.5, 20, 2.5); ctx.quadraticCurveTo(27, 2.5, 26.5, 8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#a8712e'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(14, 7.5); ctx.quadraticCurveTo(20, 6.8, 26, 7.5); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.ellipse(20, 7.8, 12, 2.2, 0, Math.PI * 1.05, Math.PI * 1.9); ctx.stroke();
+  } else if (kind === 'travelhat') {
+    const g = ctx.createLinearGradient(0, 0, 0, 9); g.addColorStop(0, '#8a5a30'); g.addColorStop(1, '#5c3a1c');
+    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(50,30,15,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(20, 8, 15, 3.1, 0, 0, P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13, 8); ctx.quadraticCurveTo(12.5, 0.5, 20, 0.5); ctx.quadraticCurveTo(27.5, 0.5, 27, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#3a2410'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(13.5, 6.5); ctx.quadraticCurveTo(20, 5.8, 26.5, 6.5); ctx.stroke();
+    const fg = ctx.createLinearGradient(26, 0, 33, 4); fg.addColorStop(0, '#e0607f'); fg.addColorStop(1, '#c03a5a');
+    ctx.strokeStyle = fg; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(26, 3); ctx.quadraticCurveTo(33, -3, 33, 4); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(13.5, 7); ctx.quadraticCurveTo(20, 6.3, 26.5, 7); ctx.stroke();
+  } else if (kind === 'tophat') {
+    const g = ctx.createLinearGradient(0, -2, 0, 10); g.addColorStop(0, '#3a2b1e'); g.addColorStop(1, '#1c130b');
+    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(20,12,6,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(20, 8.5, 13, 2.6, 0, 0, P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13, 8.5); ctx.lineTo(13.5, -1); ctx.quadraticCurveTo(13.5, -2.5, 20, -2.5); ctx.quadraticCurveTo(26.5, -2.5, 26.5, -1); ctx.lineTo(27, 8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const bg = ctx.createLinearGradient(0, 5, 0, 8); bg.addColorStop(0, '#f0d060'); bg.addColorStop(1, '#c99a20');
+    ctx.fillStyle = bg; ctx.fillRect(13.2, 5.5, 13.6, 2.2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(16, -1); ctx.lineTo(15.6, 5); ctx.stroke();
+  }
+}
+
+function _drawPlayerFigure(opts, scale, flip, walkPhase = 0) {
+  const P2 = Math.PI * 2;
+  const skin = opts.skin, hair = opts.hair, shirt = opts.shirt, boots = opts.boots;
+  const pants = opts.pants || '#4f3b2a';
+  const OL = 'rgba(58,38,26,0.5)';
+  const wp = walkPhase;
+  ctx.save();
+  ctx.scale(scale * (flip ? -1 : 1), scale);
+  ctx.translate(-20, -36);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Ground shadow
+  let g = ctx.createRadialGradient(20, 53, 1, 20, 53, 13);
+  g.addColorStop(0, 'rgba(40,30,20,0.33)'); g.addColorStop(1, 'rgba(40,30,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(20, 53, 13, 3.6, 0, 0, P2); ctx.fill();
+
+  const L = 17 + wp * 2.2, R = 23 - wp * 2.2;
+
+  // Legs (pants)
+  const pg = ctx.createLinearGradient(0, 41, 0, 53);
+  pg.addColorStop(0, _shade(pants, 0.14)); pg.addColorStop(1, _shade(pants, -0.22));
+  ctx.strokeStyle = OL; ctx.lineWidth = 1;
+  for (const lx of [L, R]) {
+    ctx.fillStyle = pg; ctx.beginPath();
+    ctx.moveTo(lx - 3, 41); ctx.lineTo(lx - 3, 49); ctx.quadraticCurveTo(lx - 3, 51, lx, 51);
+    ctx.quadraticCurveTo(lx + 3, 51, lx + 3, 49); ctx.lineTo(lx + 3, 41); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // Boots
+  const bg = ctx.createLinearGradient(0, 49, 0, 54);
+  bg.addColorStop(0, _shade(boots, 0.12)); bg.addColorStop(1, _shade(boots, -0.25));
+  for (const lx of [L, R]) {
+    ctx.fillStyle = bg; ctx.beginPath();
+    ctx.moveTo(lx - 3.4, 49); ctx.lineTo(lx - 3.6, 52.5); ctx.quadraticCurveTo(lx - 3.6, 54, lx - 1.5, 54);
+    ctx.lineTo(lx + 3.2, 54); ctx.quadraticCurveTo(lx + 4, 54, lx + 4, 52.5); ctx.lineTo(lx + 3, 49); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.ellipse(lx - 1, 50.5, 1.6, 0.8, 0, 0, P2); ctx.fill();
+  }
+
+  // Torso / shirt
+  const sg = ctx.createLinearGradient(0, 25, 0, 46);
+  sg.addColorStop(0, _shade(shirt, 0.18)); sg.addColorStop(0.6, shirt); sg.addColorStop(1, _shade(shirt, -0.2));
+  ctx.fillStyle = sg; ctx.strokeStyle = OL; ctx.lineWidth = 1.1;
   ctx.beginPath();
-  ctx.moveTo(16, 29); ctx.lineTo(20, 33); ctx.lineTo(24, 29);
-  ctx.stroke();
+  ctx.moveTo(9, 44); ctx.quadraticCurveTo(7, 30, 13, 27); ctx.quadraticCurveTo(16, 25.5, 20, 25.5);
+  ctx.quadraticCurveTo(24, 25.5, 27, 27); ctx.quadraticCurveTo(33, 30, 31, 44);
+  ctx.quadraticCurveTo(31, 46, 29, 46); ctx.lineTo(11, 46); ctx.quadraticCurveTo(9, 46, 9, 44); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(40,25,15,0.18)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(15, 30); ctx.quadraticCurveTo(14, 38, 15, 45); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(25, 30); ctx.quadraticCurveTo(26, 38, 25, 45); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.ellipse(18, 32, 3.5, 5, -0.2, 0, P2); ctx.fill();
+  ctx.strokeStyle = _shade(shirt, -0.35); ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(17, 26); ctx.lineTo(20, 29.5); ctx.lineTo(23, 26); ctx.stroke();
+
+  // Arms (sleeves) + hands
+  const skinG = (cx, cy, r) => {
+    const gg = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.4, 0.5, cx, cy, r * 1.2);
+    gg.addColorStop(0, _shade(skin, 0.16)); gg.addColorStop(1, _shade(skin, -0.14)); return gg;
+  };
+  const la = 34 + wp * 1.5, ra = 34 - wp * 1.5;
+  ctx.strokeStyle = OL; ctx.lineWidth = 1;
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.ellipse(9.5, 34, 2.8, 5, 0.15, 0, P2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.ellipse(30.5, 34, 2.8, 5, -0.15, 0, P2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = skinG(8.5, la, 3); ctx.beginPath(); ctx.ellipse(8.5, la, 2.6, 2.8, 0, 0, P2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = skinG(31.5, ra, 3); ctx.beginPath(); ctx.ellipse(31.5, ra, 2.6, 2.8, 0, 0, P2); ctx.fill(); ctx.stroke();
 
   // Neck
-  ctx.fillStyle = opts.skin;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 2;
+  ctx.fillStyle = skinG(20, 25, 3); ctx.strokeStyle = OL; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(17.5, 22); ctx.lineTo(17.5, 27); ctx.quadraticCurveTo(20, 28, 22.5, 27); ctx.lineTo(22.5, 22); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(40,25,15,0.15)'; ctx.beginPath(); ctx.ellipse(20, 23, 3, 1.3, 0, 0, P2); ctx.fill();
+
+  // Head
+  const hg = ctx.createRadialGradient(20 - 3.5, 14 - 4, 1, 20, 14, 11);
+  hg.addColorStop(0, _shade(skin, 0.2)); hg.addColorStop(0.7, skin); hg.addColorStop(1, _shade(skin, -0.16));
+  ctx.fillStyle = hg; ctx.strokeStyle = OL; ctx.lineWidth = 1.1;
   ctx.beginPath();
-  ctx.moveTo(17.5, 24.5); ctx.lineTo(17.5, 30); ctx.lineTo(22.5, 30); ctx.lineTo(22.5, 24.5);
+  ctx.moveTo(11.5, 13.5); ctx.quadraticCurveTo(11, 6, 20, 5.5); ctx.quadraticCurveTo(29, 6, 28.5, 13.5);
+  ctx.quadraticCurveTo(28, 19, 24, 22); ctx.quadraticCurveTo(20, 24.5, 16, 22); ctx.quadraticCurveTo(12, 19, 11.5, 13.5);
   ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(11.6, 15, 1.6, 2.2, 0, 0, P2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(28.4, 15, 1.6, 2.2, 0, 0, P2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(60,40,28,0.12)'; ctx.beginPath(); ctx.ellipse(20, 11, 7, 3, 0, 0, P2); ctx.fill();
 
-  // Head — smaller than the child head, with a defined jaw + chin
-  ctx.fillStyle = opts.skin;
-  ctx.lineWidth = 2;
+  // Hair (front, gradient + highlight strands)
+  const hrg = ctx.createLinearGradient(0, 4, 0, 18);
+  hrg.addColorStop(0, _shade(hair, 0.22)); hrg.addColorStop(1, _shade(hair, -0.22));
+  ctx.fillStyle = hrg; ctx.strokeStyle = _shade(hair, -0.4); ctx.lineWidth = 0.8;
   ctx.beginPath();
-  ctx.moveTo(12.5, 15);
-  ctx.quadraticCurveTo(12.5, 8, 20, 8);
-  ctx.quadraticCurveTo(27.5, 8, 27.5, 15);
-  ctx.quadraticCurveTo(27, 21, 24, 24);
-  ctx.quadraticCurveTo(20, 26.5, 16, 24);
-  ctx.quadraticCurveTo(13, 21, 12.5, 15);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-
-  // Ears
-  ctx.beginPath(); ctx.ellipse(12.5, 17, 1.5, 2.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(27.5, 17, 1.5, 2.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // Light stubble along the jaw (clipped to the lower face)
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(13, 19);
-  ctx.quadraticCurveTo(13, 21.5, 16, 24);
-  ctx.quadraticCurveTo(20, 26.5, 24, 24);
-  ctx.quadraticCurveTo(27, 21.5, 27, 19);
-  ctx.quadraticCurveTo(24, 22, 20, 22.5);
-  ctx.quadraticCurveTo(16, 22, 13, 19);
-  ctx.closePath();
-  ctx.clip();
-  ctx.fillStyle = 'rgba(59,42,29,0.20)';
-  ctx.fillRect(12, 18, 16, 9);
-  ctx.restore();
-
-  // Adult hair — short, side-swept with a part (uses opts.hair)
-  ctx.fillStyle = opts.hair;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(12, 16);
-  ctx.quadraticCurveTo(11, 6, 20, 6);
-  ctx.quadraticCurveTo(29, 6, 28, 16);
-  ctx.quadraticCurveTo(27, 12, 24, 11.5);
-  ctx.quadraticCurveTo(23, 9, 18, 10.5);
-  ctx.quadraticCurveTo(15, 9.5, 13.5, 12.5);
-  ctx.quadraticCurveTo(12.5, 14, 12, 16);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // Sideburns
-  ctx.fillStyle = opts.hair;
-  ctx.fillRect(12.4, 13.5, 1.5, 4);
-  ctx.fillRect(26.1, 13.5, 1.5, 4);
-
-  _drawChibiHat(opts.hat || 'none', ink);
-
-  // Subtle cheek tone (far lighter than the child's blush)
-  ctx.fillStyle = '#d98a72';
-  ctx.globalAlpha = 0.26;
-  ctx.beginPath(); ctx.ellipse(15, 19.5, 1.8, 1.1, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(25, 19.5, 1.8, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.moveTo(11, 15); ctx.quadraticCurveTo(9.5, 4, 20, 4); ctx.quadraticCurveTo(30.5, 4, 29, 15);
+  ctx.quadraticCurveTo(28, 10, 24, 10.5); ctx.quadraticCurveTo(22.5, 7.5, 19, 9.5);
+  ctx.quadraticCurveTo(16, 7.5, 13.5, 11); ctx.quadraticCurveTo(12, 12.5, 11, 15);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = _shade(hair, 0.35); ctx.lineWidth = 0.9; ctx.globalAlpha = 0.7;
+  ctx.beginPath(); ctx.moveTo(15, 6); ctx.quadraticCurveTo(13.5, 9, 13, 12.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22, 5.5); ctx.quadraticCurveTo(24, 8, 24.5, 10.5); ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // Eyebrows
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.3;
-  ctx.beginPath(); ctx.moveTo(14.5, 14.5); ctx.lineTo(18, 15); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(22, 15); ctx.lineTo(25.5, 14.5); ctx.stroke();
+  // Face features
+  ctx.strokeStyle = _shade(hair, -0.15); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(14.6, 13.2); ctx.quadraticCurveTo(16.2, 12.6, 17.8, 13.4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22.2, 13.4); ctx.quadraticCurveTo(23.8, 12.6, 25.4, 13.2); ctx.stroke();
+  const drawEye = (ex) => {
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, 16, 1.9, 1.5, 0, 0, P2); ctx.fill();
+    ctx.fillStyle = '#5a3f2a'; ctx.beginPath(); ctx.arc(ex + 0.2, 16, 1.15, 0, P2); ctx.fill();
+    ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.arc(ex + 0.2, 16, 0.6, 0, P2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + 0.7, 15.4, 0.4, 0, P2); ctx.fill();
+    ctx.strokeStyle = 'rgba(50,30,20,0.5)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(ex - 1.9, 15.2); ctx.quadraticCurveTo(ex, 14.3, ex + 1.9, 15.2); ctx.stroke();
+  };
+  drawEye(16.2); drawEye(23.8);
+  ctx.strokeStyle = 'rgba(120,80,55,0.55)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(20, 17); ctx.lineTo(19.3, 19); ctx.quadraticCurveTo(20, 19.5, 20.7, 19.1); ctx.stroke();
+  ctx.fillStyle = '#e88a78'; ctx.globalAlpha = 0.28;
+  ctx.beginPath(); ctx.ellipse(14.8, 18.6, 2, 1.2, 0, 0, P2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(25.2, 18.6, 2, 1.2, 0, 0, P2); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(120,60,50,0.75)'; ctx.lineWidth = 1.1;
+  ctx.beginPath(); ctx.moveTo(17.8, 20.8); ctx.quadraticCurveTo(20, 21.9, 22.2, 20.8); ctx.stroke();
 
-  // Eyes (smaller, set lower than the child's)
-  ctx.fillStyle = ink;
-  ctx.beginPath(); ctx.arc(16.5, 17.5, 1.3, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(23.5, 17.5, 1.3, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.arc(16.9, 17.1, 0.4, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(23.9, 17.1, 0.4, 0, Math.PI * 2); ctx.fill();
-
-  // Nose
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.1;
-  ctx.beginPath();
-  ctx.moveTo(20, 18); ctx.lineTo(19.2, 20); ctx.lineTo(20.4, 20.2);
-  ctx.stroke();
-
-  // Mouth (calm, understated)
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.3;
-  ctx.beginPath();
-  ctx.moveTo(17.5, 22.3);
-  ctx.quadraticCurveTo(20, 23.0, 22.5, 22.3);
-  ctx.stroke();
+  _playerHat(opts.hat);
+  ctx.restore();
 }
 
 function _drawChibiHat(kind, ink) {
@@ -6789,9 +6815,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.38',
+    version: 'v0.5.39',
     whatsNew: [
-      'The trader avatar grew up: the on-foot character now has adult proportions — a smaller head with a real jaw and neck, broader shoulders, brows, a nose and light stubble, and a short adult hairstyle — instead of the old baby-faced chibi that read as a child. Gear still changes the hat, shirt and boots as before.',
+      'The on-foot trader has been redrawn in a painterly, storybook style: gradient-shaded skin, hair, clothes and boots with soft outlines, highlights, folds and lit eyes, plus adult proportions (a real neck, jaw and shoulders) so the character no longer reads as a baby-faced chibi. Hats (straw / travel hat / gold-banded top hat) are painted to match, and gear still drives the hat, shirt and boots. NPCs keep their original chibi look.',
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -8420,7 +8446,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.38',
+      buildVersion: 'v0.5.39',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -12041,7 +12067,8 @@ function drawEntities() {
     }
   }
 
-  // Compute chibi appearance from current gear tiers.
+  // Compute the player figure's appearance (skin/hair/shirt/hat/boots) from
+  // current gear tiers. Fed to _drawPlayerFigure (painterly storybook style).
   function _playerChibiOpts() {
     const packTier  = player.gear?.pack  ?? 0;
     const bootsTier = player.gear?.boots ?? 0;
@@ -12059,7 +12086,7 @@ function drawEntities() {
                 : bootsTier >= 1 ? '#8a5a30'   // sturdy road boots
                 :                  '#5a3018';  // worn, beaten boots
 
-    return { skin: '#f5d2b8', hair: '#4a3320', shirt, hat, boots, adult: true };
+    return { skin: '#f0c9a0', hair: '#4a3320', shirt, hat, boots };
   }
 
   function drawPlayer() {
@@ -12085,7 +12112,7 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y + bob);
     if (bootsTier >= 4) { ctx.shadowColor = '#ffd84d'; ctx.shadowBlur = 7; }
-    _drawChibi(opts, scale, flip, walkPhase);
+    _drawPlayerFigure(opts, scale, flip, walkPhase);
     ctx.restore();
   }
 
