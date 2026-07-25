@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.39'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.40'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6026,151 +6026,254 @@ function _shade(hex, f) {
 }
 
 // Painterly hats for the player's gear tiers (straw / travelhat / tophat).
-function _playerHat(kind) {
+function _playerHat(kind){
   const P2 = Math.PI * 2;
-  if (kind === 'straw') {
-    const g = ctx.createLinearGradient(0, 3, 0, 10); g.addColorStop(0, '#f2d492'); g.addColorStop(1, '#cf9f56');
-    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(120,80,30,0.6)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(20, 8.5, 14, 3, 0, 0, P2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(13.5, 8.5); ctx.quadraticCurveTo(13, 2.5, 20, 2.5); ctx.quadraticCurveTo(27, 2.5, 26.5, 8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = '#a8712e'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(14, 7.5); ctx.quadraticCurveTo(20, 6.8, 26, 7.5); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.ellipse(20, 7.8, 12, 2.2, 0, Math.PI * 1.05, Math.PI * 1.9); ctx.stroke();
-  } else if (kind === 'travelhat') {
-    const g = ctx.createLinearGradient(0, 0, 0, 9); g.addColorStop(0, '#8a5a30'); g.addColorStop(1, '#5c3a1c');
-    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(50,30,15,0.6)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(20, 8, 15, 3.1, 0, 0, P2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(13, 8); ctx.quadraticCurveTo(12.5, 0.5, 20, 0.5); ctx.quadraticCurveTo(27.5, 0.5, 27, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = '#3a2410'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(13.5, 6.5); ctx.quadraticCurveTo(20, 5.8, 26.5, 6.5); ctx.stroke();
-    const fg = ctx.createLinearGradient(26, 0, 33, 4); fg.addColorStop(0, '#e0607f'); fg.addColorStop(1, '#c03a5a');
-    ctx.strokeStyle = fg; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(26, 3); ctx.quadraticCurveTo(33, -3, 33, 4); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(13.5, 7); ctx.quadraticCurveTo(20, 6.3, 26.5, 7); ctx.stroke();
-  } else if (kind === 'tophat') {
-    const g = ctx.createLinearGradient(0, -2, 0, 10); g.addColorStop(0, '#3a2b1e'); g.addColorStop(1, '#1c130b');
-    ctx.fillStyle = g; ctx.strokeStyle = 'rgba(20,12,6,0.7)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(20, 8.5, 13, 2.6, 0, 0, P2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(13, 8.5); ctx.lineTo(13.5, -1); ctx.quadraticCurveTo(13.5, -2.5, 20, -2.5); ctx.quadraticCurveTo(26.5, -2.5, 26.5, -1); ctx.lineTo(27, 8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-    const bg = ctx.createLinearGradient(0, 5, 0, 8); bg.addColorStop(0, '#f0d060'); bg.addColorStop(1, '#c99a20');
-    ctx.fillStyle = bg; ctx.fillRect(13.2, 5.5, 13.6, 2.2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(16, -1); ctx.lineTo(15.6, 5); ctx.stroke();
+  if (kind==='straw'){
+    const g=ctx.createLinearGradient(0,3,0,10); g.addColorStop(0,'#f2d492'); g.addColorStop(1,'#cf9f56');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(120,80,30,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(20,8.5,14,3,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13.5,8.5); ctx.quadraticCurveTo(13,2.5,20,2.5); ctx.quadraticCurveTo(27,2.5,26.5,8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='#a8712e'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(14,7.5); ctx.quadraticCurveTo(20,6.8,26,7.5); ctx.stroke();
+    // straw weave texture
+    ctx.strokeStyle='rgba(150,110,50,0.35)'; ctx.lineWidth=0.5;
+    for(let i=-11;i<=11;i+=3){ ctx.beginPath(); ctx.moveTo(20+i,8.5); ctx.lineTo(20+i*0.55,3.2); ctx.stroke(); }
+    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.ellipse(20,7.8,12,2.2,0,Math.PI*1.05,Math.PI*1.9); ctx.stroke();
+  } else if (kind==='travelhat'){
+    const g=ctx.createLinearGradient(0,0,0,9); g.addColorStop(0,'#8a5a30'); g.addColorStop(1,'#5c3a1c');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(50,30,15,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(20,8,15,3.1,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13,8); ctx.quadraticCurveTo(12.5,0.5,20,0.5); ctx.quadraticCurveTo(27.5,0.5,27,8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='#3a2410'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(13.5,6.5); ctx.quadraticCurveTo(20,5.8,26.5,6.5); ctx.stroke();
+    const fg=ctx.createLinearGradient(26,0,33,4); fg.addColorStop(0,'#e0607f'); fg.addColorStop(1,'#c03a5a');
+    ctx.strokeStyle=fg; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(26,3); ctx.quadraticCurveTo(33,-3,33,4); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(13.5,7); ctx.quadraticCurveTo(20,6.3,26.5,7); ctx.stroke();
+  } else if (kind==='tophat'){
+    const g=ctx.createLinearGradient(0,-2,0,10); g.addColorStop(0,'#3a2b1e'); g.addColorStop(1,'#1c130b');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(20,12,6,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(20,8.5,13,2.6,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(13,8.5); ctx.lineTo(13.5,-1); ctx.quadraticCurveTo(13.5,-2.5,20,-2.5); ctx.quadraticCurveTo(26.5,-2.5,26.5,-1); ctx.lineTo(27,8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const bg=ctx.createLinearGradient(0,5,0,8); bg.addColorStop(0,'#f0d060'); bg.addColorStop(1,'#c99a20');
+    ctx.fillStyle=bg; ctx.fillRect(13.2,5.5,13.6,2.2);
+    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(16,-1); ctx.lineTo(15.6,5); ctx.stroke();
   }
 }
 
-function _drawPlayerFigure(opts, scale, flip, walkPhase = 0) {
+// Detailed painterly / storybook player figure: gradient-shaded skin, hair,
+// clothes and boots with merchant detail (vest, belt, coin pouch, satchel
+// strap), and a fully rendered face. PLAYER only; NPCs keep _drawChibi.
+function _drawPlayerFigure(opts, scale, flip, walkPhase = 0){
   const P2 = Math.PI * 2;
-  const skin = opts.skin, hair = opts.hair, shirt = opts.shirt, boots = opts.boots;
-  const pants = opts.pants || '#4f3b2a';
-  const OL = 'rgba(58,38,26,0.5)';
   const wp = walkPhase;
+  const skin=opts.skin, hair=opts.hair, shirt=opts.shirt, boots=opts.boots;
+  const pants=opts.pants||'#4f3b2a';
+  const vest=_shade(shirt,-0.3), leather='#6b4a2c', gold='#d4a020';
+  const OL='rgba(52,34,22,0.55)';
   ctx.save();
-  ctx.scale(scale * (flip ? -1 : 1), scale);
-  ctx.translate(-20, -36);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.scale(scale*(flip?-1:1),scale);
+  ctx.translate(-20,-36);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  const skinG=(cx,cy,r)=>{ const gg=ctx.createRadialGradient(cx-r*0.4,cy-r*0.5,0.5,cx,cy,r*1.25); gg.addColorStop(0,_shade(skin,0.18)); gg.addColorStop(0.75,skin); gg.addColorStop(1,_shade(skin,-0.16)); return gg; };
 
-  // Ground shadow
-  let g = ctx.createRadialGradient(20, 53, 1, 20, 53, 13);
-  g.addColorStop(0, 'rgba(40,30,20,0.33)'); g.addColorStop(1, 'rgba(40,30,20,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(20, 53, 13, 3.6, 0, 0, P2); ctx.fill();
+  // ground shadow
+  let g=ctx.createRadialGradient(20,53,1,20,53,13);
+  g.addColorStop(0,'rgba(40,30,20,0.34)'); g.addColorStop(1,'rgba(40,30,20,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(20,53,13,3.6,0,0,P2); ctx.fill();
 
-  const L = 17 + wp * 2.2, R = 23 - wp * 2.2;
+  const L=17+wp*2.2, R=23-wp*2.2;
 
-  // Legs (pants)
-  const pg = ctx.createLinearGradient(0, 41, 0, 53);
-  pg.addColorStop(0, _shade(pants, 0.14)); pg.addColorStop(1, _shade(pants, -0.22));
-  ctx.strokeStyle = OL; ctx.lineWidth = 1;
-  for (const lx of [L, R]) {
-    ctx.fillStyle = pg; ctx.beginPath();
-    ctx.moveTo(lx - 3, 41); ctx.lineTo(lx - 3, 49); ctx.quadraticCurveTo(lx - 3, 51, lx, 51);
-    ctx.quadraticCurveTo(lx + 3, 51, lx + 3, 49); ctx.lineTo(lx + 3, 41); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // ---- legs (pants) with seam + knee shade ----
+  const pg=ctx.createLinearGradient(0,41,0,53);
+  pg.addColorStop(0,_shade(pants,0.16)); pg.addColorStop(1,_shade(pants,-0.24));
+  ctx.strokeStyle=OL; ctx.lineWidth=1;
+  for(const lx of [L,R]){
+    ctx.fillStyle=pg; ctx.beginPath();
+    ctx.moveTo(lx-3,41); ctx.lineTo(lx-3.2,49); ctx.quadraticCurveTo(lx-3.2,51,lx,51);
+    ctx.quadraticCurveTo(lx+3.2,51,lx+3.2,49); ctx.lineTo(lx+3,41); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(30,20,12,0.25)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(lx,42); ctx.lineTo(lx,50); ctx.stroke();
+    ctx.strokeStyle=OL;
   }
-  // Boots
-  const bg = ctx.createLinearGradient(0, 49, 0, 54);
-  bg.addColorStop(0, _shade(boots, 0.12)); bg.addColorStop(1, _shade(boots, -0.25));
-  for (const lx of [L, R]) {
-    ctx.fillStyle = bg; ctx.beginPath();
-    ctx.moveTo(lx - 3.4, 49); ctx.lineTo(lx - 3.6, 52.5); ctx.quadraticCurveTo(lx - 3.6, 54, lx - 1.5, 54);
-    ctx.lineTo(lx + 3.2, 54); ctx.quadraticCurveTo(lx + 4, 54, lx + 4, 52.5); ctx.lineTo(lx + 3, 49); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.ellipse(lx - 1, 50.5, 1.6, 0.8, 0, 0, P2); ctx.fill();
+  // ---- boots: cuff + shaft + sole + laces ----
+  const bgc=ctx.createLinearGradient(0,48,0,54);
+  bgc.addColorStop(0,_shade(boots,0.14)); bgc.addColorStop(1,_shade(boots,-0.28));
+  for(const lx of [L,R]){
+    // cuff
+    ctx.fillStyle=_shade(boots,0.05); ctx.strokeStyle=OL; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(lx,48.5,3.9,1.7,0,0,P2); ctx.fill(); ctx.stroke();
+    // shaft/foot
+    ctx.fillStyle=bgc; ctx.beginPath();
+    ctx.moveTo(lx-3.6,48.5); ctx.lineTo(lx-3.8,52.6); ctx.quadraticCurveTo(lx-3.8,54,lx-1.6,54);
+    ctx.lineTo(lx+3.4,54); ctx.quadraticCurveTo(lx+4.2,54,lx+4.2,52.6); ctx.lineTo(lx+3.2,48.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // sole
+    ctx.strokeStyle=_shade(boots,-0.4); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(lx-3.7,53.4); ctx.lineTo(lx+4,53.4); ctx.stroke();
+    // laces
+    ctx.strokeStyle='rgba(40,26,14,0.5)'; ctx.lineWidth=0.6;
+    for(let k=0;k<3;k++){ const yy=49.6+k*1.2; ctx.beginPath(); ctx.moveTo(lx-1.6,yy); ctx.lineTo(lx+1.6,yy+0.6); ctx.stroke(); }
+    // shine
+    ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.beginPath(); ctx.ellipse(lx-1.2,51,1.4,0.7,0,0,P2); ctx.fill();
   }
 
-  // Torso / shirt
-  const sg = ctx.createLinearGradient(0, 25, 0, 46);
-  sg.addColorStop(0, _shade(shirt, 0.18)); sg.addColorStop(0.6, shirt); sg.addColorStop(1, _shade(shirt, -0.2));
-  ctx.fillStyle = sg; ctx.strokeStyle = OL; ctx.lineWidth = 1.1;
+  // ---- torso / shirt ----
+  const sg=ctx.createLinearGradient(0,25,0,46);
+  sg.addColorStop(0,_shade(shirt,0.2)); sg.addColorStop(0.55,shirt); sg.addColorStop(1,_shade(shirt,-0.22));
+  ctx.fillStyle=sg; ctx.strokeStyle=OL; ctx.lineWidth=1.1;
   ctx.beginPath();
-  ctx.moveTo(9, 44); ctx.quadraticCurveTo(7, 30, 13, 27); ctx.quadraticCurveTo(16, 25.5, 20, 25.5);
-  ctx.quadraticCurveTo(24, 25.5, 27, 27); ctx.quadraticCurveTo(33, 30, 31, 44);
-  ctx.quadraticCurveTo(31, 46, 29, 46); ctx.lineTo(11, 46); ctx.quadraticCurveTo(9, 46, 9, 44); ctx.closePath();
+  ctx.moveTo(9,44); ctx.quadraticCurveTo(6.5,30,13,26.5); ctx.quadraticCurveTo(16,25,20,25);
+  ctx.quadraticCurveTo(24,25,27,26.5); ctx.quadraticCurveTo(33.5,30,31,44);
+  ctx.quadraticCurveTo(31,46,29,46); ctx.lineTo(11,46); ctx.quadraticCurveTo(9,46,9,44); ctx.closePath();
   ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = 'rgba(40,25,15,0.18)'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(15, 30); ctx.quadraticCurveTo(14, 38, 15, 45); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(25, 30); ctx.quadraticCurveTo(26, 38, 25, 45); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.ellipse(18, 32, 3.5, 5, -0.2, 0, P2); ctx.fill();
-  ctx.strokeStyle = _shade(shirt, -0.35); ctx.lineWidth = 1.4;
-  ctx.beginPath(); ctx.moveTo(17, 26); ctx.lineTo(20, 29.5); ctx.lineTo(23, 26); ctx.stroke();
 
-  // Arms (sleeves) + hands
-  const skinG = (cx, cy, r) => {
-    const gg = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.4, 0.5, cx, cy, r * 1.2);
-    gg.addColorStop(0, _shade(skin, 0.16)); gg.addColorStop(1, _shade(skin, -0.14)); return gg;
-  };
-  const la = 34 + wp * 1.5, ra = 34 - wp * 1.5;
-  ctx.strokeStyle = OL; ctx.lineWidth = 1;
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.ellipse(9.5, 34, 2.8, 5, 0.15, 0, P2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.ellipse(30.5, 34, 2.8, 5, -0.15, 0, P2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = skinG(8.5, la, 3); ctx.beginPath(); ctx.ellipse(8.5, la, 2.6, 2.8, 0, 0, P2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = skinG(31.5, ra, 3); ctx.beginPath(); ctx.ellipse(31.5, ra, 2.6, 2.8, 0, 0, P2); ctx.fill(); ctx.stroke();
-
-  // Neck
-  ctx.fillStyle = skinG(20, 25, 3); ctx.strokeStyle = OL; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(17.5, 22); ctx.lineTo(17.5, 27); ctx.quadraticCurveTo(20, 28, 22.5, 27); ctx.lineTo(22.5, 22); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(40,25,15,0.15)'; ctx.beginPath(); ctx.ellipse(20, 23, 3, 1.3, 0, 0, P2); ctx.fill();
-
-  // Head
-  const hg = ctx.createRadialGradient(20 - 3.5, 14 - 4, 1, 20, 14, 11);
-  hg.addColorStop(0, _shade(skin, 0.2)); hg.addColorStop(0.7, skin); hg.addColorStop(1, _shade(skin, -0.16));
-  ctx.fillStyle = hg; ctx.strokeStyle = OL; ctx.lineWidth = 1.1;
+  // ---- vest (darker tone-on-tone) with lapels + buttons ----
+  ctx.fillStyle=vest; ctx.strokeStyle=_shade(vest,-0.3); ctx.lineWidth=1;
   ctx.beginPath();
-  ctx.moveTo(11.5, 13.5); ctx.quadraticCurveTo(11, 6, 20, 5.5); ctx.quadraticCurveTo(29, 6, 28.5, 13.5);
-  ctx.quadraticCurveTo(28, 19, 24, 22); ctx.quadraticCurveTo(20, 24.5, 16, 22); ctx.quadraticCurveTo(12, 19, 11.5, 13.5);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(11.6, 15, 1.6, 2.2, 0, 0, P2); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(28.4, 15, 1.6, 2.2, 0, 0, P2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(60,40,28,0.12)'; ctx.beginPath(); ctx.ellipse(20, 11, 7, 3, 0, 0, P2); ctx.fill();
+  ctx.moveTo(12,44); ctx.quadraticCurveTo(10.5,31,14,28.5);
+  ctx.lineTo(20,33); ctx.lineTo(26,28.5); ctx.quadraticCurveTo(29.5,31,28,44);
+  ctx.quadraticCurveTo(28,45.5,26.5,45.5); ctx.lineTo(13.5,45.5); ctx.quadraticCurveTo(12,45.5,12,44); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // lapels
+  ctx.fillStyle=_shade(vest,0.12);
+  ctx.beginPath(); ctx.moveTo(14,28.5); ctx.lineTo(20,33); ctx.lineTo(16.5,29); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(26,28.5); ctx.lineTo(20,33); ctx.lineTo(23.5,29); ctx.closePath(); ctx.fill();
+  // buttons
+  ctx.fillStyle=gold;
+  for(let k=0;k<3;k++){ ctx.beginPath(); ctx.arc(20,35+k*3,0.8,0,P2); ctx.fill(); }
+  // vest shading
+  ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(15,32); ctx.quadraticCurveTo(14.5,39,15.5,44); ctx.stroke();
 
-  // Hair (front, gradient + highlight strands)
-  const hrg = ctx.createLinearGradient(0, 4, 0, 18);
-  hrg.addColorStop(0, _shade(hair, 0.22)); hrg.addColorStop(1, _shade(hair, -0.22));
-  ctx.fillStyle = hrg; ctx.strokeStyle = _shade(hair, -0.4); ctx.lineWidth = 0.8;
+  // ---- belt + buckle + coin pouch ----
+  ctx.fillStyle=leather; ctx.strokeStyle=_shade(leather,-0.4); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.rect(11.5,42.5,17,2.4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=gold; ctx.strokeStyle=_shade(gold,-0.4);
+  ctx.beginPath(); ctx.rect(18.6,42.3,2.8,2.8); ctx.fill(); ctx.stroke();
+  // coin pouch on right hip
+  ctx.fillStyle=_shade(leather,0.08); ctx.strokeStyle=_shade(leather,-0.4);
+  ctx.beginPath(); ctx.moveTo(25,44.5); ctx.quadraticCurveTo(24,49,26,49.5); ctx.quadraticCurveTo(29,49.5,28.5,45.5); ctx.quadraticCurveTo(28,44.5,26.8,44.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle='rgba(30,18,8,0.5)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(25.2,45.3); ctx.quadraticCurveTo(26.5,44.8,28.2,45.3); ctx.stroke();
+
+  // ---- satchel strap across chest ----
+  const strapG=ctx.createLinearGradient(12,27,28,45); strapG.addColorStop(0,_shade(leather,0.1)); strapG.addColorStop(1,_shade(leather,-0.2));
+  ctx.strokeStyle=strapG; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(13.5,27.5); ctx.lineTo(27,44.5); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=0.6; ctx.beginPath(); ctx.moveTo(13.8,27.8); ctx.lineTo(27,44.2); ctx.stroke();
+
+  // ---- arms (sleeves) + cuffs + hands ----
+  const la=34+wp*1.5, ra=34-wp*1.5;
+  const sleeveG=ctx.createLinearGradient(0,29,0,38); sleeveG.addColorStop(0,_shade(shirt,0.14)); sleeveG.addColorStop(1,_shade(shirt,-0.2));
+  ctx.strokeStyle=OL; ctx.lineWidth=1;
+  for(const [ax,dir] of [[9.2,1],[30.8,-1]]){
+    ctx.fillStyle=sleeveG; ctx.beginPath(); ctx.ellipse(ax,33.5,3,5.2,0.15*dir,0,P2); ctx.fill(); ctx.stroke();
+    // cuff
+    ctx.fillStyle=_shade(shirt,-0.28); ctx.beginPath(); ctx.ellipse(ax-0.4*dir,37.6,2.6,1.5,0.15*dir,0,P2); ctx.fill(); ctx.stroke();
+  }
+  for(const [hxp,hy] of [[8.4,la],[31.6,ra]]){
+    ctx.fillStyle=skinG(hxp,hy,3); ctx.beginPath(); ctx.ellipse(hxp,hy,2.7,3,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(120,80,55,0.4)'; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(hxp-1.2,hy+0.5); ctx.lineTo(hxp+1.2,hy+0.5); ctx.moveTo(hxp-1.2,hy+1.5); ctx.lineTo(hxp+1.2,hy+1.5); ctx.stroke();
+    ctx.strokeStyle=OL; ctx.lineWidth=1;
+  }
+
+  // ---- neck + collar ----
+  ctx.fillStyle=skinG(20,24,3); ctx.strokeStyle=OL; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(17.6,21.5); ctx.lineTo(17.6,26.5); ctx.quadraticCurveTo(20,27.6,22.4,26.5); ctx.lineTo(22.4,21.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='rgba(40,25,15,0.18)'; ctx.beginPath(); ctx.ellipse(20,22.4,3,1.3,0,0,P2); ctx.fill();
+  // collar folds
+  ctx.fillStyle=_shade(shirt,0.1); ctx.strokeStyle=OL; ctx.lineWidth=0.9;
+  ctx.beginPath(); ctx.moveTo(16.5,26); ctx.lineTo(20,29); ctx.lineTo(17,25.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(23.5,26); ctx.lineTo(20,29); ctx.lineTo(23,25.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // ---- head ----
+  const hg=ctx.createRadialGradient(20-3.5,14-4.5,1,20,14.5,11);
+  hg.addColorStop(0,_shade(skin,0.22)); hg.addColorStop(0.68,skin); hg.addColorStop(1,_shade(skin,-0.18));
+  ctx.fillStyle=hg; ctx.strokeStyle=OL; ctx.lineWidth=1.1;
   ctx.beginPath();
-  ctx.moveTo(11, 15); ctx.quadraticCurveTo(9.5, 4, 20, 4); ctx.quadraticCurveTo(30.5, 4, 29, 15);
-  ctx.quadraticCurveTo(28, 10, 24, 10.5); ctx.quadraticCurveTo(22.5, 7.5, 19, 9.5);
-  ctx.quadraticCurveTo(16, 7.5, 13.5, 11); ctx.quadraticCurveTo(12, 12.5, 11, 15);
+  ctx.moveTo(11.5,13.5); ctx.quadraticCurveTo(11,6,20,5.5); ctx.quadraticCurveTo(29,6,28.5,13.5);
+  ctx.quadraticCurveTo(28.2,18.5,25,21.5); ctx.quadraticCurveTo(22.5,23.8,20,24); ctx.quadraticCurveTo(17.5,23.8,15,21.5); ctx.quadraticCurveTo(11.8,18.5,11.5,13.5);
   ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = _shade(hair, 0.35); ctx.lineWidth = 0.9; ctx.globalAlpha = 0.7;
-  ctx.beginPath(); ctx.moveTo(15, 6); ctx.quadraticCurveTo(13.5, 9, 13, 12.5); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(22, 5.5); ctx.quadraticCurveTo(24, 8, 24.5, 10.5); ctx.stroke();
-  ctx.globalAlpha = 1;
+  // ears + inner
+  for(const [ex,dir] of [[11.7,1],[28.3,-1]]){
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.ellipse(ex,15,1.7,2.3,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(120,80,55,0.5)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.arc(ex+0.3*dir,15,0.9,0.4,3.5); ctx.stroke();
+  }
+  // cheekbone + jaw contour shading
+  ctx.fillStyle='rgba(150,95,70,0.12)';
+  ctx.beginPath(); ctx.ellipse(14.5,17.5,2.2,3,0.5,0,P2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(25.5,17.5,2.2,3,-0.5,0,P2); ctx.fill();
+  ctx.fillStyle='rgba(120,78,56,0.14)'; ctx.beginPath(); ctx.ellipse(20,22,3.4,1.6,0,0,P2); ctx.fill();
+  // forehead shade under hairline
+  ctx.fillStyle='rgba(60,40,28,0.1)'; ctx.beginPath(); ctx.ellipse(20,11,7,2.6,0,0,P2); ctx.fill();
 
-  // Face features
-  ctx.strokeStyle = _shade(hair, -0.15); ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(14.6, 13.2); ctx.quadraticCurveTo(16.2, 12.6, 17.8, 13.4); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(22.2, 13.4); ctx.quadraticCurveTo(23.8, 12.6, 25.4, 13.2); ctx.stroke();
-  const drawEye = (ex) => {
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, 16, 1.9, 1.5, 0, 0, P2); ctx.fill();
-    ctx.fillStyle = '#5a3f2a'; ctx.beginPath(); ctx.arc(ex + 0.2, 16, 1.15, 0, P2); ctx.fill();
-    ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.arc(ex + 0.2, 16, 0.6, 0, P2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + 0.7, 15.4, 0.4, 0, P2); ctx.fill();
-    ctx.strokeStyle = 'rgba(50,30,20,0.5)'; ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.moveTo(ex - 1.9, 15.2); ctx.quadraticCurveTo(ex, 14.3, ex + 1.9, 15.2); ctx.stroke();
+  // ---- brows (filled, tapered) ----
+  ctx.fillStyle=_shade(hair,-0.1);
+  ctx.beginPath(); ctx.moveTo(14.3,13.4); ctx.quadraticCurveTo(16.2,12.3,18.1,13.2); ctx.quadraticCurveTo(16.2,13.1,14.3,13.9); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(25.7,13.4); ctx.quadraticCurveTo(23.8,12.3,21.9,13.2); ctx.quadraticCurveTo(23.8,13.1,25.7,13.9); ctx.closePath(); ctx.fill();
+
+  // ---- eyes (detailed) ----
+  const drawEye=(ex,dir)=>{
+    // socket shadow
+    ctx.fillStyle='rgba(120,80,55,0.18)'; ctx.beginPath(); ctx.ellipse(ex,16.1,2.3,1.9,0,0,P2); ctx.fill();
+    // white
+    ctx.fillStyle='#fbf6ee'; ctx.beginPath(); ctx.ellipse(ex,16,2,1.55,0,0,P2); ctx.fill();
+    // iris gradient
+    const ig=ctx.createRadialGradient(ex+0.2,15.8,0.3,ex+0.2,16,1.3);
+    ig.addColorStop(0,'#7a5636'); ig.addColorStop(1,'#3f2a18');
+    ctx.fillStyle=ig; ctx.beginPath(); ctx.arc(ex+0.2,16,1.2,0,P2); ctx.fill();
+    ctx.fillStyle='#20140b'; ctx.beginPath(); ctx.arc(ex+0.2,16,0.62,0,P2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.beginPath(); ctx.arc(ex+0.75,15.4,0.42,0,P2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.arc(ex-0.4,16.5,0.22,0,P2); ctx.fill();
+    // upper lid + lash
+    ctx.strokeStyle='rgba(45,28,18,0.7)'; ctx.lineWidth=0.9;
+    ctx.beginPath(); ctx.moveTo(ex-2,15.4); ctx.quadraticCurveTo(ex,14.2,ex+2,15.4); ctx.stroke();
+    ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(ex+2*dir,15.4); ctx.lineTo(ex+2.6*dir,15.0); ctx.stroke();
+    // lower lid
+    ctx.strokeStyle='rgba(150,100,70,0.4)'; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(ex-1.6,17.2); ctx.quadraticCurveTo(ex,17.7,ex+1.6,17.2); ctx.stroke();
   };
-  drawEye(16.2); drawEye(23.8);
-  ctx.strokeStyle = 'rgba(120,80,55,0.55)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(20, 17); ctx.lineTo(19.3, 19); ctx.quadraticCurveTo(20, 19.5, 20.7, 19.1); ctx.stroke();
-  ctx.fillStyle = '#e88a78'; ctx.globalAlpha = 0.28;
-  ctx.beginPath(); ctx.ellipse(14.8, 18.6, 2, 1.2, 0, 0, P2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(25.2, 18.6, 2, 1.2, 0, 0, P2); ctx.fill(); ctx.globalAlpha = 1;
-  ctx.strokeStyle = 'rgba(120,60,50,0.75)'; ctx.lineWidth = 1.1;
-  ctx.beginPath(); ctx.moveTo(17.8, 20.8); ctx.quadraticCurveTo(20, 21.9, 22.2, 20.8); ctx.stroke();
+  drawEye(16.2,-1); drawEye(23.8,1);
+
+  // ---- nose (bridge highlight + shadow + nostrils) ----
+  ctx.strokeStyle='rgba(150,100,70,0.35)'; ctx.lineWidth=0.9; ctx.beginPath(); ctx.moveTo(20.4,15.5); ctx.lineTo(21,18.6); ctx.stroke();
+  ctx.strokeStyle='rgba(255,240,225,0.5)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(19.4,15.6); ctx.lineTo(19.1,18.4); ctx.stroke();
+  ctx.strokeStyle='rgba(120,80,55,0.6)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(18.9,18.8); ctx.quadraticCurveTo(20,19.6,21.1,18.8); ctx.stroke();
+  ctx.fillStyle='rgba(90,58,40,0.5)'; ctx.beginPath(); ctx.arc(18.9,18.9,0.35,0,P2); ctx.fill(); ctx.beginPath(); ctx.arc(21.1,18.9,0.35,0,P2); ctx.fill();
+
+  // ---- cheeks (subtle warm) ----
+  ctx.fillStyle='#e08a72'; ctx.globalAlpha=0.22;
+  ctx.beginPath(); ctx.ellipse(15,19,2,1.2,0,0,P2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(25,19,2,1.2,0,0,P2); ctx.fill(); ctx.globalAlpha=1;
+
+  // ---- lips (upper + lower) ----
+  ctx.fillStyle='#bd6f5e';
+  ctx.beginPath(); ctx.moveTo(17.6,21); ctx.quadraticCurveTo(18.8,20.4,20,20.9); ctx.quadraticCurveTo(21.2,20.4,22.4,21);
+  ctx.quadraticCurveTo(21,22.3,20,22.4); ctx.quadraticCurveTo(19,22.3,17.6,21); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(110,55,45,0.7)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(17.7,21.2); ctx.quadraticCurveTo(20,21.9,22.3,21.2); ctx.stroke();
+  ctx.strokeStyle='rgba(255,220,205,0.5)'; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(18.6,22); ctx.quadraticCurveTo(20,22.4,21.4,22); ctx.stroke();
+
+  // ---- light stubble hint on jaw ----
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(14,19); ctx.quadraticCurveTo(15,22,20,23.6); ctx.quadraticCurveTo(25,22,26,19);
+  ctx.quadraticCurveTo(23,20.5,20,20.8); ctx.quadraticCurveTo(17,20.5,14,19); ctx.closePath(); ctx.clip();
+  ctx.fillStyle='rgba(60,42,30,0.10)'; ctx.fillRect(13,18,14,7); ctx.restore();
+
+  // ---- hair: layered locks, part, rim highlight ----
+  const hrg=ctx.createLinearGradient(0,3,0,18);
+  hrg.addColorStop(0,_shade(hair,0.28)); hrg.addColorStop(0.6,hair); hrg.addColorStop(1,_shade(hair,-0.25));
+  ctx.fillStyle=hrg; ctx.strokeStyle=_shade(hair,-0.45); ctx.lineWidth=0.8;
+  ctx.beginPath();
+  ctx.moveTo(11,15.5); ctx.quadraticCurveTo(9.3,3.5,20,3.3); ctx.quadraticCurveTo(30.7,3.5,29,15.5);
+  ctx.quadraticCurveTo(28.2,10.5,24.5,10.8);   // right lock
+  ctx.quadraticCurveTo(23.5,7.5,20.5,9);        // part
+  ctx.quadraticCurveTo(19,7, 16.5,9.2);
+  ctx.quadraticCurveTo(14,7.5,13,11);
+  ctx.quadraticCurveTo(11.8,12.6,11,15.5);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // lock separation strokes
+  ctx.strokeStyle=_shade(hair,-0.35); ctx.lineWidth=0.7; ctx.globalAlpha=0.8;
+  ctx.beginPath(); ctx.moveTo(16.8,5.5); ctx.quadraticCurveTo(15,9,14,11.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20.5,5); ctx.quadraticCurveTo(20,7.5,19.5,9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(24,6); ctx.quadraticCurveTo(24.5,9,24.3,10.8); ctx.stroke();
+  ctx.globalAlpha=1;
+  // rim highlight strands
+  ctx.strokeStyle=_shade(hair,0.4); ctx.lineWidth=0.8; ctx.globalAlpha=0.75;
+  ctx.beginPath(); ctx.moveTo(13,6.5); ctx.quadraticCurveTo(11.5,10,11.4,14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(18,4.2); ctx.quadraticCurveTo(15.5,5.5,14,8); ctx.stroke();
+  ctx.globalAlpha=1;
 
   _playerHat(opts.hat);
   ctx.restore();
@@ -6815,9 +6918,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.39',
+    version: 'v0.5.40',
     whatsNew: [
-      'The on-foot trader has been redrawn in a painterly, storybook style: gradient-shaded skin, hair, clothes and boots with soft outlines, highlights, folds and lit eyes, plus adult proportions (a real neck, jaw and shoulders) so the character no longer reads as a baby-faced chibi. Hats (straw / travel hat / gold-banded top hat) are painted to match, and gear still drives the hat, shirt and boots. NPCs keep their original chibi look.',
+      'The on-foot trader has been redrawn in a detailed painterly, storybook style: gradient-shaded skin, hair, clothes and boots on adult proportions, with a fully rendered face (layered brows, irises with catchlights, shaded nose, defined lips), layered hair with locks and rim light, and merchant kit — a buttoned vest with lapels, a belt and buckle, a coin pouch on the hip, a satchel strap across the chest, sleeve cuffs, and boots with cuffs, laces and soles. Painterly hats (straw / travel hat / gold-banded top hat) match, and gear still drives the hat, shirt and boots. NPCs keep their original chibi look.',
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -8446,7 +8549,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.39',
+      buildVersion: 'v0.5.40',
       savedAt: Date.now(),
       player: {
         x: player.x,
