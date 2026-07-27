@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.40'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.41'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -5883,136 +5883,10 @@ function isNpcBlocking(px, py) {
   return false;
 }
 
-// ── Chibi character sprite (translated from the Plumberry Trail design) ────
-// Logical design size: 40w × 48h (SVG viewBox 0 0 40 48). The chibi's anchor
-// is the chest/waist at design coord (20, 36) so callers can ctx.translate to
-// the entity's existing world position. Caller is responsible for save/restore.
-//   opts: { skin, hair, shirt, hat }
-//   scale: design pixel → canvas pixel (typically r/12 so total height ≈ 4r)
-//   flip:  true to mirror horizontally (facing left)
-function _drawChibi(opts, scale, flip, walkPhase = 0) {
-  const ink = '#3b2a1d';
-  ctx.scale(scale * (flip ? -1 : 1), scale);
-  ctx.translate(-20, -36);
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-
-  // Drop shadow (under boots)
-  ctx.fillStyle = 'rgba(59,42,29,0.32)';
-  ctx.beginPath();
-  ctx.ellipse(20, 53, 11, 2.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Legs & boots (drawn before shirt so hem overlaps cleanly)
-  const leftLegX  = 15 + walkPhase * 2.5;
-  const rightLegX = 25 - walkPhase * 2.5;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.8;
-
-  // Pants
-  ctx.fillStyle = opts.pants || '#7a5a3a';
-  ctx.beginPath();
-  ctx.moveTo(leftLegX - 3.5, 44);
-  ctx.lineTo(leftLegX - 3, 50);
-  ctx.quadraticCurveTo(leftLegX, 53, leftLegX + 3, 50);
-  ctx.lineTo(leftLegX + 3.5, 44);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(rightLegX - 3.5, 44);
-  ctx.lineTo(rightLegX - 3, 50);
-  ctx.quadraticCurveTo(rightLegX, 53, rightLegX + 3, 50);
-  ctx.lineTo(rightLegX + 3.5, 44);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-
-  // Boots
-  ctx.fillStyle = opts.boots || '#3b2a1d';
-  ctx.beginPath(); ctx.ellipse(leftLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(rightLegX, 52.5, 4.5, 2, 0, 0, Math.PI * 2); ctx.fill();
-
-  // Body / shirt
-  ctx.fillStyle = opts.shirt;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(8, 36);
-  ctx.quadraticCurveTo(8, 28, 20, 28);
-  ctx.quadraticCurveTo(32, 28, 32, 36);
-  ctx.lineTo(32, 44);
-  ctx.quadraticCurveTo(32, 46, 30, 46);
-  ctx.lineTo(10, 46);
-  ctx.quadraticCurveTo(8, 46, 8, 44);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // Arms (skin ellipses, swing opposite to legs when walking)
-  const leftArmY  = 36 + walkPhase * 1.5;
-  const rightArmY = 36 - walkPhase * 1.5;
-  ctx.fillStyle = opts.skin;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.ellipse(7, leftArmY, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(33, rightArmY, 3.6, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // Collar V
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(16, 28); ctx.lineTo(20, 32); ctx.lineTo(24, 28);
-  ctx.stroke();
-
-  // Head
-  ctx.fillStyle = opts.skin;
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(20, 18, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  // Hair (front fringe)
-  ctx.fillStyle = opts.hair;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(10, 16);
-  ctx.quadraticCurveTo(10, 6, 20, 6);
-  ctx.quadraticCurveTo(30, 6, 30, 16);
-  ctx.quadraticCurveTo(28, 12, 24, 13);
-  ctx.quadraticCurveTo(22, 9, 18, 12);
-  ctx.quadraticCurveTo(14, 11, 12, 14);
-  ctx.quadraticCurveTo(11, 15, 10, 16);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  _drawChibiHat(opts.hat || 'none', ink);
-
-  // Cheeks
-  ctx.fillStyle = '#f29ab0';
-  ctx.globalAlpha = 0.7;
-  ctx.beginPath(); ctx.ellipse(13.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(26.5, 20.5, 2.2, 1.4, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // Eyes
-  ctx.fillStyle = ink;
-  ctx.beginPath(); ctx.arc(16, 18, 1.6, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(24, 18, 1.6, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.arc(16.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(24.5, 17.4, 0.5, 0, Math.PI * 2); ctx.fill();
-
-  // Smile
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(17, 22.5);
-  ctx.quadraticCurveTo(20, 24.5, 23, 22.5);
-  ctx.stroke();
-}
-
-// ── Painterly / storybook player figure ───────────────────────────────────
+// ── Painterly / storybook character figure ────────────────────────────────
 // Adult-proportioned figure with gradient shading, soft outlines and
-// highlights. Used for the on-foot PLAYER only; NPCs keep the flat chibi
-// (_drawChibi) look. Shares the global `ctx`; caller sets up translate/bob.
+// highlights, used for BOTH the player and NPCs (opts.merchantKit adds the
+// player's kit). Shares the global `ctx`; caller sets up translate/bob.
 
 // Lighten (f>0, toward white) or darken (f<0, toward black) a #rgb/#rrggbb hex.
 function _shade(hex, f) {
@@ -6025,20 +5899,21 @@ function _shade(hex, f) {
   return '#' + h(r) + h(g) + h(b);
 }
 
-// Painterly hats for the player's gear tiers (straw / travelhat / tophat).
-function _playerHat(kind){
+// Painterly hats for player + NPC roles. Kinds: straw / travelhat / tophat
+// (player gear tiers) and scribeHood / bakerCap / helm / sailor / hood / cap
+// (NPC roles). Drawn on the figure's head (crown ~x20, top ~y3).
+function _figureHat(kind){
   const P2 = Math.PI * 2;
-  if (kind==='straw'){
+  if (kind === 'straw'){
     const g=ctx.createLinearGradient(0,3,0,10); g.addColorStop(0,'#f2d492'); g.addColorStop(1,'#cf9f56');
     ctx.fillStyle=g; ctx.strokeStyle='rgba(120,80,30,0.6)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.ellipse(20,8.5,14,3,0,0,P2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(13.5,8.5); ctx.quadraticCurveTo(13,2.5,20,2.5); ctx.quadraticCurveTo(27,2.5,26.5,8.5); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.strokeStyle='#a8712e'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(14,7.5); ctx.quadraticCurveTo(20,6.8,26,7.5); ctx.stroke();
-    // straw weave texture
     ctx.strokeStyle='rgba(150,110,50,0.35)'; ctx.lineWidth=0.5;
     for(let i=-11;i<=11;i+=3){ ctx.beginPath(); ctx.moveTo(20+i,8.5); ctx.lineTo(20+i*0.55,3.2); ctx.stroke(); }
     ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.ellipse(20,7.8,12,2.2,0,Math.PI*1.05,Math.PI*1.9); ctx.stroke();
-  } else if (kind==='travelhat'){
+  } else if (kind === 'travelhat'){
     const g=ctx.createLinearGradient(0,0,0,9); g.addColorStop(0,'#8a5a30'); g.addColorStop(1,'#5c3a1c');
     ctx.fillStyle=g; ctx.strokeStyle='rgba(50,30,15,0.6)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.ellipse(20,8,15,3.1,0,0,P2); ctx.fill(); ctx.stroke();
@@ -6047,7 +5922,7 @@ function _playerHat(kind){
     const fg=ctx.createLinearGradient(26,0,33,4); fg.addColorStop(0,'#e0607f'); fg.addColorStop(1,'#c03a5a');
     ctx.strokeStyle=fg; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(26,3); ctx.quadraticCurveTo(33,-3,33,4); ctx.stroke();
     ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(13.5,7); ctx.quadraticCurveTo(20,6.3,26.5,7); ctx.stroke();
-  } else if (kind==='tophat'){
+  } else if (kind === 'tophat'){
     const g=ctx.createLinearGradient(0,-2,0,10); g.addColorStop(0,'#3a2b1e'); g.addColorStop(1,'#1c130b');
     ctx.fillStyle=g; ctx.strokeStyle='rgba(20,12,6,0.7)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.ellipse(20,8.5,13,2.6,0,0,P2); ctx.fill(); ctx.stroke();
@@ -6055,16 +5930,59 @@ function _playerHat(kind){
     const bg=ctx.createLinearGradient(0,5,0,8); bg.addColorStop(0,'#f0d060'); bg.addColorStop(1,'#c99a20');
     ctx.fillStyle=bg; ctx.fillRect(13.2,5.5,13.6,2.2);
     ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(16,-1); ctx.lineTo(15.6,5); ctx.stroke();
+  } else if (kind === 'scribeHood'){
+    const b='#a87842'; const g=ctx.createLinearGradient(0,3,0,20); g.addColorStop(0,_shade(b,0.16)); g.addColorStop(1,_shade(b,-0.22));
+    ctx.fillStyle=g; ctx.strokeStyle=_shade(b,-0.45); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(9.5,18); ctx.quadraticCurveTo(8.5,4,20,3.5); ctx.quadraticCurveTo(31.5,4,30.5,18);
+    ctx.lineTo(28.5,18); ctx.quadraticCurveTo(28.5,10.5,20,10); ctx.quadraticCurveTo(11.5,10.5,11.5,18); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(11,9); ctx.quadraticCurveTo(20,4.5,29,9); ctx.stroke();
+  } else if (kind === 'bakerCap'){
+    const g=ctx.createLinearGradient(0,-1,0,12); g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#e6e0d4');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(120,110,95,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(12,12); ctx.quadraticCurveTo(7,0,20,0.5); ctx.quadraticCurveTo(33,0,28,12); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(120,110,95,0.5)'; ctx.lineWidth=0.9; ctx.beginPath(); ctx.moveTo(12,11.5); ctx.quadraticCurveTo(20,13,28,11.5); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.ellipse(16,4,3,2,0,0,P2); ctx.fill();
+  } else if (kind === 'helm'){
+    const g=ctx.createLinearGradient(0,2,0,15); g.addColorStop(0,'#a9b6c0'); g.addColorStop(1,'#5f6e78');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(40,50,58,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(10,15); ctx.quadraticCurveTo(10,3,20,3); ctx.quadraticCurveTo(30,3,30,15);
+    ctx.lineTo(28,15); ctx.lineTo(28,12); ctx.lineTo(12,12); ctx.lineTo(12,15); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(40,50,58,0.7)'; ctx.beginPath(); ctx.rect(19,12,2,4); ctx.fill(); ctx.stroke();
+    const cg=ctx.createLinearGradient(19,-3,21,4); cg.addColorStop(0,'#c0455a'); cg.addColorStop(1,'#8a2a3c');
+    ctx.fillStyle=cg; ctx.beginPath(); ctx.moveTo(20,-3); ctx.quadraticCurveTo(23,-2,22,4); ctx.lineTo(18,4); ctx.quadraticCurveTo(17,-2,20,-3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(15,7.5,1.8,3,0.3,0,P2); ctx.fill();
+  } else if (kind === 'sailor'){
+    const g=ctx.createLinearGradient(0,2,0,11); g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#dfe6ea');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(110,120,130,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.ellipse(20,10,11,2,0,0,P2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(12,10); ctx.quadraticCurveTo(12,3.5,20,3.5); ctx.quadraticCurveTo(28,3.5,28,10); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#4f7fb0'; ctx.fillRect(14,6,12,2.2);
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(16,5.5,2,1.2,0,0,P2); ctx.fill();
+  } else if (kind === 'hood'){
+    const b='#5b5561'; const g=ctx.createLinearGradient(0,3,0,22); g.addColorStop(0,_shade(b,0.18)); g.addColorStop(1,_shade(b,-0.25));
+    ctx.fillStyle=g; ctx.strokeStyle=_shade(b,-0.5); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(8,21); ctx.quadraticCurveTo(6,5,20,4); ctx.quadraticCurveTo(34,5,32,21);
+    ctx.lineTo(28.5,17); ctx.quadraticCurveTo(28.5,11,20,10.5); ctx.quadraticCurveTo(11.5,11,11.5,17); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.moveTo(11.5,17); ctx.quadraticCurveTo(11.5,11,20,10.7); ctx.quadraticCurveTo(28.5,11,28.5,17); ctx.quadraticCurveTo(20,13.5,11.5,17); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(10,10); ctx.quadraticCurveTo(20,4.5,30,10); ctx.stroke();
+  } else if (kind === 'cap'){
+    const g=ctx.createLinearGradient(0,2,0,12); g.addColorStop(0,'#6f9cc4'); g.addColorStop(1,'#3f6a92');
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(30,50,70,0.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(11,12); ctx.quadraticCurveTo(11,3.5,20,3.5); ctx.quadraticCurveTo(29,3.5,29,12); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#33587a'; ctx.strokeStyle='rgba(30,50,70,0.6)';
+    ctx.beginPath(); ctx.moveTo(11,12); ctx.quadraticCurveTo(16,14,20,14); ctx.quadraticCurveTo(25,14,31,12.5); ctx.lineTo(31,14.2); ctx.quadraticCurveTo(24,16,20,16); ctx.quadraticCurveTo(15,16,11,13.8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.ellipse(16,6,2.5,1.5,0,0,P2); ctx.fill();
   }
 }
 
-// Detailed painterly / storybook player figure: gradient-shaded skin, hair,
-// clothes and boots with merchant detail (vest, belt, coin pouch, satchel
-// strap), and a fully rendered face. PLAYER only; NPCs keep _drawChibi.
-function _drawPlayerFigure(opts, scale, flip, walkPhase = 0){
+// Detailed painterly / storybook figure: gradient-shaded skin, hair,
+// clothes and boots on adult proportions, with a fully rendered face and
+// role hat. Used for BOTH the player and NPCs; opts.merchantKit adds the
+// player's vest, belt, coin pouch and satchel strap (NPCs omit it).
+function _drawFigure(opts, scale, flip, walkPhase = 0){
   const P2 = Math.PI * 2;
   const wp = walkPhase;
-  const skin=opts.skin, hair=opts.hair, shirt=opts.shirt, boots=opts.boots;
+  const skin=opts.skin, hair=opts.hair, shirt=opts.shirt, boots=opts.boots||'#5a3d28';
   const pants=opts.pants||'#4f3b2a';
   const vest=_shade(shirt,-0.3), leather='#6b4a2c', gold='#d4a020';
   const OL='rgba(52,34,22,0.55)';
@@ -6122,6 +6040,7 @@ function _drawPlayerFigure(opts, scale, flip, walkPhase = 0){
   ctx.quadraticCurveTo(31,46,29,46); ctx.lineTo(11,46); ctx.quadraticCurveTo(9,46,9,44); ctx.closePath();
   ctx.fill(); ctx.stroke();
 
+  if (opts.merchantKit) {
   // ---- vest (darker tone-on-tone) with lapels + buttons ----
   ctx.fillStyle=vest; ctx.strokeStyle=_shade(vest,-0.3); ctx.lineWidth=1;
   ctx.beginPath();
@@ -6153,6 +6072,8 @@ function _drawPlayerFigure(opts, scale, flip, walkPhase = 0){
   const strapG=ctx.createLinearGradient(12,27,28,45); strapG.addColorStop(0,_shade(leather,0.1)); strapG.addColorStop(1,_shade(leather,-0.2));
   ctx.strokeStyle=strapG; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(13.5,27.5); ctx.lineTo(27,44.5); ctx.stroke();
   ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=0.6; ctx.beginPath(); ctx.moveTo(13.8,27.8); ctx.lineTo(27,44.2); ctx.stroke();
+
+  }
 
   // ---- arms (sleeves) + cuffs + hands ----
   const la=34+wp*1.5, ra=34-wp*1.5;
@@ -6275,151 +6196,11 @@ function _drawPlayerFigure(opts, scale, flip, walkPhase = 0){
   ctx.beginPath(); ctx.moveTo(18,4.2); ctx.quadraticCurveTo(15.5,5.5,14,8); ctx.stroke();
   ctx.globalAlpha=1;
 
-  _playerHat(opts.hat);
+  _figureHat(opts.hat);
   ctx.restore();
 }
 
-function _drawChibiHat(kind, ink) {
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.6;
-
-  if (kind === 'straw') {
-    ctx.fillStyle = '#e6c07b';
-    ctx.beginPath(); ctx.ellipse(20, 9, 14, 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#f0d28e';
-    ctx.beginPath();
-    ctx.moveTo(13, 9);
-    ctx.quadraticCurveTo(13, 3, 20, 3);
-    ctx.quadraticCurveTo(27, 3, 27, 9);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = '#a87432';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(13, 8);
-    ctx.quadraticCurveTo(20, 7, 27, 8);
-    ctx.stroke();
-  } else if (kind === 'cap') {
-    ctx.fillStyle = '#5d8fb8';
-    ctx.beginPath();
-    ctx.moveTo(11, 12);
-    ctx.quadraticCurveTo(11, 4, 20, 4);
-    ctx.quadraticCurveTo(29, 4, 29, 12);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#3a6a90';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(11, 12);
-    ctx.quadraticCurveTo(15, 14, 20, 14);
-    ctx.quadraticCurveTo(25, 14, 31, 12);
-    ctx.lineTo(31, 14);
-    ctx.quadraticCurveTo(24, 16, 20, 16);
-    ctx.quadraticCurveTo(15, 16, 11, 14);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (kind === 'flower') {
-    ctx.fillStyle = '#e57389';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.arc(13, 8, 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#fff3c2';
-    ctx.beginPath(); ctx.arc(13, 8, 0.8, 0, Math.PI * 2); ctx.fill();
-  } else if (kind === 'sailor') {
-    ctx.fillStyle = '#fdfaf0';
-    ctx.beginPath(); ctx.ellipse(20, 10, 11, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(12, 10);
-    ctx.quadraticCurveTo(12, 4, 20, 4);
-    ctx.quadraticCurveTo(28, 4, 28, 10);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#5d8fb8';
-    ctx.fillRect(15, 6, 10, 2);
-  } else if (kind === 'helm') {
-    ctx.fillStyle = '#7a8a96';
-    ctx.beginPath();
-    ctx.moveTo(10, 14);
-    ctx.quadraticCurveTo(10, 4, 20, 4);
-    ctx.quadraticCurveTo(30, 4, 30, 14);
-    ctx.lineTo(28, 14); ctx.lineTo(28, 18); ctx.lineTo(26, 18);
-    ctx.lineTo(26, 15); ctx.lineTo(14, 15); ctx.lineTo(14, 18); ctx.lineTo(12, 18); ctx.lineTo(12, 14);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#3a6a90';
-    ctx.fillRect(19, 3, 2, 4); // crest
-  } else if (kind === 'hood') {
-    ctx.fillStyle = '#5b5561';
-    ctx.beginPath();
-    ctx.moveTo(8, 22);
-    ctx.quadraticCurveTo(6, 8, 20, 6);
-    ctx.quadraticCurveTo(34, 8, 32, 22);
-    ctx.lineTo(28, 18);
-    ctx.quadraticCurveTo(28, 14, 20, 12);
-    ctx.quadraticCurveTo(12, 14, 12, 18);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (kind === 'bakerCap') {
-    ctx.fillStyle = '#fdfaf0';
-    ctx.beginPath();
-    ctx.moveTo(12, 12);
-    ctx.quadraticCurveTo(8, 2, 20, 2);
-    ctx.quadraticCurveTo(32, 2, 28, 12);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(12, 12); ctx.lineTo(28, 12);
-    ctx.stroke();
-  } else if (kind === 'scribeHood') {
-    ctx.fillStyle = '#a87842';
-    ctx.beginPath();
-    ctx.moveTo(8, 20);
-    ctx.quadraticCurveTo(8, 6, 20, 6);
-    ctx.quadraticCurveTo(32, 6, 32, 20);
-    ctx.lineTo(30, 20);
-    ctx.quadraticCurveTo(30, 12, 20, 12);
-    ctx.quadraticCurveTo(10, 12, 10, 20);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (kind === 'travelhat') {
-    // Wide-brim with crown + feather (player)
-    ctx.fillStyle = '#5a3a1a';
-    ctx.beginPath(); ctx.ellipse(20, 9, 15, 2.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#7a4a26';
-    ctx.beginPath();
-    ctx.moveTo(13, 9);
-    ctx.quadraticCurveTo(13, 1, 20, 1);
-    ctx.quadraticCurveTo(27, 1, 27, 9);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(13, 7); ctx.lineTo(27, 7);
-    ctx.stroke();
-    ctx.strokeStyle = '#e57389';
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(26, 3);
-    ctx.quadraticCurveTo(33, -3, 33, 4);
-    ctx.stroke();
-  } else if (kind === 'tophat') {
-    // Tall merchant top hat with gold band — high-tier pack reward
-    ctx.fillStyle = '#2a1e14';
-    ctx.beginPath(); ctx.ellipse(20, 10, 13, 2.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#3a2a1c';
-    ctx.beginPath();
-    ctx.moveTo(12, 10); ctx.lineTo(12, 1);
-    ctx.quadraticCurveTo(12, -1, 20, -1);
-    ctx.quadraticCurveTo(28, -1, 28, 1);
-    ctx.lineTo(28, 10);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    // Gold band
-    ctx.strokeStyle = '#d4a020';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(12, 8); ctx.lineTo(28, 8); ctx.stroke();
-  }
-}
-
-// Per-style palette for NPC chibis. Falls back to a default when unknown.
+// Per-style palette for NPC figures. Falls back to a default when unknown.
 const _NPC_STYLE_OPTS = {
   scribe:   { skin: '#f5d2b8', hair: '#3b2a1d', shirt: '#a87842', hat: 'scribeHood' },
   baker:    { skin: '#f5d2b8', hair: '#8a5a2e', shirt: '#d9b38c', hat: 'bakerCap' },
@@ -6445,7 +6226,7 @@ function drawNpcEntity(e) {
 
   ctx.save();
   ctx.translate(sx, sy + bob);
-  _drawChibi(opts, scale, flip, walkPhase);
+  _drawFigure(opts, scale, flip, walkPhase);
   ctx.restore();
 }
 
@@ -6918,9 +6699,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.40',
+    version: 'v0.5.41',
     whatsNew: [
-      'The on-foot trader has been redrawn in a detailed painterly, storybook style: gradient-shaded skin, hair, clothes and boots on adult proportions, with a fully rendered face (layered brows, irises with catchlights, shaded nose, defined lips), layered hair with locks and rim light, and merchant kit — a buttoned vest with lapels, a belt and buckle, a coin pouch on the hip, a satchel strap across the chest, sleeve cuffs, and boots with cuffs, laces and soles. Painterly hats (straw / travel hat / gold-banded top hat) match, and gear still drives the hat, shirt and boots. NPCs keep their original chibi look.',
+      'Town NPCs now share the player\'s painterly, storybook look for a consistent world: every townsfolk (scribe, baker, guard, fisher, smuggler, broker, and generic traders) is drawn with the same gradient-shaded figure and a repainted role hat (cloth hood, baker\'s cap, plumed helm, sailor cap, smuggler hood, broker cap, straw). The player still stands apart, being the only one wearing the merchant kit (vest, belt, coin pouch and satchel strap).',
+      'The on-foot trader has been redrawn in a detailed painterly, storybook style: gradient-shaded skin, hair, clothes and boots on adult proportions, with a fully rendered face (layered brows, irises with catchlights, shaded nose, defined lips), layered hair with locks and rim light, and merchant kit — a buttoned vest with lapels, a belt and buckle, a coin pouch on the hip, a satchel strap across the chest, sleeve cuffs, and boots with cuffs, laces and soles. Painterly hats (straw / travel hat / gold-banded top hat) match, and gear still drives the hat, shirt and boots.',
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
       'Road events now LOOK like events: each encounter gets its own icon and color (⚔️ bandits, 🛡️ patrol, ✨ omen...), a dramatic pop-in animation over a darkened road, a "what\'s at stake" badge showing the gold on the line, and a ❗ marker over your head when trouble finds you. Misclick protection: for the first moment after a dialog appears it ignores taps, so a movement tap can never accidentally pick a choice. And threat encounters (bandits, tolls, patrols, quarantine, wolves) can no longer be waved away with Esc or the ✕ — you have to deal with them.',
       'Road events redesigned so they matter again: every encounter now scales with what you\'re actually carrying — bandit demands, tolls, quarantine fees, escort pay, and found gold all follow your total wealth (gold + cargo value) instead of flat 5–25g amounts. Events also react to your situation: valuable cargo attracts bandits, carrying contraband attracts patrols, and running out of rations attracts food sellers. Encounters are rarer but each one carries real weight.',
@@ -8549,7 +8331,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.40',
+      buildVersion: 'v0.5.41',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -12171,7 +11953,7 @@ function drawEntities() {
   }
 
   // Compute the player figure's appearance (skin/hair/shirt/hat/boots) from
-  // current gear tiers. Fed to _drawPlayerFigure (painterly storybook style).
+  // current gear tiers. Fed to _drawFigure (painterly storybook style).
   function _playerChibiOpts() {
     const packTier  = player.gear?.pack  ?? 0;
     const bootsTier = player.gear?.boots ?? 0;
@@ -12189,7 +11971,7 @@ function drawEntities() {
                 : bootsTier >= 1 ? '#8a5a30'   // sturdy road boots
                 :                  '#5a3018';  // worn, beaten boots
 
-    return { skin: '#f0c9a0', hair: '#4a3320', shirt, hat, boots };
+    return { skin: '#f0c9a0', hair: '#4a3320', shirt, hat, boots, merchantKit: true };
   }
 
   function drawPlayer() {
@@ -12215,7 +11997,7 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y + bob);
     if (bootsTier >= 4) { ctx.shadowColor = '#ffd84d'; ctx.shadowBlur = 7; }
-    _drawPlayerFigure(opts, scale, flip, walkPhase);
+    _drawFigure(opts, scale, flip, walkPhase);
     ctx.restore();
   }
 
