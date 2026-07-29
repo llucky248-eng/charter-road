@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.41'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.42'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6699,8 +6699,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.41',
+    version: 'v0.5.42',
     whatsNew: [
+      'The road carriage and its horse are now painted in the same painterly style as the characters: gradient-shaded wagon body and canopy with highlights, wheels with wood-grain shading, gold hubs and a rim glint, and a soft-shaded horse with a flowing mane, a lit eye and a shaded muzzle. Gear tiers still change everything (flat roof vs. canvas canopy, cargo pack, gold trim, and the phantom mare).',
       'Town NPCs now share the player\'s painterly, storybook look for a consistent world: every townsfolk (scribe, baker, guard, fisher, smuggler, broker, and generic traders) is drawn with the same gradient-shaded figure and a repainted role hat (cloth hood, baker\'s cap, plumed helm, sailor cap, smuggler hood, broker cap, straw). The player still stands apart, being the only one wearing the merchant kit (vest, belt, coin pouch and satchel strap).',
       'The on-foot trader has been redrawn in a detailed painterly, storybook style: gradient-shaded skin, hair, clothes and boots on adult proportions, with a fully rendered face (layered brows, irises with catchlights, shaded nose, defined lips), layered hair with locks and rim light, and merchant kit — a buttoned vest with lapels, a belt and buckle, a coin pouch on the hip, a satchel strap across the chest, sleeve cuffs, and boots with cuffs, laces and soles. Painterly hats (straw / travel hat / gold-banded top hat) match, and gear still drives the hat, shirt and boots.',
       'Item-loss animation: losing items now shows feedback just like gaining them — a red "-N icon" sprite sinks toward your head whenever goods leave your pack (selling, contract delivery, storing in the warehouse, daily rations on the road, feeding wolves/soldiers/hermits, bandit theft, contraband seizure). Rapid same-item losses stack into one popup, and a loss never merges with a gain.',
@@ -8331,7 +8332,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.41',
+      buildVersion: 'v0.5.42',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -11563,19 +11564,19 @@ function drawEntities() {
     ctx.scale(CARRIAGE_SCALE, CARRIAGE_SCALE);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    const INK = '#3b2a1d';
+    const OL = 'rgba(52,34,22,0.6)';
+    const P2 = Math.PI * 2;
 
     const t = stateTime;
     const phase = t * 0.014;
 
     // ── Suspension bounce (wagon bobs vertically when moving) ──────────
     const bounce    = moving ? Math.sin(phase * 2) * 1.2 : 0;
-    const tilt      = moving ? Math.sin(phase) * 0.6 : 0; // slight rock
 
     // ── Wheel spin angle ────────────────────────────────────────────────
     const wheelSpin = moving ? t * 0.022 : 0;
 
-    // ── Color palettes (chibi/paper aesthetic: warm pastels + ink outlines) ──
+    // ── Color palettes (painterly: base tones shaded into gradients) ──
     const HORSE_PAL = [
       { body:'#d6b27e', belly:'#bf9560', dark:'#7a5230', mane:'#5a3818', nose:'#e3a890', glow:false },
       { body:'#8c6238', belly:'#6e4a26', dark:'#3a2010', mane:'#1f0e04', nose:'#b48060', glow:false },
@@ -11604,251 +11605,128 @@ function drawEntities() {
     const hH = 8 + bootsTier;      // horse body height
     const legLen = 5 + Math.floor(bootsTier * 0.5);
     const wheelR = 4 + Math.floor(packTier * 0.8);
-    const spokes  = 6;
 
     // ── Shared helpers ─────────────────────────────────────────────────
 
-    const drawWheel = (wx, wy) => {
-      // Tyre — wood-toned fill with thick ink outline
-      ctx.fillStyle = bc.wheel;
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-      // Spokes (4, simpler) — ink lines
-      ctx.strokeStyle = bc.spoke;
-      ctx.lineWidth = 1.4;
-      const spokeCount = 4;
-      for (let s = 0; s < spokeCount; s++) {
-        const a = wheelSpin + (s / spokeCount) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.moveTo(wx + Math.cos(a) * wheelR * 0.32, wy + Math.sin(a) * wheelR * 0.32);
-        ctx.lineTo(wx + Math.cos(a) * wheelR * 0.86, wy + Math.sin(a) * wheelR * 0.86);
-        ctx.stroke();
-      }
-      // Hub — cream highlight in the middle
-      ctx.fillStyle = bc.trim;
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.arc(wx, wy, wheelR * 0.32, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    const roundRect=(rx,ry,rw,rh,rr)=>{ctx.beginPath();ctx.moveTo(rx+rr,ry);ctx.lineTo(rx+rw-rr,ry);ctx.quadraticCurveTo(rx+rw,ry,rx+rw,ry+rr);ctx.lineTo(rx+rw,ry+rh-rr);ctx.quadraticCurveTo(rx+rw,ry+rh,rx+rw-rr,ry+rh);ctx.lineTo(rx+rr,ry+rh);ctx.quadraticCurveTo(rx,ry+rh,rx,ry+rh-rr);ctx.lineTo(rx,ry+rr);ctx.quadraticCurveTo(rx,ry,rx+rr,ry);ctx.closePath();};
+
+    const drawWheel=(wx,wy)=>{
+      // tyre: radial wood gradient + soft outline
+      const g=ctx.createRadialGradient(wx-wheelR*0.3,wy-wheelR*0.3,wheelR*0.15,wx,wy,wheelR);
+      g.addColorStop(0,_shade(bc.wheel,0.2)); g.addColorStop(1,_shade(bc.wheel,-0.28));
+      ctx.fillStyle=g; ctx.strokeStyle=OL; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(wx,wy,wheelR,0,P2); ctx.fill(); ctx.stroke();
+      // inner rim shade
+      ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(wx,wy,wheelR*0.72,0,P2); ctx.stroke();
+      // spokes
+      ctx.strokeStyle=_shade(bc.wheel,-0.4); ctx.lineWidth=1.3;
+      for(let s=0;s<5;s++){ const a=wheelSpin+(s/5)*P2; ctx.beginPath(); ctx.moveTo(wx+Math.cos(a)*wheelR*0.28,wy+Math.sin(a)*wheelR*0.28); ctx.lineTo(wx+Math.cos(a)*wheelR*0.82,wy+Math.sin(a)*wheelR*0.82); ctx.stroke(); }
+      // hub: gold gradient
+      const hgd=ctx.createRadialGradient(wx-0.6,wy-0.6,0.2,wx,wy,wheelR*0.4);
+      hgd.addColorStop(0,_shade(bc.trim,0.25)); hgd.addColorStop(1,_shade(bc.trim,-0.2));
+      ctx.fillStyle=hgd; ctx.strokeStyle=OL; ctx.lineWidth=1.1; ctx.beginPath(); ctx.arc(wx,wy,wheelR*0.34,0,P2); ctx.fill(); ctx.stroke();
+      // top rim highlight
+      ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=0.9; ctx.beginPath(); ctx.arc(wx,wy,wheelR*0.9,Math.PI*1.1,Math.PI*1.75); ctx.stroke();
     };
 
-    // Rounded-rectangle helper for chibi-style wagon body
-    const roundRect = (rx, ry, rw, rh, rr) => {
-      ctx.beginPath();
-      ctx.moveTo(rx + rr, ry);
-      ctx.lineTo(rx + rw - rr, ry);
-      ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rr);
-      ctx.lineTo(rx + rw, ry + rh - rr);
-      ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rr, ry + rh);
-      ctx.lineTo(rx + rr, ry + rh);
-      ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rr);
-      ctx.lineTo(rx, ry + rr);
-      ctx.quadraticCurveTo(rx, ry, rx + rr, ry);
-      ctx.closePath();
-    };
-
-    const drawWagonBody = (wx, wy) => {
-      if (packTier === 4) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6; }
-      const by = wy + bounce;
-      // Wagon body — rounded paper-style with thick ink outline
-      ctx.fillStyle = bc.body;
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 2;
-      roundRect(wx, by, wW, wH, 2);
-      ctx.fill();
-      ctx.stroke();
-      // Soft pencil plank line (single gentle curve, not hard rulings)
-      ctx.strokeStyle = 'rgba(59,42,29,0.22)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(wx + 2, by + wH * 0.6);
-      ctx.quadraticCurveTo(wx + wW / 2, by + wH * 0.6 - 0.4, wx + wW - 2, by + wH * 0.6);
-      ctx.stroke();
-      // Roof/canopy — thick ink outline, soft fill
-      ctx.fillStyle = bc.roof;
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 2;
-      if (packTier === 0) {
-        // Flat plank roof — rounded
-        roundRect(wx - 1, by - wRoofH, wW + 2, wRoofH + 0.5, 1.5);
-        ctx.fill();
-        ctx.stroke();
+    const drawWagonBody=(wx,wy)=>{
+      if(packTier===4){ ctx.shadowColor='#ffd700'; ctx.shadowBlur=6; }
+      const by=wy+bounce;
+      // body: vertical gradient + soft outline
+      const g=ctx.createLinearGradient(0,by,0,by+wH);
+      g.addColorStop(0,_shade(bc.body,0.22)); g.addColorStop(0.55,bc.body); g.addColorStop(1,_shade(bc.body,-0.22));
+      ctx.fillStyle=g; ctx.strokeStyle=OL; ctx.lineWidth=1.6; roundRect(wx,by,wW,wH,2.5); ctx.fill(); ctx.stroke();
+      // plank lines (soft)
+      ctx.strokeStyle='rgba(40,26,15,0.2)'; ctx.lineWidth=0.8;
+      for(const fy of [0.4,0.7]){ ctx.beginPath(); ctx.moveTo(wx+2,by+wH*fy); ctx.quadraticCurveTo(wx+wW/2,by+wH*fy-0.4,wx+wW-2,by+wH*fy); ctx.stroke(); }
+      // body top highlight
+      ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.ellipse(wx+wW*0.35,by+wH*0.32,wW*0.28,wH*0.16,-0.15,0,P2); ctx.fill();
+      // roof / canopy
+      const rg=ctx.createLinearGradient(0,by-wRoofH,0,by);
+      rg.addColorStop(0,_shade(bc.roof,0.2)); rg.addColorStop(1,_shade(bc.roof,-0.18));
+      ctx.fillStyle=rg; ctx.strokeStyle=OL; ctx.lineWidth=1.6;
+      if(packTier===0){ roundRect(wx-1,by-wRoofH,wW+2,wRoofH+0.5,1.5); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(wx,by-wRoofH+0.8); ctx.lineTo(wx+wW,by-wRoofH+0.8); ctx.stroke();
       } else {
-        // Arched canvas canopy
-        ctx.beginPath();
-        ctx.moveTo(wx - 1, by);
-        ctx.bezierCurveTo(wx - 1, by - wRoofH * 1.6, wx + wW + 1, by - wRoofH * 1.6, wx + wW + 1, by);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        // Two faint vertical canopy ribs (pencil-style)
-        ctx.strokeStyle = 'rgba(59,42,29,0.18)';
-        ctx.lineWidth = 1;
-        for (let i = 1; i <= 2; i++) {
-          const sx = wx - 1 + (wW + 2) * (i / 3);
-          ctx.beginPath();
-          ctx.moveTo(sx, by);
-          ctx.quadraticCurveTo(sx, by - wRoofH * 0.9, sx, by - wRoofH * 0.4);
-          ctx.stroke();
-        }
+        ctx.beginPath(); ctx.moveTo(wx-1,by); ctx.bezierCurveTo(wx-1,by-wRoofH*1.6,wx+wW+1,by-wRoofH*1.6,wx+wW+1,by); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle='rgba(40,26,15,0.16)'; ctx.lineWidth=0.9;
+        for(let i=1;i<=2;i++){ const sx=wx-1+(wW+2)*(i/3); ctx.beginPath(); ctx.moveTo(sx,by); ctx.quadraticCurveTo(sx,by-wRoofH*0.9,sx,by-wRoofH*0.4); ctx.stroke(); }
+        ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(wx+2,by-wRoofH*0.9); ctx.bezierCurveTo(wx+2,by-wRoofH*1.4,wx+wW*0.5,by-wRoofH*1.5,wx+wW*0.5,by-wRoofH*1.3); ctx.stroke();
       }
-      // Cargo pack on top (T2+) — rounded + ink outline
-      if (packTier >= 2) {
-        ctx.fillStyle = bc.trim;
-        ctx.strokeStyle = INK;
-        ctx.lineWidth = 1.4;
-        roundRect(wx + 2, by - wRoofH - 3, wW - 4, 3.2, 1);
-        ctx.fill();
-        ctx.stroke();
-      }
-      // T4 gold side rails
-      if (packTier === 4) {
-        ctx.fillStyle = '#f0c040';
-        ctx.fillRect(wx, by + 2, 2, wH - 4);
-        ctx.fillRect(wx + wW - 2, by + 2, 2, wH - 4);
-      }
-      // Player identity stripe (plum) — small banner at the front
-      ctx.fillStyle = '#b07ec3';
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.rect(wx + wW/2 - 2.5, by + wH - 3.5, 5, 3);
-      ctx.fill();
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+      // cargo (T2+)
+      if(packTier>=2){ const cg=ctx.createLinearGradient(0,by-wRoofH-3,0,by-wRoofH); cg.addColorStop(0,_shade(bc.trim,0.18)); cg.addColorStop(1,_shade(bc.trim,-0.2));
+        ctx.fillStyle=cg; ctx.strokeStyle=OL; ctx.lineWidth=1.2; roundRect(wx+2,by-wRoofH-3,wW-4,3.2,1); ctx.fill(); ctx.stroke(); }
+      // T4 gold rails
+      if(packTier===4){ const gg=ctx.createLinearGradient(0,by+2,0,by+wH-2); gg.addColorStop(0,'#ffe89a'); gg.addColorStop(1,'#c99a20');
+        ctx.fillStyle=gg; ctx.fillRect(wx,by+2,2,wH-4); ctx.fillRect(wx+wW-2,by+2,2,wH-4); }
+      // identity banner (plum)
+      const pg2=ctx.createLinearGradient(0,by+wH-3.5,0,by+wH-0.5); pg2.addColorStop(0,'#c894d8'); pg2.addColorStop(1,'#7e4f9e');
+      ctx.fillStyle=pg2; ctx.strokeStyle=OL; ctx.lineWidth=1; ctx.beginPath(); roundRect(wx+wW/2-2.5,by+wH-3.5,5,3,0.8); ctx.fill(); ctx.stroke();
+      ctx.shadowBlur=0;
     };
 
-    const drawHarness = (x1, y1, x2, y2) => {
-      ctx.strokeStyle = bootsTier >= 3 ? '#d4af37' : '#5a3820';
-      ctx.lineWidth = 1;
-      // Two reins
-      ctx.beginPath();
-      ctx.moveTo(x1, y1 - 1); ctx.lineTo(x2, y2 - 1);
-      ctx.moveTo(x1, y1 + 1); ctx.lineTo(x2, y2 + 1);
-      ctx.stroke();
-    };
+    const drawHarness=(x1,y1,x2,y2)=>{ ctx.strokeStyle=bootsTier>=3?'#d4af37':'#5a3820'; ctx.lineWidth=1.1; ctx.beginPath(); ctx.moveTo(x1,y1-1);ctx.lineTo(x2,y2-1); ctx.moveTo(x1,y1+1);ctx.lineTo(x2,y2+1); ctx.stroke(); };
 
-    // ── Horse drawing: proper arc-based body ───────────────────────────
-    // dir = which direction the horse is walking toward
-    // pos (hx,hy) = center of horse body
-    const drawHorse = (hcx, hcy, dir) => {
-      const legPhase1 = moving ? Math.sin(phase * 2) * legLen * 0.5 : 0;
-      const legPhase2 = moving ? Math.sin(phase * 2 + Math.PI) * legLen * 0.5 : 0;
-
-      // Horiz or vert stance
-      const horiz = (dir === 'RIGHT' || dir === 'LEFT');
-      const flip   = dir === 'LEFT' ? -1 : 1;
-
-      ctx.save();
-      ctx.translate(hcx, hcy);
-      if (horiz && dir === 'LEFT') ctx.scale(-1, 1);
-
-      if (hc.glow) { ctx.shadowColor = '#a0d8ff'; ctx.shadowBlur = 10; }
-
-      if (horiz) {
-        // Side-view horse — chibi style: thick ink outlines on every shape
-        // Body
-        ctx.fillStyle = hc.belly;
-        ctx.strokeStyle = INK;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.9, hH * 0.45, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Body top shading (no stroke, soft overlay)
-        ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(-1, -1.5, hW * 0.78, hH * 0.32, -0.15, 0, Math.PI*2); ctx.fill();
-        // Neck + head silhouette (single outlined shape)
-        ctx.fillStyle = hc.body;
-        ctx.strokeStyle = INK;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(hW * 0.6, -hH * 0.3);
-        ctx.bezierCurveTo(hW * 0.9, -hH * 0.7, hW * 1.3, -hH * 0.8, hW * 1.5, -hH * 0.5);
-        ctx.bezierCurveTo(hW * 1.4, -hH * 0.2, hW * 0.9, -hH * 0.1, hW * 0.6, -hH * 0.1);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        // Head
-        ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(hW * 1.55, -hH * 0.55, hW * 0.32, hH * 0.22, -0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Nose/muzzle (cheek-blush palette)
-        ctx.fillStyle = hc.nose;
-        ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.ellipse(hW * 1.75, -hH * 0.48, hW * 0.14, hH * 0.12, 0.2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Chibi eye (bigger, with bright white highlight)
-        ctx.fillStyle = INK;
-        ctx.beginPath(); ctx.arc(hW * 1.46, -hH * 0.62, 1.5, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath(); ctx.arc(hW * 1.5, -hH * 0.66, 0.55, 0, Math.PI*2); ctx.fill();
-        // Mane
-        ctx.fillStyle = hc.mane;
-        ctx.beginPath();
-        ctx.moveTo(hW * 0.6, -hH * 0.3);
-        ctx.bezierCurveTo(hW * 0.7, -hH * 0.9, hW * 1.1, -hH * 0.95, hW * 1.3, -hH * 0.7);
-        ctx.lineWidth = 2.5; ctx.strokeStyle = hc.mane; ctx.stroke();
-        // Tail
-        ctx.strokeStyle = hc.mane; ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(-hW * 0.85, -hH * 0.1);
-        ctx.bezierCurveTo(-hW * 1.2, hH * 0.2, -hW * 1.1, hH * 0.5, -hW * 0.9, hH * 0.6);
-        ctx.stroke();
-        // Legs (4 — side view shows 2 pairs offset)
-        ctx.lineWidth = 2; ctx.strokeStyle = hc.dark; ctx.lineCap = 'round';
-        // Back legs
-        ctx.beginPath();
-        ctx.moveTo(-hW * 0.45, hH * 0.38);
-        ctx.lineTo(-hW * 0.45 + legPhase1 * 0.4, hH * 0.38 + legLen * 0.5);
-        ctx.lineTo(-hW * 0.35 + legPhase1 * 0.6, hH * 0.38 + legLen);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(-hW * 0.15, hH * 0.38);
-        ctx.lineTo(-hW * 0.15 + legPhase2 * 0.4, hH * 0.38 + legLen * 0.5);
-        ctx.lineTo(-hW * 0.05 + legPhase2 * 0.6, hH * 0.38 + legLen);
-        ctx.stroke();
-        // Front legs
-        ctx.beginPath();
-        ctx.moveTo(hW * 0.25, hH * 0.35);
-        ctx.lineTo(hW * 0.25 + legPhase2 * 0.4, hH * 0.35 + legLen * 0.5);
-        ctx.lineTo(hW * 0.35 + legPhase2 * 0.6, hH * 0.35 + legLen);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(hW * 0.5, hH * 0.32);
-        ctx.lineTo(hW * 0.5 + legPhase1 * 0.4, hH * 0.32 + legLen * 0.5);
-        ctx.lineTo(hW * 0.6 + legPhase1 * 0.6, hH * 0.32 + legLen);
-        ctx.stroke();
-        ctx.lineCap = 'butt';
-
+    const drawHorse=(hcx,hcy,dir)=>{
+      const legPhase1=moving?Math.sin(phase*2)*legLen*0.5:0;
+      const legPhase2=moving?Math.sin(phase*2+Math.PI)*legLen*0.5:0;
+      const horiz=(dir==='RIGHT'||dir==='LEFT');
+      ctx.save(); ctx.translate(hcx,hcy); if(horiz&&dir==='LEFT')ctx.scale(-1,1);
+      if(hc.glow){ ctx.shadowColor='#a0d8ff'; ctx.shadowBlur=10; }
+      const bodyG=(x0,y0,x1,y1)=>{ const g=ctx.createLinearGradient(x0,y0,x1,y1); g.addColorStop(0,_shade(hc.body,0.16)); g.addColorStop(0.6,hc.body); g.addColorStop(1,_shade(hc.belly,-0.12)); return g; };
+      if(horiz){
+        // legs first (behind body)
+        ctx.lineWidth=2.4; ctx.strokeStyle=_shade(hc.dark,0.05); ctx.lineCap='round';
+        const leg=(x,ph)=>{ ctx.beginPath(); ctx.moveTo(x,hH*0.36); ctx.lineTo(x+ph*0.4,hH*0.36+legLen*0.5); ctx.lineTo(x+ph*0.6+0.1,hH*0.36+legLen); ctx.stroke(); };
+        leg(-hW*0.45,legPhase1); leg(-hW*0.15,legPhase2); leg(hW*0.25,legPhase2); leg(hW*0.5,legPhase1);
+        // hooves
+        ctx.strokeStyle=_shade(hc.dark,-0.3); ctx.lineWidth=2.6;
+        for(const [x,ph] of [[-hW*0.45,legPhase1],[-hW*0.15,legPhase2],[hW*0.25,legPhase2],[hW*0.5,legPhase1]]){ ctx.beginPath(); ctx.moveTo(x+ph*0.6+0.1,hH*0.36+legLen-0.6); ctx.lineTo(x+ph*0.6+0.1,hH*0.36+legLen); ctx.stroke(); }
+        ctx.lineCap='butt';
+        // tail (behind body)
+        ctx.strokeStyle=_shade(hc.mane,-0.05); ctx.lineWidth=2.6; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(-hW*0.85,-hH*0.1); ctx.bezierCurveTo(-hW*1.25,hH*0.2,-hW*1.15,hH*0.5,-hW*0.9,hH*0.62); ctx.stroke(); ctx.lineCap='butt';
+        // body
+        ctx.fillStyle=bodyG(0,-hH*0.45,0,hH*0.45); ctx.strokeStyle=OL; ctx.lineWidth=1.6;
+        ctx.beginPath(); ctx.ellipse(0,0,hW*0.92,hH*0.46,0,0,P2); ctx.fill(); ctx.stroke();
+        // back highlight
+        ctx.fillStyle='rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(-1,-hH*0.18,hW*0.6,hH*0.18,-0.12,0,P2); ctx.fill();
+        // neck+head
+        ctx.fillStyle=bodyG(hW*0.6,-hH*0.8,hW*1.4,-hH*0.2); ctx.strokeStyle=OL; ctx.lineWidth=1.6;
+        ctx.beginPath(); ctx.moveTo(hW*0.6,-hH*0.3); ctx.bezierCurveTo(hW*0.9,-hH*0.7,hW*1.3,-hH*0.8,hW*1.5,-hH*0.5); ctx.bezierCurveTo(hW*1.4,-hH*0.2,hW*0.9,-hH*0.1,hW*0.6,-hH*0.1); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle=bodyG(hW*1.3,-hH*0.75,hW*1.8,-hH*0.35); ctx.beginPath(); ctx.ellipse(hW*1.55,-hH*0.55,hW*0.34,hH*0.23,-0.3,0,P2); ctx.fill(); ctx.stroke();
+        // muzzle
+        const mg=ctx.createRadialGradient(hW*1.72,-hH*0.5,0.3,hW*1.75,-hH*0.48,hW*0.16); mg.addColorStop(0,_shade(hc.nose,0.12)); mg.addColorStop(1,_shade(hc.nose,-0.14));
+        ctx.fillStyle=mg; ctx.beginPath(); ctx.ellipse(hW*1.75,-hH*0.48,hW*0.15,hH*0.13,0.2,0,P2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='rgba(40,20,15,0.5)'; ctx.beginPath(); ctx.arc(hW*1.8,-hH*0.46,0.5,0,P2); ctx.fill();
+        // eye
+        ctx.fillStyle='#1c120a'; ctx.beginPath(); ctx.arc(hW*1.46,-hH*0.62,1.5,0,P2); ctx.fill();
+        ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(hW*1.5,-hH*0.66,0.5,0,P2); ctx.fill();
+        // mane
+        const mgd=ctx.createLinearGradient(hW*0.5,-hH,hW*1.3,-hH*0.6); mgd.addColorStop(0,_shade(hc.mane,0.15)); mgd.addColorStop(1,_shade(hc.mane,-0.15));
+        ctx.strokeStyle=mgd; ctx.lineWidth=3; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(hW*0.6,-hH*0.3); ctx.bezierCurveTo(hW*0.7,-hH*0.9,hW*1.1,-hH*0.95,hW*1.3,-hH*0.7); ctx.stroke();
+        // forelock
+        ctx.beginPath(); ctx.moveTo(hW*1.48,-hH*0.78); ctx.quadraticCurveTo(hW*1.6,-hH*0.7,hW*1.5,-hH*0.6); ctx.stroke(); ctx.lineCap='butt';
       } else {
-        // Top-down / rear view horse (UP/DOWN) — chibi outline style
-        const yscale = dir === 'DOWN' ? 1 : -1;
-        ctx.scale(1, yscale);
-        // Body oval
-        ctx.fillStyle = hc.belly;
-        ctx.strokeStyle = INK;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(0, 0, hW * 0.45, hH * 0.5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Body top shading (no stroke)
-        ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(0, -hH * 0.1, hW * 0.36, hH * 0.38, 0, 0, Math.PI*2); ctx.fill();
-        // Head
-        ctx.fillStyle = hc.body;
-        ctx.beginPath(); ctx.ellipse(0, hH * 0.5, hW * 0.25, hH * 0.18, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Muzzle
-        ctx.fillStyle = hc.nose;
-        ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.ellipse(0, hH * 0.65, hW * 0.16, hH * 0.1, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        // Mane line
-        ctx.strokeStyle = hc.mane; ctx.lineWidth = 3; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(0, -hH*0.42); ctx.lineTo(0, hH*0.2); ctx.stroke();
-        // Legs (4 corners)
-        ctx.strokeStyle = hc.dark; ctx.lineWidth = 2; ctx.lineCap = 'round';
-        const pairs = [[-hW*0.38, hH*0.2 + legPhase1], [hW*0.38, hH*0.2 + legPhase2],
-                       [-hW*0.38, -hH*0.35 + legPhase2],[hW*0.38, -hH*0.35 + legPhase1]];
-        for (const [lx, ly] of pairs) {
-          ctx.beginPath(); ctx.moveTo(lx * 0.6, ly - 2); ctx.lineTo(lx, ly + legLen); ctx.stroke();
-        }
-        ctx.lineCap = 'butt';
+        const yscale=dir==='DOWN'?1:-1; ctx.scale(1,yscale);
+        // legs
+        ctx.strokeStyle=_shade(hc.dark,0.05); ctx.lineWidth=2.4; ctx.lineCap='round';
+        const pairs=[[-hW*0.38,hH*0.2+legPhase1],[hW*0.38,hH*0.2+legPhase2],[-hW*0.38,-hH*0.35+legPhase2],[hW*0.38,-hH*0.35+legPhase1]];
+        for(const [lx,ly] of pairs){ ctx.beginPath(); ctx.moveTo(lx*0.6,ly-2); ctx.lineTo(lx,ly+legLen); ctx.stroke(); }
+        ctx.lineCap='butt';
+        // body
+        const g=ctx.createLinearGradient(-hW*0.45,0,hW*0.45,0); g.addColorStop(0,_shade(hc.belly,-0.1)); g.addColorStop(0.5,hc.body); g.addColorStop(1,_shade(hc.belly,-0.1));
+        ctx.fillStyle=g; ctx.strokeStyle=OL; ctx.lineWidth=1.6; ctx.beginPath(); ctx.ellipse(0,0,hW*0.45,hH*0.5,0,0,P2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.ellipse(0,-hH*0.12,hW*0.3,hH*0.32,0,0,P2); ctx.fill();
+        // head
+        ctx.fillStyle=_shade(hc.body,0.05); ctx.beginPath(); ctx.ellipse(0,hH*0.5,hW*0.26,hH*0.19,0,0,P2); ctx.fill(); ctx.stroke();
+        const mg=ctx.createRadialGradient(0,hH*0.63,0.3,0,hH*0.65,hW*0.18); mg.addColorStop(0,_shade(hc.nose,0.12)); mg.addColorStop(1,_shade(hc.nose,-0.14));
+        ctx.fillStyle=mg; ctx.beginPath(); ctx.ellipse(0,hH*0.65,hW*0.17,hH*0.11,0,0,P2); ctx.fill(); ctx.stroke();
+        // mane
+        ctx.strokeStyle=_shade(hc.mane,0.05); ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(0,-hH*0.42); ctx.lineTo(0,hH*0.2); ctx.stroke(); ctx.lineCap='butt';
       }
-      ctx.shadowBlur = 0;
-      ctx.restore();
+      ctx.shadowBlur=0; ctx.restore();
     };
 
     // ── Dust particles when moving ──────────────────────────────────────
