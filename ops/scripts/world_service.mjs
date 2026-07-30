@@ -264,10 +264,10 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
 // ── Price model (mirrors main.js) ───────────────────────────────────────────
 
 const CITY_MULTS = {
-  valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, copper: 1.20, silver: 1.20, gold: 0.65 },
-  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, copper: 1.22, silver: 1.30, gold: 1.30 },
-  crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, copper: 0.68, silver: 1.28, gold: 1.25 },
-  ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, copper: 1.05, silver: 0.66, gold: 1.20 },
+  valdenmere: { grain: 1.15, food: 1.10, ore: 1.20, herbs: 1.12, potion: 0.90, relic: 1.15, ink: 1.08, copper: 1.20, silver: 1.20, gold: 0.65 },
+  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 0.90, potion: 1.10, relic: 1.20, ink: 1.12, copper: 1.22, silver: 1.30, gold: 1.30 },
+  crosshaven: { grain: 0.80, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.18, relic: 1.10, ink: 1.00, copper: 0.68, silver: 1.28, gold: 1.25 },
+  ironholt:   { grain: 1.32, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.08, relic: 0.85, ink: 0.95, copper: 1.05, silver: 0.66, gold: 1.20 },
 };
 
 const WORLD_STATE = {
