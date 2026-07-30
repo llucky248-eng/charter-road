@@ -6,13 +6,16 @@
 
 // ── GAME CONSTANTS (mirrored from main.js) ─────────────────────────────────
 
+// Mirrors src/main.js + world_service.mjs (trade goods only). Keep in sync with
+// those files and ops/scripts/balance_regression_test.mjs when tuning balance.
 const ITEMS = [
-  { id: 'food',   name: 'Dried Rations', base: 12, weight: 1 },
-  { id: 'ore',    name: 'Iron Ore',      base: 18, weight: 2 },
-  { id: 'herbs',  name: 'Moon Herbs',    base: 16, weight: 1 },
-  { id: 'potion', name: 'Minor Potion',  base: 34, weight: 1 },
-  { id: 'relic',  name: 'Old Relic',     base: 55, weight: 2 },
-  { id: 'ink',    name: 'Demon Ink',     base: 70, weight: 1 },
+  { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },
+  { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },
+  { id: 'ore',    name: 'Iron Ore',      base: 22, weight: 2 },
+  { id: 'herbs',  name: 'Moon Herbs',    base: 24, weight: 1 },
+  { id: 'potion', name: 'Minor Potion',  base: 40, weight: 1 },
+  { id: 'relic',  name: 'Old Relic',     base: 60, weight: 2 },
+  { id: 'ink',    name: 'Demon Ink',     base: 75, weight: 1, sourceCities: ['ironholt', 'crosshaven'] },
 ];
 
 const CITIES = [
@@ -23,13 +26,22 @@ const CITIES = [
 ];
 
 const PRICE_MULTS = {
-  valdenmere: { food: 1.05, ore: 1.15, herbs: 1.0,  potion: 0.85, relic: 1.15, ink: 1.0  },
-  ashport:    { food: 0.90, ore: 1.05, herbs: 1.1,  potion: 1.05, relic: 1.20, ink: 1.08 },
-  crosshaven: { food: 0.78, ore: 1.0,  herbs: 0.88, potion: 1.0,  relic: 0.95, ink: 0.98 },
-  ironholt:   { food: 1.22, ore: 0.72, herbs: 1.18, potion: 1.08, relic: 0.88, ink: 0.92 },
+  valdenmere: { grain: 1.15, food: 1.10, ore: 1.20, herbs: 1.12, potion: 0.90, relic: 1.15, ink: 1.08 },
+  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 0.90, potion: 1.10, relic: 1.20, ink: 1.12 },
+  crosshaven: { grain: 0.80, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.18, relic: 1.10, ink: 1.00 },
+  ironholt:   { grain: 1.32, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.08, relic: 0.85, ink: 0.95 },
 };
 
-const SPREAD    = 0.10;   // buy = mid*(1+0.05), sell = mid*(1-0.05)
+// Sale tax by destination city (mirrors world_service CITY_TAX); a trader keeps
+// (1 - tax) of gross revenue on every sale.
+const CITY_TAX = {
+  valdenmere: 0.08,
+  ashport:    0.05,
+  crosshaven: 0.03,
+  ironholt:   0.10,
+};
+
+const SPREAD    = 0.06;   // buy = mid*(1+0.03), sell = mid*(1-0.03) — matches main.js
 const CAPACITY  = 18;     // max cargo weight
 const UPKEEP    = 1;      // rations consumed per day; 3g penalty if none
 const START_GOLD = 160;
@@ -51,6 +63,9 @@ function midPrice(cityId, item) {
 
 function buyPrice(cityId, item)  { return Math.max(1, Math.round(midPrice(cityId, item) * (1 + SPREAD/2))); }
 function sellPrice(cityId, item) { return Math.max(1, Math.round(midPrice(cityId, item) * (1 - SPREAD/2))); }
+// Revenue a trader actually keeps after the destination city's sale tax.
+function netSellPrice(cityId, item) { return Math.max(1, Math.round(sellPrice(cityId, item) * (1 - (CITY_TAX[cityId] || 0)))); }
+function canSource(cityId, item) { return !item.sourceCities || item.sourceCities.includes(cityId); }
 
 // ── FIND ALL PROFITABLE ROUTES ─────────────────────────────────────────────
 
@@ -61,8 +76,9 @@ function findAllRoutes() {
       if (from.id === to.id) continue;
       const days = TRAVEL_DAYS[from.id][to.id];
       for (const item of ITEMS) {
+        if (!canSource(from.id, item)) continue; // can't buy where it isn't sold
         const buy  = buyPrice(from.id, item);
-        const sell = sellPrice(to.id, item);
+        const sell = netSellPrice(to.id, item); // tax-adjusted revenue
         const profit = sell - buy;
         if (profit <= 0) continue;
         // Max units we can carry
@@ -98,6 +114,7 @@ function simulate(strategy, days = 30) {
   function buy(itemId, qty) {
     const item = ITEMS.find(i => i.id === itemId);
     if (!item) return 0;
+    if (!canSource(city, item)) return 0; // item not sold in this city
     const space = Math.floor((CAPACITY - invWeight()) / item.weight);
     qty = Math.min(qty, space, Math.floor(gold / buyPrice(city, item)));
     if (qty <= 0) return 0;
@@ -112,7 +129,7 @@ function simulate(strategy, days = 30) {
     const qty = inv[itemId] || 0;
     if (!qty) return 0;
     const item = ITEMS.find(i => i.id === itemId);
-    const revenue = sellPrice(city, item) * qty;
+    const revenue = netSellPrice(city, item) * qty; // keep revenue net of sale tax
     gold += revenue;
     totalSold += revenue;
     inv[itemId] = 0;
@@ -251,6 +268,8 @@ for (const item of ITEMS) {
 
 // ── RUN STRATEGIES ─────────────────────────────────────────────────────────
 console.log('\n💰 STRATEGY SIMULATION RESULTS:\n');
+console.log('  (Fixed naive player strategies under food upkeep — a stress lens, not the');
+console.log('   economy verdict. Economy health is BALANCE ANALYSIS below + balance_regression_test.)\n');
 const results = strategies.map(s => {
   const r = simulate(s.fn);
   return { ...s, ...r };
@@ -267,13 +286,19 @@ results.forEach(r => {
 // ── BALANCE ANALYSIS ───────────────────────────────────────────────────────
 console.log('🔍 BALANCE ANALYSIS:\n');
 
-// 1. Spread check — is every route profitable or is there a dominant exploit?
+// 1. Dominance check — item-lane spread (each item's BEST profit/day). This is
+//    the honest "is one good running away" measure: absolute best-vs-worst-route
+//    is brittle because an incidental +1/unit leg always exists. Mirrors the
+//    guardrail in balance_regression_test.mjs.
 const topRoute = allRoutes[0];
-const worstRoute = allRoutes[allRoutes.length - 1];
-console.log(`  Best route: ${topRoute.from} → ${topRoute.to} (${topRoute.itemName}) = +${Math.round(topRoute.profitPerDay)}g/day`);
-console.log(`  Worst profitable: ${worstRoute.from} → ${worstRoute.to} (${worstRoute.itemName}) = +${Math.round(worstRoute.profitPerDay)}g/day`);
-const ratio = topRoute.profitPerDay / worstRoute.profitPerDay;
-console.log(`  Spread ratio: ${ratio.toFixed(1)}x  ${ratio > 5 ? '⚠️  Dominant route — needs rebalancing' : '✅  Healthy spread'}\n`);
+const laneByItem = {};
+for (const r of allRoutes) if (!(r.item in laneByItem) || r.profitPerDay > laneByItem[r.item].profitPerDay) laneByItem[r.item] = r;
+const lanes = Object.values(laneByItem).sort((a, b) => b.profitPerDay - a.profitPerDay);
+const bestLane = lanes[0], worstLane = lanes[lanes.length - 1];
+console.log(`  Best item-lane:  ${bestLane.from} → ${bestLane.to} (${bestLane.itemName}) = +${Math.round(bestLane.profitPerDay)}g/day`);
+console.log(`  Worst item-lane: ${worstLane.from} → ${worstLane.to} (${worstLane.itemName}) = +${Math.round(worstLane.profitPerDay)}g/day`);
+const ratio = bestLane.profitPerDay / worstLane.profitPerDay;
+console.log(`  Item-lane spread: ${ratio.toFixed(1)}x  ${ratio > 5 ? '⚠️  Dominant good — needs rebalancing' : '✅  Healthy spread'}\n`);
 
 // 2. Dead routes (no profit from a city)
 const deadCities = {};
@@ -292,9 +317,10 @@ const itemProfit = {};
 for (const item of ITEMS) {
   let maxProfit = 0;
   for (const from of CITIES) {
+    if (!canSource(from.id, item)) continue;
     for (const to of CITIES) {
       if (from.id === to.id) continue;
-      const p = sellPrice(to.id, item) - buyPrice(from.id, item);
+      const p = netSellPrice(to.id, item) - buyPrice(from.id, item);
       if (p > maxProfit) maxProfit = p;
     }
   }

@@ -1039,10 +1039,18 @@ function tickTrader(t, elapsed) {
         }, 0);
         const tripProfit = revenue - cargoCost;
         t.gold += revenue;
-        // FIX: gold floor — traders always keep at least 30g so they can buy basic cargo
-        if (t.gold < 30) {
-          console.log(`[${t.name}] ⚠️ Gold floor applied (${t.gold}g → 30g)`);
-          t.gold = 30;
+        // Anti-softlock rescue (NOT a per-trip subsidy): only fires when a trader
+        // can't afford the single cheapest cargo unit anywhere and would otherwise
+        // be stranded with an empty cart forever. After the economy rebalance a
+        // healthy trader stays well above this, so it should rarely trigger — if it
+        // fires often, the base economy has regressed (see balance_regression_test).
+        const minCargoCost = Math.min(
+          ...ITEMS.flatMap(it => CITIES
+            .filter(c => !it.sourceCities || it.sourceCities.includes(c))
+            .map(c => buyPrice(c, it))));
+        if (t.gold < minCargoCost) {
+          console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any cargo)`);
+          t.gold = minCargoCost;
         }
         t.total_profit     = (t.total_profit || 0) + tripProfit;
         t.trips_completed  = (t.trips_completed || 0) + 1;
