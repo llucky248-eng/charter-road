@@ -94,6 +94,7 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 | `ops/scripts/economy_parity_test.mjs` | Validates client (`src/main.js`) and server (`world_service.mjs`) economy constants match | Imports `world_service.mjs`; offline but reads both files |
 | `ops/scripts/mining_tests.mjs` | Mining redesign: 2 sites, metal variants, rarity-based pricing, NPC+player production, warehouse conservation, trader+player shipping, deterministic report | Imports `lib/mining.mjs`; **fully offline, no browser** |
 | `ops/scripts/player_sim_tests.mjs` | Unit tests for the autonomous player-sim brain (`lib/player_ai.mjs`): `decideAction` policy + `detectStuck`/`detectBalance`/`detectQoL` detectors | Imports `lib/player_ai.mjs`; **fully offline, no browser** |
+| `ops/scripts/balance_regression_test.mjs` | Economy health guardrails on the **real** `world_service` model (neutralised drift/events/pressure): no dead trade goods, item-lane dominance <5×, ≥3 goods within 2× of the top lane, focused trader net-positive over 30 days. Fails CI if a price tweak re-breaks route balance. | Imports `world_service.mjs`; **fully offline, no browser** |
 | `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'` | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
 | `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_gameplay_sim.mjs` | Measures trade cycles to reach endgame (gear maxed + rep 7 + 500g) | Requires Playwright + `window.__QA.api` |
@@ -130,8 +131,8 @@ These scripts **cannot run in an offline container**. All require `SUPABASE_URL`
 
 | Script | What it does |
 |---|---|
-| `ops/scripts/world_service.mjs` | Cron world ticker: ticks AI traders, market drift, hunger, bank solvency, events, contracts. Exports economy constants consumed by `economy_parity_test.mjs`. **Hardcoded anon key (`SUPABASE_KEY` default near the top of the file) — confirm RLS is on before committing.** |
-| `ops/scripts/trade_sim.mjs` | Tests trading strategies over N days, finds profitable routes, flags balance issues |
+| `ops/scripts/world_service.mjs` | Cron world ticker: ticks AI traders, market drift, hunger, bank solvency, events, contracts. Exports economy constants consumed by `economy_parity_test.mjs`. **Hardcoded anon key (`SUPABASE_KEY` default near the top of the file) — confirm RLS is on before committing.** Run once with `RESET_TRADERS=1` (or `--reset-traders`) to re-seed every AI trader to a fresh state (`makeSeedTrader`) — use after an economy rebalance so traders re-learn routes instead of carrying stale gold/gear/strategy state. |
+| `ops/scripts/trade_sim.mjs` | Tests trading strategies over N days, finds profitable routes, flags balance issues. Mirrors trade-goods economy from `src/main.js`; dominance verdict uses the same item-lane metric as `balance_regression_test.mjs`. |
 
 ### Code generation (optional network)
 

@@ -4,6 +4,28 @@ Audit date: 2026-07-30 · Branch: `claude/system-balance-npc-plan-a5tv28` ·
 Baseline: `git rev-parse HEAD` at audit time. Line refs are
 `ops/scripts/world_service.mjs` unless noted.
 
+## Status — EXECUTED (2026-07-30)
+
+All items shipped on `claude/system-balance-npc-plan-a5tv28`. Measured on the
+real `world_service` economy (not the drifted trade_sim copy the original
+diagnosis used), the sharper findings were **route dominance 8.67×** and **Moon
+Herbs with no profitable route at all**; a *focused* trader was already solvent,
+so the "bankruptcy" was a trade_sim-model artifact (upkeep + 10% spread + no tax).
+
+- **Item 5** (guardrail first): `ops/scripts/balance_regression_test.mjs` added and
+  wired into `test:unit`/`test`. Written red against the 8.67× / dead-herbs baseline.
+- **Items 1, 3, 4** (retune): `CITY_MULTS` compressed/widened in `src/main.js` +
+  `world_service.mjs` (metals untouched). Result: item-lane spread **2.67×**, no dead
+  goods, 6/7 within 2× of the top, focused trader **+248g/30d**. Parity stays 22/22.
+- **Item 2** (band-aid): the per-loop `gold < 30 → 30` subsidy is now a scoped
+  anti-softlock rescue (fires only when a trader can't afford the cheapest cargo).
+- **trade_sim** re-synced to the real economy (bases, mults, spread, sale tax,
+  source-city restriction) and its dominance verdict switched to the item-lane metric.
+- **NPC reset**: `RESET_TRADERS=1` re-seeds every trader via `makeSeedTrader`
+  (guarded by `harness_tests.mjs`). Run once against Supabase after this deploys.
+
+The sections below are the original plan, kept for context.
+
 ## How to read this
 
 Every item lists the **problem** (with code / sim evidence), the **fix**, an

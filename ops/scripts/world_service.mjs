@@ -23,6 +23,37 @@ const TRADER_DEFS = [
   { id: 'iron_marek',      name: 'Iron Marek',        personality: 'aggressive',  color: '#fb923c', startGold: 110 },
 ];
 
+// Fresh trader state from a definition. Every field that a tick accumulates
+// (gold, gear_tier, permits, preferred_item, profit_history, trip counters…) is
+// reset here to its starting value so a RESET_TRADERS re-seed genuinely wipes
+// strategy state — upsertTraders merges by id, so any accumulated field NOT set
+// here would survive the reset. Keep this exhaustive when adding trader fields.
+function makeSeedTrader(def, index = 0) {
+  return {
+    id:              def.id,
+    name:            def.name,
+    personality:     def.personality,
+    color:           def.color,
+    state:           'in_city',
+    from_id:         'valdenmere',
+    to_id:           'valdenmere',
+    item_id:         'ore',
+    inv:             {},
+    gold:            def.startGold,
+    start_gold:      def.startGold,
+    total_profit:    0,
+    trips_completed: 0,
+    progress:        0,
+    city_timer:      10 + index * 15,
+    preferred_item:  null,
+    review_at_trips: 3,
+    profit_history:  [],
+    gear_tier:       0,   // explicit so a reset upsert clears any accumulated tier
+    permits:         {},  // explicit so a reset upsert clears any accumulated permits
+    updated_at:      new Date().toISOString(),
+  };
+}
+
 const ITEMS = [
   { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },
   { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },
@@ -1093,30 +1124,21 @@ async function main() {
   // fetchTreasuries() already merges DB state into CITY_TREASURY in-memory — no second loop needed
   const treasuryRows = await fetchTreasuries();
 
-  if (!traders || traders.length === 0) {
+  // Reset path: RESET_TRADERS=1 (env) or --reset-traders (argv) re-seeds every
+  // trader to a fresh state, discarding gold/gear/preferred_item/profit_history
+  // accumulated under the previous economy. Use it once after an economy
+  // rebalance so the AI traders re-learn routes against the new prices instead
+  // of carrying stale, now-wrong strategy state. upsertTraders overwrites by id,
+  // so this is a clean reset without deleting rows. A normal tick (no flag)
+  // resumes as usual.
+  const RESET_TRADERS = process.env.RESET_TRADERS === '1' || process.argv.includes('--reset-traders');
+
+  if (RESET_TRADERS || !traders || traders.length === 0) {
     // Seed initial state
-    console.log('[WORLD SIM] No traders found — seeding initial state');
-    traders = TRADER_DEFS.map(def => ({
-      id:              def.id,
-      name:            def.name,
-      personality:     def.personality,
-      color:           def.color,
-      state:           'in_city',
-      from_id:         'valdenmere',
-      to_id:           'valdenmere',
-      item_id:         'ore',
-      inv:             {},
-      gold:            def.startGold,
-      start_gold:      def.startGold,
-      total_profit:    0,
-      trips_completed: 0,
-      progress:        0,
-      city_timer:      10 + TRADER_DEFS.indexOf(def) * 15,
-      preferred_item:  null,
-      review_at_trips: 3,
-      profit_history:  [],
-      updated_at:      new Date().toISOString(),
-    }));
+    console.log(RESET_TRADERS
+      ? `[WORLD SIM] RESET_TRADERS set — re-seeding ${TRADER_DEFS.length} trader(s) to a fresh post-rebalance state`
+      : '[WORLD SIM] No traders found — seeding initial state');
+    traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i));
   } else {
     // Compute elapsed since last tick
     const now = Date.now();
@@ -1181,6 +1203,8 @@ async function main() {
 }
 
 export {
+  TRADER_DEFS,
+  makeSeedTrader,
   ITEMS,
   CITIES,
   CITY_MULTS,
