@@ -98,5 +98,43 @@ test('outputs semver from repo root src/main.js', () => {
 });
 
 // ---------------------------------------------------------------------------
+console.log('\nworld_service trader reset (makeSeedTrader)');
+
+const { TRADER_DEFS, makeSeedTrader } = await import('./world_service.mjs');
+
+test('seeds every trader def to a fresh, fully-reset state', () => {
+  assert(TRADER_DEFS.length > 0, 'expected at least one trader def');
+  TRADER_DEFS.forEach((def, i) => {
+    const t = makeSeedTrader(def, i);
+    // Identity preserved from the def
+    assertEqual(t.id, def.id, `id for ${def.id}`);
+    assertEqual(t.name, def.name, `name for ${def.id}`);
+    assertEqual(t.personality, def.personality, `personality for ${def.id}`);
+    assertEqual(t.gold, def.startGold, `gold reset to startGold for ${def.id}`);
+    // Accumulated fields must be zeroed so a reset upsert can't inherit stale state
+    assertEqual(t.total_profit, 0, `total_profit for ${def.id}`);
+    assertEqual(t.trips_completed, 0, `trips_completed for ${def.id}`);
+    assertEqual(t.gear_tier, 0, `gear_tier for ${def.id}`);
+    assertEqual(t.preferred_item, null, `preferred_item for ${def.id}`);
+    assert(Array.isArray(t.profit_history) && t.profit_history.length === 0, `profit_history empty for ${def.id}`);
+    assert(t.permits && typeof t.permits === 'object' && Object.keys(t.permits).length === 0, `permits empty for ${def.id}`);
+    assertEqual(t.state, 'in_city', `state for ${def.id}`);
+  });
+});
+
+test('seed carries no accumulated numeric field left non-zero', () => {
+  const t = makeSeedTrader(TRADER_DEFS[0], 0);
+  // Guard against a future field addition that forgets to reset: any field whose
+  // name implies accumulation must start at 0 / empty.
+  const CONFIG_FIELDS = new Set(['start_gold', 'review_at_trips']); // config, not accumulators
+  for (const [k, v] of Object.entries(t)) {
+    if (/profit|trips|tier|spent|collected|deposits/.test(k) && !CONFIG_FIELDS.has(k)) {
+      assert(v === 0 || (Array.isArray(v) && v.length === 0),
+        `accumulated field "${k}" should seed to 0/[], got ${JSON.stringify(v)}`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

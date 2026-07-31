@@ -14,9 +14,9 @@
     "qa:player-sim": "node ops/scripts/qa_player_sim.mjs",
     "qa:popup-shot": "node ops/scripts/qa_popup_screenshot.mjs",
     "test:harness": "node ops/scripts/harness_tests.mjs",
-    "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs",
+    "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/balance_regression_test.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs",
     "mining:report": "node ops/scripts/mining_report.mjs",
-    "test": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs && node ops/scripts/qa_selftest.mjs"
+    "test": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/balance_regression_test.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs && node ops/scripts/qa_selftest.mjs"
   },
   "repository": {
     "type": "git",

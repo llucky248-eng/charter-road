@@ -23,6 +23,37 @@ const TRADER_DEFS = [
   { id: 'iron_marek',      name: 'Iron Marek',        personality: 'aggressive',  color: '#fb923c', startGold: 110 },
 ];
 
+// Fresh trader state from a definition. Every field that a tick accumulates
+// (gold, gear_tier, permits, preferred_item, profit_history, trip counters…) is
+// reset here to its starting value so a RESET_TRADERS re-seed genuinely wipes
+// strategy state — upsertTraders merges by id, so any accumulated field NOT set
+// here would survive the reset. Keep this exhaustive when adding trader fields.
+function makeSeedTrader(def, index = 0) {
+  return {
+    id:              def.id,
+    name:            def.name,
+    personality:     def.personality,
+    color:           def.color,
+    state:           'in_city',
+    from_id:         'valdenmere',
+    to_id:           'valdenmere',
+    item_id:         'ore',
+    inv:             {},
+    gold:            def.startGold,
+    start_gold:      def.startGold,
+    total_profit:    0,
+    trips_completed: 0,
+    progress:        0,
+    city_timer:      10 + index * 15,
+    preferred_item:  null,
+    review_at_trips: 3,
+    profit_history:  [],
+    gear_tier:       0,   // explicit so a reset upsert clears any accumulated tier
+    permits:         {},  // explicit so a reset upsert clears any accumulated permits
+    updated_at:      new Date().toISOString(),
+  };
+}
+
 const ITEMS = [
   { id: 'grain',  name: 'Grain',         base: 10, weight: 1 },
   { id: 'food',   name: 'Dried Rations', base: 16, weight: 1 },
@@ -264,10 +295,10 @@ function buyPermitIfNeeded(trader, cityId, itemId) {
 // ── Price model (mirrors main.js) ───────────────────────────────────────────
 
 const CITY_MULTS = {
-  valdenmere: { grain: 1.10, food: 1.10, ore: 1.20, herbs: 1.05, potion: 0.85, relic: 1.15, ink: 1.05, copper: 1.20, silver: 1.20, gold: 0.65 },
-  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 1.10, potion: 1.15, relic: 1.20, ink: 1.20, copper: 1.22, silver: 1.30, gold: 1.30 },
-  crosshaven: { grain: 0.90, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.25, relic: 1.10, ink: 1.00, copper: 0.68, silver: 1.28, gold: 1.25 },
-  ironholt:   { grain: 1.15, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.10, relic: 0.85, ink: 0.90, copper: 1.05, silver: 0.66, gold: 1.20 },
+  valdenmere: { grain: 1.15, food: 1.10, ore: 1.20, herbs: 1.12, potion: 0.90, relic: 1.15, ink: 1.08, copper: 1.20, silver: 1.20, gold: 0.65 },
+  ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 0.90, potion: 1.10, relic: 1.20, ink: 1.12, copper: 1.22, silver: 1.30, gold: 1.30 },
+  crosshaven: { grain: 0.80, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.18, relic: 1.10, ink: 1.00, copper: 0.68, silver: 1.28, gold: 1.25 },
+  ironholt:   { grain: 1.32, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.08, relic: 0.85, ink: 0.95, copper: 1.05, silver: 0.66, gold: 1.20 },
 };
 
 const WORLD_STATE = {
@@ -1039,10 +1070,18 @@ function tickTrader(t, elapsed) {
         }, 0);
         const tripProfit = revenue - cargoCost;
         t.gold += revenue;
-        // FIX: gold floor — traders always keep at least 30g so they can buy basic cargo
-        if (t.gold < 30) {
-          console.log(`[${t.name}] ⚠️ Gold floor applied (${t.gold}g → 30g)`);
-          t.gold = 30;
+        // Anti-softlock rescue (NOT a per-trip subsidy): only fires when a trader
+        // can't afford the single cheapest cargo unit anywhere and would otherwise
+        // be stranded with an empty cart forever. After the economy rebalance a
+        // healthy trader stays well above this, so it should rarely trigger — if it
+        // fires often, the base economy has regressed (see balance_regression_test).
+        const minCargoCost = Math.min(
+          ...ITEMS.flatMap(it => CITIES
+            .filter(c => !it.sourceCities || it.sourceCities.includes(c))
+            .map(c => buyPrice(c, it))));
+        if (t.gold < minCargoCost) {
+          console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any cargo)`);
+          t.gold = minCargoCost;
         }
         t.total_profit     = (t.total_profit || 0) + tripProfit;
         t.trips_completed  = (t.trips_completed || 0) + 1;
@@ -1085,30 +1124,21 @@ async function main() {
   // fetchTreasuries() already merges DB state into CITY_TREASURY in-memory — no second loop needed
   const treasuryRows = await fetchTreasuries();
 
-  if (!traders || traders.length === 0) {
+  // Reset path: RESET_TRADERS=1 (env) or --reset-traders (argv) re-seeds every
+  // trader to a fresh state, discarding gold/gear/preferred_item/profit_history
+  // accumulated under the previous economy. Use it once after an economy
+  // rebalance so the AI traders re-learn routes against the new prices instead
+  // of carrying stale, now-wrong strategy state. upsertTraders overwrites by id,
+  // so this is a clean reset without deleting rows. A normal tick (no flag)
+  // resumes as usual.
+  const RESET_TRADERS = process.env.RESET_TRADERS === '1' || process.argv.includes('--reset-traders');
+
+  if (RESET_TRADERS || !traders || traders.length === 0) {
     // Seed initial state
-    console.log('[WORLD SIM] No traders found — seeding initial state');
-    traders = TRADER_DEFS.map(def => ({
-      id:              def.id,
-      name:            def.name,
-      personality:     def.personality,
-      color:           def.color,
-      state:           'in_city',
-      from_id:         'valdenmere',
-      to_id:           'valdenmere',
-      item_id:         'ore',
-      inv:             {},
-      gold:            def.startGold,
-      start_gold:      def.startGold,
-      total_profit:    0,
-      trips_completed: 0,
-      progress:        0,
-      city_timer:      10 + TRADER_DEFS.indexOf(def) * 15,
-      preferred_item:  null,
-      review_at_trips: 3,
-      profit_history:  [],
-      updated_at:      new Date().toISOString(),
-    }));
+    console.log(RESET_TRADERS
+      ? `[WORLD SIM] RESET_TRADERS set — re-seeding ${TRADER_DEFS.length} trader(s) to a fresh post-rebalance state`
+      : '[WORLD SIM] No traders found — seeding initial state');
+    traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i));
   } else {
     // Compute elapsed since last tick
     const now = Date.now();
@@ -1173,6 +1203,8 @@ async function main() {
 }
 
 export {
+  TRADER_DEFS,
+  makeSeedTrader,
   ITEMS,
   CITIES,
   CITY_MULTS,

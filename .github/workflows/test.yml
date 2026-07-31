@@ -54,13 +54,17 @@ jobs:
               echo "Only version lines changed in src/main.js — version bump exempted from test-first rule."
               exit 0
             fi
-            if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|qa_selftest)\.mjs$"; then
+            if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|mining_tests|balance_regression_test|player_sim_tests|harness_tests|qa_selftest)\.mjs$"; then
               echo "ERROR: src/main.js changed without a corresponding test file update."
               echo ""
               echo "Test-first rule (CLAUDE.md): add or update a test in the same PR."
-              echo "Touch one of:"
+              echo "Touch one of the offline suites (or qa_selftest.mjs for UI):"
               echo "  ops/scripts/unit_tests.mjs"
               echo "  ops/scripts/economy_parity_test.mjs"
+              echo "  ops/scripts/mining_tests.mjs"
+              echo "  ops/scripts/balance_regression_test.mjs"
+              echo "  ops/scripts/player_sim_tests.mjs"
+              echo "  ops/scripts/harness_tests.mjs"
               echo "  ops/scripts/qa_selftest.mjs"
               exit 1
             fi
