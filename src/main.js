@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.43'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.44'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3551,10 +3551,10 @@ const NPC_INTERACT_RADIUS = 18;
   // (edit all copies together). Also drives the contract board's "cheapest at"
   // hint, so it must stay a plain literal the parity regex can parse.
   const CITY_MULTS = {
-    valdenmere: { grain: 1.15, food: 1.10, ore: 1.20, herbs: 1.12, potion: 0.90, relic: 1.15, ink: 1.08, coal: 1.20, gem: 1.10, copper: 1.20, silver: 1.20, gold: 0.65 },
-    ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 0.90, potion: 1.10, relic: 1.20, ink: 1.12, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.30, gold: 1.30 },
-    crosshaven: { grain: 0.80, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.18, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.28, gold: 1.25 },
-    ironholt:   { grain: 1.32, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.08, relic: 0.85, ink: 0.95, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.66, gold: 1.20 },
+    valdenmere: { grain: 1.15, food: 1.10, ore: 1.20, herbs: 1.12, potion: 0.90, relic: 1.15, ink: 1.08, coal: 1.20, gem: 1.10, copper: 1.20, silver: 0.98, gold: 0.90 },
+    ashport:    { grain: 1.05, food: 0.90, ore: 1.05, herbs: 0.90, potion: 1.10, relic: 1.20, ink: 1.12, coal: 1.30, gem: 1.25, copper: 1.22, silver: 1.10, gold: 1.08 },
+    crosshaven: { grain: 0.80, food: 0.85, ore: 1.00, herbs: 1.15, potion: 1.18, relic: 1.10, ink: 1.00, coal: 1.35, gem: 1.40, copper: 0.68, silver: 1.16, gold: 1.03 },
+    ironholt:   { grain: 1.32, food: 1.30, ore: 0.65, herbs: 1.20, potion: 1.08, relic: 0.85, ink: 0.95, coal: 0.55, gem: 0.70, copper: 1.05, silver: 0.90, gold: 0.95 },
   };
 
   // Contract board hints (public knowledge — no live prices). contractHoldLabel
@@ -6699,7 +6699,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.43',
+    version: 'v0.5.44',
     whatsNew: [
       'The road carriage and its horse are now painted in the same painterly style as the characters: gradient-shaded wagon body and canopy with highlights, wheels with wood-grain shading, gold hubs and a rim glint, and a soft-shaded horse with a flowing mane, a lit eye and a shaded muzzle. Gear tiers still change everything (flat roof vs. canvas canopy, cargo pack, gold trim, and the phantom mare).',
       'Town NPCs now share the player\'s painterly, storybook look for a consistent world: every townsfolk (scribe, baker, guard, fisher, smuggler, broker, and generic traders) is drawn with the same gradient-shaded figure and a repainted role hat (cloth hood, baker\'s cap, plumed helm, sailor cap, smuggler hood, broker cap, straw). The player still stands apart, being the only one wearing the merchant kit (vest, belt, coin pouch and satchel strap).',
@@ -8332,7 +8332,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.43',
+      buildVersion: 'v0.5.44',
       savedAt: Date.now(),
       player: {
         x: player.x,
