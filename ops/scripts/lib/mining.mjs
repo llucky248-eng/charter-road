@@ -43,10 +43,10 @@ export const MINE_SITES = [
 // Per-city price multipliers for each metal. Each metal is cheapest at its mine
 // hub (the source) and dearer in distant cities, creating shipping margin.
 export const METAL_CITY_MULTS = {
-  valdenmere: { copper: 1.20, silver: 1.20, gold: 0.65 },
-  ashport:    { copper: 1.22, silver: 1.30, gold: 1.30 },
-  crosshaven: { copper: 0.68, silver: 1.28, gold: 1.25 },
-  ironholt:   { copper: 1.05, silver: 0.66, gold: 1.20 },
+  valdenmere: { copper: 1.20, silver: 0.98, gold: 0.90 },
+  ashport:    { copper: 1.22, silver: 1.10, gold: 1.08 },
+  crosshaven: { copper: 0.68, silver: 1.16, gold: 1.03 },
+  ironholt:   { copper: 1.05, silver: 0.90, gold: 0.95 },
 };
 
 // Logistics tuning (deterministic).

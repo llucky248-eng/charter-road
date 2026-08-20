@@ -9,7 +9,8 @@
  * *base* economy — the ground truth a trader sees on a calm day.
  *
  * Guardrails (see ops/BALANCE_PLAN.md — items 1, 3, 4):
- *   1. No dead trade goods — every general good has ≥1 positive cross-city net route.
+ *   1. No dead trade goods — every tradeable good (general goods + metals) has
+ *      ≥1 positive cross-city net route.
  *   2. Route dominance is bounded — the best item-lane earns < 5× the worst item-lane
  *      (per-item best profit/day; the honest "is one lane running away" measure).
  *   3. Diversity — ≥3 items have a best lane within 2× of the top lane.
@@ -29,10 +30,13 @@ const MAX_ITEM_SPREAD = 5.0;  // best item-lane / worst item-lane (dominance cei
 const MIN_WITHIN_2X   = 3;    // items whose best lane is within 2× of the top lane
 const CAPACITY        = 18;   // tier-1 cart, matches trade_sim + qa player-sim
 
-// Metals are a separate, healthy economy (see mining_report) — this guardrail
-// covers the six general trade goods only.
-const METALS = new Set(['copper', 'silver', 'gold']);
-const TRADE_GOODS = ITEMS.filter(i => !METALS.has(i.id));
+// The AI traders' route chooser (decideRoute in world_service.mjs) iterates over
+// EVERY entry in ITEMS — general goods and mined metals alike — and scores each by
+// profit×units. So a metal with a runaway cross-city margin pulls every aggressive
+// trader off the balanced general-goods routes. The dominance/diversity guardrail
+// must therefore cover the whole tradeable set, not just the general goods; the
+// metals are NOT a separate economy from the traders' point of view.
+const TRADE_GOODS = ITEMS.slice();
 
 // Road distances in days (mirrors trade_sim.mjs TRAVEL_DAYS).
 const TRAVEL_DAYS = {
@@ -122,7 +126,7 @@ const laneStr = lanes.map(([id, p]) => `${id}:${p.toFixed(1)}`).join(' ');
 console.log(`  (item-lane profit/day: ${laneStr})`);
 console.log(`  (item-spread ${spread.toFixed(2)}x · within-2x ${within2x} · solvency 160→${endGold})`);
 
-test('no dead trade goods — every general good has a profitable cross-city route', () => {
+test('no dead trade goods — every tradeable good (general + metals) has a profitable cross-city route', () => {
   assert(dead.length === 0, `dead items with no profitable route: [${dead.join(', ')}]`);
 });
 
