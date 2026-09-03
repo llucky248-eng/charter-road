@@ -89,6 +89,42 @@ test('JS pattern returns empty when version absent (no false match)', () => {
 });
 
 // ---------------------------------------------------------------------------
+console.log('\npre-commit hook whatsNew extraction');
+
+// The hook pipes src/main.js to a node -e that extracts the whatsNew array
+// content via regex. Test the regex directly so we catch drift.
+const EXTRACT_WN = `let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const m=s.match(/whatsNew:\\s*\\[([\\s\\S]*?)\\],\\s*whatsNext:/);process.stdout.write(m?m[1]:"")})`;
+
+function extractWhatsNew(input) {
+  const r = spawnSync('node', ['-e', EXTRACT_WN], { input, encoding: 'utf8' });
+  return r.stdout;
+}
+
+test('extracts whatsNew array content from canonical block', () => {
+  const src = `const ITERATION = {\n  version: 'v1.0.0',\n  whatsNew: [\n    'first thing',\n    'second thing',\n  ],\n  whatsNext: [\n    'future',\n  ],\n};\n`;
+  const out = extractWhatsNew(src);
+  assert(out.includes('first thing'),  'first entry present');
+  assert(out.includes('second thing'), 'second entry present');
+  assert(!out.includes('future'),      'whatsNext content not bled in');
+});
+
+test('different whatsNew content produces different extraction', () => {
+  const a = `whatsNew: [\n  'a',\n],\nwhatsNext: [],\n`;
+  const b = `whatsNew: [\n  'b',\n],\nwhatsNext: [],\n`;
+  assert(extractWhatsNew(a) !== extractWhatsNew(b), 'hook would detect change');
+});
+
+test('empty output when whatsNew block absent (no false match)', () => {
+  assertEqual(extractWhatsNew('const X = 1;'), '', 'no whatsNew → empty extraction');
+});
+
+test('extracts whatsNew from real src/main.js', () => {
+  const src = readFileSync(join(ROOT, 'src/main.js'), 'utf8');
+  const out = extractWhatsNew(src);
+  assert(out.length > 0, 'real file has a non-empty whatsNew block');
+});
+
+// ---------------------------------------------------------------------------
 console.log('\nread_expected_version.mjs');
 
 test('outputs semver from repo root src/main.js', () => {

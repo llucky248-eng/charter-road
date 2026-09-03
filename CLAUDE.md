@@ -43,6 +43,20 @@ git add src/main.js index.html
 
 The pre-commit hook enforces this: it blocks if `src/main.js` is staged but the version hasn't changed from the last commit. `npm run deploy` calls `bump_version.mjs` automatically — use it for releases to main. For feature-branch commits, bump manually before `git add`.
 
+## What's-new rule
+
+**Every feature commit must add a one-line summary to `ITERATION.whatsNew`** (in `src/main.js` around line 6375). The hook blocks commits with non-version-only changes if `whatsNew` wasn't updated. Pure version bumps are exempt (same exemption as the test-first rule).
+
+```js
+const ITERATION = {
+  version: 'v0.5.11',
+  whatsNew: [
+    '<one-line summary of what shipped in this version>',
+    ...existing entries...
+  ],
+};
+```
+
 ## Review-before-done rule
 
 **Run `/code-review` on the current diff before reporting ANY task as done**, then
