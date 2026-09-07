@@ -34,7 +34,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.44'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.45'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -2562,26 +2562,32 @@ function handleGlobalHudTap(clientX, clientY, e) {
     ],
     // Tool - sell price bonus (T0–T19)
     tool: [
+      // sellBonus ramps 0%→40% across the tree; the sale calc caps combined
+      // tool+guild bonus at 40%, so tools top out AT the cap (never above it —
+      // an advertised bonus the calc would discard is a broken promise). The
+      // flagship tool reaches the cap on its own; the guild bonus stacks up to
+      // the same ceiling. Keep descriptions and sellBonus in lockstep (guarded
+      // by economy_parity_test.mjs "no trade tool advertises ... above the cap").
       { id: 'bare_hands',         name: 'Bare Hands',         icon: '✋', desc: 'You bargain with a shrug.',                           cost: 0,       sellBonus: 0.00 },
-      { id: 'merchant_ledger',    name: 'Merchant Ledger',    icon: '📒', desc: 'Track prices. Sell for more. +4%',                   cost: 200,     sellBonus: 0.04 },
-      { id: 'guild_seal',         name: 'Guild Seal',         icon: '🔖', desc: 'Guild-certified. They pay respect. +8%',             cost: 500,     sellBonus: 0.08 },
-      { id: 'trade_charter',      name: 'Trade Charter',      icon: '📜', desc: 'Royal charter. No one lowballs you. +12%',           cost: 1100,    sellBonus: 0.12 },
-      { id: 'golden_abacus',      name: 'Golden Abacus',      icon: '🧮', desc: 'Every calculation in your favor. +16%',              cost: 2200,    sellBonus: 0.16 },
-      { id: 'silk_tongue',        name: 'Silk Tongue',        icon: '🗣️', desc: 'Words worth gold. +20%',                             cost: 4000,    sellBonus: 0.20 },
-      { id: 'market_oracle',      name: 'Market Oracle',      icon: '🔮', desc: "Sees the best deal before it's offered. +24%",       cost: 6500,    sellBonus: 0.24 },
-      { id: 'guild_master_seal',  name: 'Guildmaster Seal',   icon: '⚜️', desc: 'Highest guild rank. +28%',                           cost: 10000,   sellBonus: 0.28 },
-      { id: 'royal_warrant',      name: 'Royal Warrant',      icon: '📋', desc: 'Signed by the crown. +32%',                          cost: 15000,   sellBonus: 0.32 },
-      { id: 'spice_calculator',   name: 'Spice Calculator',   icon: '🌶️', desc: 'Ancient merchant tool. +36%',                        cost: 22000,   sellBonus: 0.36 },
-      { id: 'diamond_ledger',     name: 'Diamond Ledger',     icon: '💎', desc: 'Diamond-inlaid. Inspires trust. +40%',               cost: 32000,   sellBonus: 0.40 },
-      { id: 'master_scale',       name: 'Master Scale',       icon: '⚖️', desc: 'Perfectly calibrated. +44%',                         cost: 46000,   sellBonus: 0.44 },
-      { id: 'arcane_ledger',      name: 'Arcane Ledger',      icon: '📖', desc: 'Self-updating. Never wrong. +48%',                   cost: 65000,   sellBonus: 0.48 },
-      { id: 'golden_tongue',      name: 'Golden Tongue',      icon: '💬', desc: 'Words turn to gold. +52%',                           cost: 77000,   sellBonus: 0.52 },
-      { id: 'prophecy_scroll',    name: 'Prophecy Scroll',    icon: '📿', desc: 'Predicts market prices. +56%',                       cost: 90000,   sellBonus: 0.56 },
-      { id: 'void_contract',      name: 'Void Contract',      icon: '🌀', desc: 'Binding across dimensions. +60%',                    cost: 105000,  sellBonus: 0.60 },
-      { id: 'time_ledger',        name: 'Time Ledger',        icon: '⏳', desc: 'Prices from the future. +64%',                       cost: 120000,  sellBonus: 0.64 },
-      { id: 'cosmic_deal',        name: 'Cosmic Deal',        icon: '🌟', desc: 'Universe agrees. +68%',                              cost: 140000,  sellBonus: 0.68 },
-      { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +72%',            cost: 158000,  sellBonus: 0.72 },
-      { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +75%',                 cost: 175000,  sellBonus: 0.75 },
+      { id: 'merchant_ledger',    name: 'Merchant Ledger',    icon: '📒', desc: 'Track prices. Sell for more. +2%',                   cost: 200,     sellBonus: 0.02 },
+      { id: 'guild_seal',         name: 'Guild Seal',         icon: '🔖', desc: 'Guild-certified. They pay respect. +4%',             cost: 500,     sellBonus: 0.04 },
+      { id: 'trade_charter',      name: 'Trade Charter',      icon: '📜', desc: 'Royal charter. No one lowballs you. +6%',            cost: 1100,    sellBonus: 0.06 },
+      { id: 'golden_abacus',      name: 'Golden Abacus',      icon: '🧮', desc: 'Every calculation in your favor. +8%',               cost: 2200,    sellBonus: 0.08 },
+      { id: 'silk_tongue',        name: 'Silk Tongue',        icon: '🗣️', desc: 'Words worth gold. +10%',                             cost: 4000,    sellBonus: 0.10 },
+      { id: 'market_oracle',      name: 'Market Oracle',      icon: '🔮', desc: "Sees the best deal before it's offered. +12%",       cost: 6500,    sellBonus: 0.12 },
+      { id: 'guild_master_seal',  name: 'Guildmaster Seal',   icon: '⚜️', desc: 'Highest guild rank. +14%',                           cost: 10000,   sellBonus: 0.14 },
+      { id: 'royal_warrant',      name: 'Royal Warrant',      icon: '📋', desc: 'Signed by the crown. +16%',                          cost: 15000,   sellBonus: 0.16 },
+      { id: 'spice_calculator',   name: 'Spice Calculator',   icon: '🌶️', desc: 'Ancient merchant tool. +18%',                        cost: 22000,   sellBonus: 0.18 },
+      { id: 'diamond_ledger',     name: 'Diamond Ledger',     icon: '💎', desc: 'Diamond-inlaid. Inspires trust. +20%',               cost: 32000,   sellBonus: 0.20 },
+      { id: 'master_scale',       name: 'Master Scale',       icon: '⚖️', desc: 'Perfectly calibrated. +22%',                         cost: 46000,   sellBonus: 0.22 },
+      { id: 'arcane_ledger',      name: 'Arcane Ledger',      icon: '📖', desc: 'Self-updating. Never wrong. +24%',                   cost: 65000,   sellBonus: 0.24 },
+      { id: 'golden_tongue',      name: 'Golden Tongue',      icon: '💬', desc: 'Words turn to gold. +26%',                           cost: 77000,   sellBonus: 0.26 },
+      { id: 'prophecy_scroll',    name: 'Prophecy Scroll',    icon: '📿', desc: 'Predicts market prices. +28%',                       cost: 90000,   sellBonus: 0.28 },
+      { id: 'void_contract',      name: 'Void Contract',      icon: '🌀', desc: 'Binding across dimensions. +30%',                    cost: 105000,  sellBonus: 0.30 },
+      { id: 'time_ledger',        name: 'Time Ledger',        icon: '⏳', desc: 'Prices from the future. +32%',                       cost: 120000,  sellBonus: 0.32 },
+      { id: 'cosmic_deal',        name: 'Cosmic Deal',        icon: '🌟', desc: 'Universe agrees. +34%',                              cost: 140000,  sellBonus: 0.34 },
+      { id: 'eternal_charter',    name: 'Eternal Charter',    icon: '♾️', desc: 'Never expires. Everywhere honored. +36%',            cost: 158000,  sellBonus: 0.36 },
+      { id: 'godtrader_seal',     name: 'Godtrader Seal',     icon: '🌌', desc: 'Ascended merchant. Max bonus. +40%',                 cost: 175000,  sellBonus: 0.40 },
     ],
     // Pickaxe - mining yield + stamina cost per swing (T0–T19). Cost curve mirrors `tool`.
     // T0 is bare hands (no progression); T2+ unlocks gold ore at Sunwell Shaft.
@@ -3760,6 +3766,21 @@ const NPC_INTERACT_RADIUS = 18;
     deposits: {}, // cityId -> { amount, depositDay }
     loans: {},    // cityId -> { amount, dueDay, interest }
   };
+  // One in-flight bank request per city at a time (keyed by cityId). Bank
+  // actions update local state optimistically and/or only in the RPC's .then,
+  // and reconcile/revert when it settles. If two actions (even different ones —
+  // deposit vs. withdraw vs. loan vs. repay) overlapped, a second could mutate
+  // gold/ledger while the first was in flight and the first's reconcile would
+  // then clobber it (double-paying, wiping a fresh loan, etc.). A single
+  // per-city lock serializes ALL bank actions for that city so each optimistic
+  // change and its settlement see a coherent local state. Non-persisted (never
+  // serialized into saves) — purely a UI de-bounce, and it does NOT gate the
+  // world-sync collapse path (checkBankSolvency), which is why the settle
+  // handlers additionally guard against a mid-flight collapse. NOTE: two
+  // tabs/clients sharing a Player ID can still race server-side; closing that
+  // needs server-side enforcement (single-loan, per-player balances) — see
+  // RUNBOOK security notes.
+  const _bankBusy = new Set();
 
   // Bank vault - each city bank holds its own reserve
   // Fed by: player deposits + periodic city treasury contribution
@@ -6699,8 +6720,10 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.44',
+    version: 'v0.5.45',
     whatsNew: [
+      'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
+      'Bank reliability fixes: rapid clicks can no longer double a loan or a withdrawal, a failed deposit now restores your balance exactly (no leftover phantom interest), a withdrawal from a temporarily under-funded vault keeps the unpaid remainder as a claim you can collect later instead of losing it, and a dropped network request no longer leaves your gold out of sync.',
       'The road carriage and its horse are now painted in the same painterly style as the characters: gradient-shaded wagon body and canopy with highlights, wheels with wood-grain shading, gold hubs and a rim glint, and a soft-shaded horse with a flowing mane, a lit eye and a shaded muzzle. Gear tiers still change everything (flat roof vs. canvas canopy, cargo pack, gold trim, and the phantom mare).',
       'Town NPCs now share the player\'s painterly, storybook look for a consistent world: every townsfolk (scribe, baker, guard, fisher, smuggler, broker, and generic traders) is drawn with the same gradient-shaded figure and a repainted role hat (cloth hood, baker\'s cap, plumed helm, sailor cap, smuggler hood, broker cap, straw). The player still stands apart, being the only one wearing the merchant kit (vest, belt, coin pouch and satchel strap).',
       'The on-foot trader has been redrawn in a detailed painterly, storybook style: gradient-shaded skin, hair, clothes and boots on adult proportions, with a fully rendered face (layered brows, irises with catchlights, shaded nose, defined lips), layered hair with locks and rim light, and merchant kit — a buttoned vest with lapels, a belt and buckle, a coin pouch on the hip, a satchel strap across the chest, sleeve cuffs, and boots with cuffs, laces and soles. Painterly hats (straw / travel hat / gold-banded top hat) match, and gear still drives the hat, shirt and boots.',
@@ -7750,10 +7773,31 @@ function drawNpcBubble() {
             method: 'POST',
             headers: { ...economyHeaders(), 'Prefer': 'return=representation' },
             body: JSON.stringify(body),
-          }).then(r => r.ok ? r.json() : r.text().then(t => ({ ok: false, error: t })));
+          }).then(r => r.ok ? r.json() : r.text().then(t => ({ ok: false, error: t })))
+            // A rejected fetch (offline, DNS, CORS, aborted) never reached the
+            // .then reconcile handlers below, leaving optimistic deposit/repay
+            // changes dangling. Resolve to a failure envelope so every caller's
+            // existing revert path runs. NOTE: this reverts on ANY network
+            // failure, including one where the server actually committed — a
+            // committed-but-unacked write still desyncs the local ledger until
+            // the next world-state sync. Fully closing that needs server-issued
+            // transaction IDs to reconcile against (see RUNBOOK security notes).
+            .catch(() => ({ ok: false, error: 'network unreachable' }));
         };
         const bankDeposit = (amt) => {
           if (player.gold < amt) { toast(`Need ${amt}g to deposit.`, 2); return; }
+          if (_bankBusy.has(cid)) return; // another bank action here is in flight
+          // Snapshot the deposit LEDGER entry so a failed deposit can undo the
+          // optimistic compounding: the optimistic path folds accrued interest
+          // into d.amount and advances d.depositDay, so a plain `d.amount -= amt`
+          // would leave phantom (free, withdrawable) principal behind. Gold and
+          // the shared reserve are reverted RELATIVELY (± amt), not from an
+          // absolute snapshot, so the revert can't clobber a concurrent
+          // bank-collapse sync (checkBankSolvency) that pays out gold and rewrites
+          // the reserve while this RPC is in flight.
+          const prevDeposit = playerBank.deposits[cid]
+            ? { amount: playerBank.deposits[cid].amount, depositDay: playerBank.deposits[cid].depositDay }
+            : null;
           // Optimistic local update
           player.gold -= amt;
           if (bankVault[cid]) bankVault[cid].reserve += amt;
@@ -7766,23 +7810,31 @@ function drawNpcBubble() {
             d.depositDay = Math.floor(time.day);
           }
           toast(`Deposited ${amt}g.`, 2); scheduleAutoSave(); dom.key = ''; domRender();
-          // Atomic shared-vault update
+          // Atomic shared-vault update. Lock set here (last statement before the
+          // RPC) so a throw in the synchronous work above can't wedge the city
+          // with a lock that never releases; the .finally is attached immediately.
+          _bankBusy.add(cid);
           bankRPC('bank_deposit', { p_city_id: cid, p_amount: amt }).then(res => {
             if (!res?.ok) {
-              // Revert optimistic local change
-              player.gold += amt;
-              if (bankVault[cid]) bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - amt);
-              const d = playerBank.deposits[cid];
-              if (d) {
-                d.amount -= amt;
-                if (d.amount <= 0) delete playerBank.deposits[cid];
+              player.gold += amt; // relative: give back exactly the debited gold
+              // Only reconcile the ledger/reserve if a concurrent bank-collapse
+              // sync hasn't already settled and removed this deposit — never
+              // resurrect an entry the collapse deleted.
+              if (playerBank.deposits[cid]) {
+                if (prevDeposit) playerBank.deposits[cid] = prevDeposit;
+                else delete playerBank.deposits[cid];
+                if (bankVault[cid]) bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - amt);
               }
               toast(`Deposit failed: ${res?.error || 'server error'}`, 3);
               dom.key = ''; domRender();
-            } else if (Number.isFinite(res.bank_reserve) && bankVault[cid]) {
-              bankVault[cid].reserve = res.bank_reserve; // reconcile from server
+            } else if (Number.isFinite(res.bank_reserve) && bankVault[cid] && !bankIsBankrupt(cid)) {
+              // Reconcile from server — but not onto a bank that collapsed while
+              // this RPC was in flight, whose zeroed reserve/bankrupt state is
+              // authoritative and would be corrupted by a stale success response.
+              bankVault[cid].reserve = res.bank_reserve;
+              dom.key = ''; domRender();                 // show the reconciled reserve now
             }
-          });
+          }).finally(() => { _bankBusy.delete(cid); });
         };
         uiRoot.querySelectorAll('[data-action="dep"]').forEach(el => el.addEventListener('click', () => {
           const amt = Math.floor(Number(el.getAttribute('data-amt')) || 0);
@@ -7791,29 +7843,50 @@ function drawNpcBubble() {
 
         uiRoot.querySelector('[data-action="withdraw-all"]')?.addEventListener('click', () => {
           if (!playerBank.deposits[cid]) { toast('Nothing to withdraw.', 2); return; }
+          if (_bankBusy.has(cid)) return; // another bank action here is in flight
           const d = playerBank.deposits[cid];
           const days = Math.max(0, Math.floor(time.day) - d.depositDay);
           const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
           // Atomic withdraw — server returns actual amount paid (partial if insolvent)
+          _bankBusy.add(cid);
           bankRPC('bank_withdraw', { p_city_id: cid, p_amount: total }).then(res => {
             if (!res?.ok) {
               toast(`Withdraw failed: ${res?.error || 'server error'}`, 3);
               return;
             }
+            // If a bank collapse settled this deposit while the withdraw was in
+            // flight (checkBankSolvency deletes the entry and already paid the
+            // player their share), don't credit or reconcile again — that would
+            // double-pay one deposit. The collapse is authoritative.
+            if (!playerBank.deposits[cid]) { dom.key = ''; domRender(); return; }
             const paid = Number.isFinite(res.paid) ? res.paid : total;
             player.gold += paid;
             if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
-            delete playerBank.deposits[cid];
-            if (paid < total) toast(`⚠️ Vault paid ${paid}g of ${total}g owed.`, 3);
-            else toast(`Withdrew ${paid}g (incl. interest).`, 2);
+            if (paid < total && !bankIsBankrupt(cid)) {
+              // Vault was under-funded and could only pay part, but is still
+              // solvent. Keep the unpaid remainder as a residual claim instead of
+              // deleting the deposit, so the player can withdraw the rest once the
+              // vault recovers. depositDay resets to now: the interest already
+              // owed is folded into the remaining balance, so it must not
+              // re-accrue on it. If the bank COLLAPSED mid-flight, don't write a
+              // residual — the collapse (checkBankSolvency) already settled the
+              // player's share and deleting is correct.
+              playerBank.deposits[cid] = { amount: total - paid, depositDay: Math.floor(time.day) };
+              toast(`⚠️ Vault paid ${paid}g of ${total}g owed — ${total - paid}g claim remains.`, 3);
+            } else {
+              delete playerBank.deposits[cid];
+              toast(`Withdrew ${paid}g (incl. interest).`, 2);
+            }
             scheduleAutoSave(); dom.key = ''; domRender();
-          });
+          }).finally(() => { _bankBusy.delete(cid); });
         });
 
         const maxLoan = Math.min(200, Math.floor((bankVault[cid]?.reserve || 0) * 0.6));
 
         const takeLoan = (amt) => {
           if (playerBank.loans[cid]) { toast('Repay existing loan first.', 2); return; }
+          if (_bankBusy.has(cid)) return; // another bank action here is in flight
+          _bankBusy.add(cid);
           // Atomic loan — server checks reserve and deducts; client only commits on success
           bankRPC('bank_loan', { p_city_id: cid, p_amount: amt }).then(res => {
             if (!res?.ok) {
@@ -7830,7 +7903,7 @@ function drawNpcBubble() {
             if (bankVault[cid] && Number.isFinite(res.bank_reserve)) bankVault[cid].reserve = res.bank_reserve;
             toast(`Borrowed ${amt}g. Repay ${repayAmt}g by day ${Math.floor(time.day)+7}.`, 3);
             scheduleAutoSave(); dom.key = ''; domRender();
-          });
+          }).finally(() => { _bankBusy.delete(cid); });
         };
         uiRoot.querySelector('[data-action="loan50"]')?.addEventListener('click', () => takeLoan(50));
         uiRoot.querySelector('[data-action="loan100"]')?.addEventListener('click', () => takeLoan(100));
@@ -7839,6 +7912,7 @@ function drawNpcBubble() {
         uiRoot.querySelector('[data-action="repay"]')?.addEventListener('click', () => {
           const l = playerBank.loans[cid];
           if (!l) { toast('No loan here.', 2); return; }
+          if (_bankBusy.has(cid)) return; // another bank action here is in flight
           const overdue = Math.max(0, Math.floor(time.day) - l.dueDay);
           const basePrincipal = l.principal ?? l.amount;
           const penalty = overdue > 0 ? Math.round(basePrincipal * 0.05 * overdue) : 0;
@@ -7850,6 +7924,7 @@ function drawNpcBubble() {
           toast(`Loan repaid (${total}g${penalty > 0 ? `, incl. ${penalty}g overdue penalty` : ''}).`, 2);
           scheduleAutoSave(); dom.key = ''; domRender();
           // Return funds to shared vault
+          _bankBusy.add(cid);
           bankRPC('bank_repay', { p_city_id: cid, p_amount: total }).then(res => {
             if (!res?.ok) {
               // RPC failed — revert (rare; player loses sync but no money disappears)
@@ -7860,7 +7935,7 @@ function drawNpcBubble() {
             } else if (bankVault[cid] && Number.isFinite(res.bank_reserve)) {
               bankVault[cid].reserve = res.bank_reserve;
             }
-          });
+          }).finally(() => { _bankBusy.delete(cid); });
         });
       }
       return;
@@ -8332,7 +8407,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.44',
+      buildVersion: 'v0.5.45',
       savedAt: Date.now(),
       player: {
         x: player.x,

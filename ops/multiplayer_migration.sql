@@ -289,6 +289,13 @@ GRANT EXECUTE ON FUNCTION bank_deposit(TEXT, INT) TO anon;
 
 -- bank_withdraw: pays out from vault; partial if insolvent. Caller passes the
 -- amount they expect (their owed amount); RPC returns what it could actually pay.
+-- ⚠️ SECURITY (known gap, see ops/RUNBOOK.md "persistence trust model"):
+--    this takes only a city + amount. It does NOT identify the caller or check
+--    that they ever deposited — the per-player deposit ledger lives client-side
+--    in playerBank (src/main.js), so nothing here stops an anon caller draining
+--    the shared vault. The FOR UPDATE lock only serializes concurrent SQL; it is
+--    not authorization. Real fix: authenticated identity + a server-side
+--    per-player balance, debited and paid out in one transaction.
 CREATE OR REPLACE FUNCTION bank_withdraw(p_city_id TEXT, p_amount INT)
 RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -316,6 +323,11 @@ $$;
 GRANT EXECUTE ON FUNCTION bank_withdraw(TEXT, INT) TO anon;
 
 -- bank_loan: lends from vault if it has enough; tracked per-player in playerBank locally.
+-- ⚠️ SECURITY (known gap, see ops/RUNBOOK.md): the "one loan per player per city"
+--    rule is enforced only client-side (playerBank in src/main.js + the
+--    _bankLoanPending de-bounce). This RPC will lend again to the same Player ID
+--    from a second tab/client. Real fix: server-side per-player loan records with
+--    an idempotent, authenticated transaction.
 CREATE OR REPLACE FUNCTION bank_loan(p_city_id TEXT, p_amount INT)
 RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER AS $$

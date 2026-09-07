@@ -119,6 +119,14 @@ const clientTaxes = extractCityTaxes(mainSource);
 const clientMults = extractCityMults(mainSource);
 const grainWeight = extractNumber(mainSource, /id:\s*'grain'[^\n]*weight:\s*(\d+)/, 'grain weight');
 const sellBonusCap = extractNumber(mainSource, /Math\.min\(toolBonus \+ guildBonus,\s*([0-9.]+)\)/, 'sell bonus cap');
+// Every trade-tool as a { desc, sellBonus } pair. The sale calc caps combined
+// tool+guild bonus at sellBonusCap, so a tool promising more than the cap is a
+// lie once the cap is hit; and a desc "+N%" that disagrees with its sellBonus
+// misleads the shop. desc may be single- or double-quoted (one tool's flavor
+// text contains an apostrophe), hence the backreferenced quote char.
+const toolDefs = [...mainSource.matchAll(/desc:\s*(['"])(.*?)\1[^\n]*?sellBonus:\s*([0-9.]+)/g)]
+  .map(m => ({ desc: m[2], sellBonus: Number(m[3]) }));
+const toolSellBonuses = toolDefs.map(t => t.sellBonus);
 
 console.log('\n=== economy parity ===');
 
@@ -141,6 +149,28 @@ test('server spread matches client spread', () => {
 
 test('sell bonus cap is 40%', () => {
   assertEqual(sellBonusCap, 0.40);
+});
+
+test('no trade tool advertises a sellBonus above the sale cap', () => {
+  assert(toolSellBonuses.length >= 2, `expected to find trade-tool sellBonus values, found ${toolSellBonuses.length}`);
+  const maxTool = Math.max(...toolSellBonuses);
+  assert(maxTool <= sellBonusCap + 1e-9,
+    `top tool sellBonus ${maxTool} exceeds the ${sellBonusCap} cap — buyers pay for a bonus the sale calc discards`);
+  // The flagship tool should actually reach the cap so the progression pays off.
+  assertEqual(maxTool, sellBonusCap);
+});
+
+test('each tool description "+N%" matches its sellBonus', () => {
+  assert(toolDefs.length >= 2, `expected to parse trade-tool defs, found ${toolDefs.length}`);
+  let checked = 0;
+  for (const { desc, sellBonus } of toolDefs) {
+    const m = desc.match(/\+(\d+)%/);
+    if (!m) continue; // e.g. bare_hands has no advertised percentage
+    checked++;
+    assertEqual(Number(m[1]), Math.round(sellBonus * 100),
+      `tool desc "${desc}" advertises +${m[1]}% but sellBonus is ${sellBonus} (${Math.round(sellBonus * 100)}%)`);
+  }
+  assert(checked >= 2, `expected several tools with an advertised percentage, checked ${checked}`);
 });
 
 test('ink source restriction matches the client economy', () => {

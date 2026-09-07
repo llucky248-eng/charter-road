@@ -54,30 +54,45 @@ SECURITY DEFINER
 AS $$
 DECLARE
   decay_factor FLOAT := 0.85; -- pressure decays 15% each aggregation
+  v_now        TIMESTAMPTZ := NOW();
 BEGIN
   -- Decay existing pressure toward zero
   UPDATE market_economy
   SET pressure = pressure * decay_factor,
-      updated_at = NOW()
+      updated_at = v_now
   WHERE ABS(pressure) > 0.001;
 
   -- Remove near-zero rows
   DELETE FROM market_economy WHERE ABS(pressure) < 0.001;
 
-  -- Add new pressure from last hour of trades
+  -- Consume trade events exactly once. The old version re-folded a trailing
+  -- time window on every call, so one trade added pressure once per aggregation
+  -- run (world cron every ~5 min + each client hourly) — pressure tracked how
+  -- OFTEN aggregation ran, not trade volume. Here DELETE ... RETURNING removes
+  -- precisely the rows visible to this transaction and folds them in. Rows
+  -- inserted concurrently but not yet committed are not visible, so they are
+  -- neither deleted nor counted now — they simply remain for the next run. That
+  -- gives exactly-once semantics with no double-count (old bug) and no silent
+  -- skip: concurrent aggregate calls serialize on the DELETE's row locks and
+  -- each removes a disjoint set. trade_events is an append-only aggregation feed
+  -- (only ever INSERTed, never read elsewhere), so consuming by deletion is its
+  -- intended lifecycle and also bounds table growth.
+  WITH consumed AS (
+    DELETE FROM trade_events
+    RETURNING city_id, item_id, direction, qty
+  )
   INSERT INTO market_economy (city_id, item_id, pressure, updated_at)
   SELECT
     city_id,
     item_id,
     SUM(CASE WHEN direction = 'buy' THEN qty ELSE -qty END) * 0.02 AS pressure,
-    NOW()
-  FROM trade_events
-  WHERE created_at > NOW() - INTERVAL '1 hour'
+    v_now
+  FROM consumed
   GROUP BY city_id, item_id
   ON CONFLICT (city_id, item_id)
   DO UPDATE SET
     pressure = market_economy.pressure + EXCLUDED.pressure,
-    updated_at = NOW();
+    updated_at = v_now;
 
   -- Clamp pressure to [-0.5, +0.5] (max 50% price swing)
   UPDATE market_economy
@@ -88,6 +103,16 @@ $$;
 
 -- Allow anonymous users to call the aggregation function
 GRANT EXECUTE ON FUNCTION aggregate_economy() TO anon;
+
+-- NOTE: the previous aggregate_economy() only read a trailing 1-hour window and
+-- never deleted, so an existing project may hold a large un-consumed backlog in
+-- trade_events. The new consume-by-DELETE version folds ALL of it into pressure
+-- on its first run — a one-off, clamp-bounded, but economy-wide price jolt. This
+-- schema file stays purely idempotent (CREATE ... IF NOT EXISTS), so the backlog
+-- prune is NOT run here (a bare DELETE would fire on every re-application). When
+-- upgrading a live project, run the one-time prune documented in ops/RUNBOOK.md
+-- ("persistence trust model" / aggregation notes) once, by hand, before the
+-- first aggregation.
 
 -- 6. Seed initial zeroed rows for all city/item combos (optional but useful)
 -- Items: grain, cloth, fish, iron, herbs, food, ore, potion, ink, relic
@@ -138,6 +163,14 @@ CREATE TABLE IF NOT EXISTS player_saves (
 );
 ALTER TABLE player_saves ENABLE ROW LEVEL SECURITY;
 -- ⚠️ Both policies are REQUIRED — missing them causes 401 for all writes (incl. uid='0' guest)
+-- ⚠️ SECURITY (known gap, see ops/RUNBOOK.md "persistence trust model"):
+--    `FOR ALL USING (true)` lets ANY anon client read, overwrite, or DELETE ANY
+--    player's save — the client asserts its own Player ID with no auth. Do NOT
+--    treat this as safe for persistent shared progress. The real fix is
+--    authenticated identities + owner-scoped policies, e.g. once uid = auth.uid():
+--      CREATE POLICY "own read"  ON player_saves FOR SELECT USING (uid = auth.uid()::text);
+--      CREATE POLICY "own write" ON player_saves FOR ALL    USING (uid = auth.uid()::text)
+--                                                           WITH CHECK (uid = auth.uid()::text);
 CREATE POLICY "public read player_saves"
   ON player_saves FOR SELECT USING (true);
 CREATE POLICY "public upsert player_saves"

@@ -1600,6 +1600,306 @@ asyncTest('open_cache RPC: clean 2xx {ok:false} → genuine already-looted, no l
   assert(/Already looted/.test(ctx.toastMsg || ''), 'should show the already-looted toast');
 });
 
+// ─── Bank RPC outcome + de-bounce handling (fetch-mocked) ─────────────────────
+// Mirrors the bank handlers in the Bank UI (src/main.js). Guarantees:
+//   1. A failed deposit restores the EXACT pre-deposit ledger — the optimistic
+//      path compounds interest into d.amount and advances depositDay, so a naive
+//      `d.amount -= amt` revert would leave phantom, withdrawable principal.
+//   2. A single per-city lock (_bankBusy) serializes ALL bank actions for a
+//      city, so rapid clicks can't grant two loans / pay out one deposit twice,
+//      AND a different action can't mutate state mid-flight only to be clobbered
+//      by the first action's snapshot-restore.
+//   3. A partial (insolvent-vault) withdrawal keeps the unpaid remainder as a
+//      residual claim instead of deleting the whole deposit.
+// Logic copied verbatim from src/main.js — keep in sync on any change.
+const BANK_INTEREST_RATE = 0.005;
+const BANK_LOAN_RATE = 0.10;
+
+function makeBankDepositContext({ fetchStub, gold, day, deposit }) {
+  const state = {
+    player: { gold },
+    bankVault: { c1: { reserve: 100 } },
+    playerBank: { deposits: deposit ? { c1: { ...deposit } } : {} },
+  };
+  const cid = 'c1';
+  const amt = 50;
+  const time = { day };
+  // Snapshot the ledger entry only (mirrors src/main.js); gold/reserve are
+  // reverted relatively so a concurrent collapse-sync can't be clobbered.
+  const prevDeposit = state.playerBank.deposits[cid]
+    ? { amount: state.playerBank.deposits[cid].amount, depositDay: state.playerBank.deposits[cid].depositDay }
+    : null;
+  // Optimistic update (mirrors src/main.js)
+  state.player.gold -= amt;
+  if (state.bankVault[cid]) state.bankVault[cid].reserve += amt;
+  if (!state.playerBank.deposits[cid]) {
+    state.playerBank.deposits[cid] = { amount: amt, depositDay: Math.floor(time.day) };
+  } else {
+    const d = state.playerBank.deposits[cid];
+    const days = Math.max(0, Math.floor(time.day) - d.depositDay);
+    d.amount = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days) + amt;
+    d.depositDay = Math.floor(time.day);
+  }
+  const ready = fetchStub().then(res => {
+    if (!res?.ok) {
+      state.player.gold += amt; // relative give-back
+      if (state.playerBank.deposits[cid]) { // don't resurrect a collapse-deleted entry
+        if (prevDeposit) state.playerBank.deposits[cid] = prevDeposit;
+        else delete state.playerBank.deposits[cid];
+        if (state.bankVault[cid]) state.bankVault[cid].reserve = Math.max(0, state.bankVault[cid].reserve - amt);
+      }
+    } else if (Number.isFinite(res.bank_reserve) && state.bankVault[cid]) {
+      state.bankVault[cid].reserve = res.bank_reserve;
+    }
+  });
+  return { state, ready };
+}
+
+console.log('\n=== Bank RPC handling ===');
+asyncTest('bank deposit: failed RPC restores exact prior ledger (no phantom interest)', async () => {
+  const ctx = makeBankDepositContext({
+    gold: 200, day: 10, deposit: { amount: 100, depositDay: 0 },
+    fetchStub: async () => ({ ok: false, error: 'network unreachable' }),
+  });
+  await ctx.ready;
+  assertEqual(ctx.state.player.gold, 200, 'gold must be fully restored');
+  assertEqual(ctx.state.bankVault.c1.reserve, 100, 'vault reserve must be restored');
+  assertEqual(ctx.state.playerBank.deposits.c1.amount, 100, 'deposit principal must return to 100 — not 105 with phantom interest');
+  assertEqual(ctx.state.playerBank.deposits.c1.depositDay, 0, 'depositDay must not stay advanced on failure');
+});
+asyncTest('bank deposit: failed first-ever deposit removes the ledger entry entirely', async () => {
+  const ctx = makeBankDepositContext({
+    gold: 200, day: 5, deposit: null,
+    fetchStub: async () => ({ ok: false }),
+  });
+  await ctx.ready;
+  assertEqual(ctx.state.player.gold, 200, 'gold restored');
+  assert(!ctx.state.playerBank.deposits.c1, 'no dangling deposit entry after a failed first deposit');
+});
+asyncTest('bank deposit: successful RPC keeps the deposit and reconciles reserve from server', async () => {
+  const ctx = makeBankDepositContext({
+    gold: 200, day: 0, deposit: null,
+    fetchStub: async () => ({ ok: true, bank_reserve: 175 }),
+  });
+  await ctx.ready;
+  assertEqual(ctx.state.player.gold, 150, 'gold stays debited on success');
+  assertEqual(ctx.state.playerBank.deposits.c1.amount, 50, 'deposit recorded');
+  assertEqual(ctx.state.bankVault.c1.reserve, 175, 'reserve reconciled from server');
+});
+asyncTest('bank deposit: a collapse that deletes the deposit mid-flight is not resurrected by the revert', async () => {
+  // Models checkBankSolvency running while the deposit RPC is in flight: it pays
+  // the player their share and deletes playerBank.deposits[cid]. The RPC then
+  // fails; the relative gold give-back must still apply, but the ledger/reserve
+  // must NOT be resurrected — the collapse is authoritative. Absolute-snapshot
+  // reverts would wrongly bring the deleted deposit (and stale reserve) back.
+  const cid = 'c1', amt = 50;
+  const player = { gold: 200 };
+  const bankVault = { c1: { reserve: 100 } };
+  const playerBank = { deposits: {} };
+  const prevDeposit = null; // first-ever deposit
+  // Optimistic
+  player.gold -= amt;                 // 150
+  bankVault[cid].reserve += amt;      // 150
+  playerBank.deposits[cid] = { amount: amt, depositDay: 0 };
+  let resolveFn;
+  const rpc = new Promise(r => { resolveFn = r; });
+  const ready = rpc.then(res => {
+    if (!res?.ok) {
+      player.gold += amt; // relative give-back → 150 + 50 = 200 (plus any collapse payout)
+      if (playerBank.deposits[cid]) {
+        if (prevDeposit) playerBank.deposits[cid] = prevDeposit;
+        else delete playerBank.deposits[cid];
+        if (bankVault[cid]) bankVault[cid].reserve = Math.max(0, bankVault[cid].reserve - amt);
+      }
+    }
+  });
+  // Mid-flight collapse: pays the player 20g of their optimistic deposit, wipes it.
+  player.gold += 20;                  // 170 (collapse payout)
+  bankVault[cid].reserve = 0;         // vault drained
+  delete playerBank.deposits[cid];
+  resolveFn({ ok: false });
+  await ready;
+  assertEqual(player.gold, 220, 'player keeps the collapse payout (20g) AND gets the failed-deposit gold back (50g)');
+  assert(!playerBank.deposits[cid], 'the collapse-deleted deposit must stay deleted, not be resurrected');
+  assertEqual(bankVault[cid].reserve, 0, 'the collapsed reserve must not be clobbered back up by the revert');
+});
+
+function makeLoanDebounceContext({ resolveController }) {
+  const playerBank = { loans: {} };
+  const player = { gold: 0 };
+  const _bankBusy = new Set();
+  const cid = 'c1';
+  let grants = 0;
+  const takeLoan = (amt) => {
+    if (playerBank.loans[cid]) return;
+    if (_bankBusy.has(cid)) return;
+    _bankBusy.add(cid);
+    return resolveController.promise.then(res => {
+      if (!res?.ok) return;
+      grants++;
+      playerBank.loans[cid] = { principal: amt, amount: amt + Math.round(amt * BANK_LOAN_RATE) };
+      player.gold += amt;
+    }).finally(() => { _bankBusy.delete(cid); });
+  };
+  return { takeLoan, playerBank, player, get grants() { return grants; } };
+}
+asyncTest('bank loan: two rapid clicks while the RPC is pending grant only one loan', async () => {
+  let resolveFn;
+  const controller = { promise: new Promise(r => { resolveFn = r; }) };
+  const ctx = makeLoanDebounceContext({ resolveController: controller });
+  const p1 = ctx.takeLoan(100); // enters, adds to pending
+  const p2 = ctx.takeLoan(100); // blocked by _bankBusy, returns undefined
+  assertEqual(p2, undefined, 'second click must be dropped while the first is in flight');
+  resolveFn({ ok: true });
+  await Promise.all([p1, p2].filter(Boolean));
+  assertEqual(ctx.grants, 1, 'exactly one loan granted');
+  assertEqual(ctx.player.gold, 100, 'gold increased once, not twice');
+});
+asyncTest('bank loan: after the first resolves, the recorded-loan guard blocks a fresh click', async () => {
+  const controller = { promise: Promise.resolve({ ok: true }) };
+  const ctx = makeLoanDebounceContext({ resolveController: controller });
+  await ctx.takeLoan(100);
+  const again = ctx.takeLoan(100); // loans[cid] now set → dropped synchronously
+  assertEqual(again, undefined, 'a second loan at a city with an outstanding loan is refused');
+  assertEqual(ctx.grants, 1);
+});
+
+function makeWithdrawDebounceContext({ resolveController, day = 0 }) {
+  const playerBank = { deposits: { c1: { amount: 100, depositDay: 0 } } };
+  const player = { gold: 0 };
+  const time = { day };
+  const _bankBusy = new Set();
+  const cid = 'c1';
+  let payouts = 0;
+  const withdrawAll = () => {
+    if (!playerBank.deposits[cid]) return;
+    if (_bankBusy.has(cid)) return;
+    _bankBusy.add(cid);
+    // Payout math copied verbatim from src/main.js (principal + accrued interest).
+    const d = playerBank.deposits[cid];
+    const days = Math.max(0, Math.floor(time.day) - d.depositDay);
+    const total = d.amount + Math.floor(d.amount * BANK_INTEREST_RATE * days);
+    return resolveController.promise.then(res => {
+      if (!res?.ok) return;
+      // A mid-flight bank collapse settles + deletes the deposit and already pays
+      // the player; don't credit again (mirrors src/main.js).
+      if (!playerBank.deposits[cid]) return;
+      payouts++;
+      const paid = Number.isFinite(res.paid) ? res.paid : total;
+      player.gold += paid;
+      if (paid < total) {
+        // Preserve the unpaid remainder as a residual claim (mirrors src/main.js).
+        playerBank.deposits[cid] = { amount: total - paid, depositDay: Math.floor(time.day) };
+      } else {
+        delete playerBank.deposits[cid];
+      }
+    }).finally(() => { _bankBusy.delete(cid); });
+  };
+  return { withdrawAll, playerBank, player, deleteDeposit: () => delete playerBank.deposits[cid], get payouts() { return payouts; } };
+}
+asyncTest('bank withdraw: two rapid clicks while the RPC is pending pay out only once', async () => {
+  let resolveFn;
+  const controller = { promise: new Promise(r => { resolveFn = r; }) };
+  const ctx = makeWithdrawDebounceContext({ resolveController: controller });
+  const p1 = ctx.withdrawAll();
+  const p2 = ctx.withdrawAll();
+  assertEqual(p2, undefined, 'second withdraw dropped while the first is in flight');
+  resolveFn({ ok: true, paid: 100 });
+  await Promise.all([p1, p2].filter(Boolean));
+  assertEqual(ctx.payouts, 1, 'exactly one payout');
+  assertEqual(ctx.player.gold, 100, 'deposit paid out once, not doubled');
+});
+asyncTest('bank withdraw: partial payout from an insolvent vault keeps the unpaid claim', async () => {
+  const controller = { promise: Promise.resolve({ ok: true, paid: 40 }) }; // vault paid 40 of 100
+  const ctx = makeWithdrawDebounceContext({ resolveController: controller });
+  await ctx.withdrawAll();
+  assertEqual(ctx.player.gold, 40, 'player receives the 40g the vault could pay');
+  assert(ctx.playerBank.deposits.c1, 'deposit must NOT be deleted when only partly paid');
+  assertEqual(ctx.playerBank.deposits.c1.amount, 60, 'the unpaid 60g remains as a withdrawable claim');
+});
+asyncTest('bank withdraw: a collapse that settled the deposit mid-flight is not paid out twice', async () => {
+  let resolveFn;
+  const controller = { promise: new Promise(r => { resolveFn = r; }) };
+  const ctx = makeWithdrawDebounceContext({ resolveController: controller });
+  ctx.withdrawAll();          // starts, RPC in flight
+  ctx.deleteDeposit();        // checkBankSolvency collapse already paid + deleted the deposit
+  resolveFn({ ok: true, paid: 100 });
+  await Promise.resolve(); await Promise.resolve();
+  assertEqual(ctx.payouts, 0, 'the withdraw must not credit again once the collapse settled the deposit');
+  assertEqual(ctx.player.gold, 0, 'no double payout on top of the collapse settlement');
+});
+
+function makeDepositDebounceContext({ resolveController }) {
+  const playerBank = { deposits: {} };
+  const player = { gold: 200 };
+  const _bankBusy = new Set();
+  const cid = 'c1';
+  let deposits = 0;
+  const deposit = (amt) => {
+    if (player.gold < amt) return;
+    if (_bankBusy.has(cid)) return;
+    _bankBusy.add(cid);
+    player.gold -= amt; // optimistic
+    playerBank.deposits[cid] = { amount: (playerBank.deposits[cid]?.amount || 0) + amt, depositDay: 0 };
+    return resolveController.promise.then(res => {
+      if (res?.ok) deposits++;
+    }).finally(() => { _bankBusy.delete(cid); });
+  };
+  return { deposit, playerBank, player, get deposits() { return deposits; } };
+}
+asyncTest('bank deposit: a second deposit is dropped while the first is in flight', async () => {
+  let resolveFn;
+  const controller = { promise: new Promise(r => { resolveFn = r; }) };
+  const ctx = makeDepositDebounceContext({ resolveController: controller });
+  const p1 = ctx.deposit(50);
+  const p2 = ctx.deposit(50);
+  assertEqual(p2, undefined, 'second deposit dropped while the first is in flight');
+  resolveFn({ ok: true });
+  await Promise.all([p1, p2].filter(Boolean));
+  assertEqual(ctx.deposits, 1, 'exactly one deposit committed');
+  assertEqual(ctx.player.gold, 150, 'only one optimistic debit applied');
+});
+
+// A single per-city lock must serialize DIFFERENT bank actions too, not just
+// repeats of the same one. This models the finding where a withdraw ran while a
+// deposit RPC was in flight and the deposit's absolute snapshot-restore then
+// clobbered the withdrawal. With one shared lock the withdraw is refused until
+// the deposit settles, so no interleave — and no clobber — is possible.
+asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is in flight', async () => {
+  const _bankBusy = new Set();
+  const cid = 'c1';
+  const player = { gold: 200 };
+  const playerBank = { deposits: { c1: { amount: 100, depositDay: 0 } } };
+  let resolveDep;
+  const depSettle = new Promise(r => { resolveDep = r; });
+  let withdrewWhileLocked = false;
+
+  // Deposit starts and holds the lock until its RPC settles.
+  const prevGold = player.gold, prevDeposit = { ...playerBank.deposits[cid] };
+  player.gold -= 50;
+  playerBank.deposits[cid] = { amount: prevDeposit.amount + 50, depositDay: 0 };
+  _bankBusy.add(cid);
+  const depP = depSettle.then(res => {
+    if (!res?.ok) { player.gold = prevGold; playerBank.deposits[cid] = prevDeposit; }
+  }).finally(() => { _bankBusy.delete(cid); });
+
+  // Withdraw attempted mid-flight → must be refused by the shared lock.
+  const tryWithdraw = () => {
+    if (!playerBank.deposits[cid]) return;
+    if (_bankBusy.has(cid)) return;   // blocked
+    withdrewWhileLocked = true;
+    player.gold += playerBank.deposits[cid].amount;
+    delete playerBank.deposits[cid];
+  };
+  tryWithdraw();
+  assert(!withdrewWhileLocked, 'withdraw must be refused while a deposit is in flight');
+
+  resolveDep({ ok: false }); // deposit fails → snapshot-restore, nothing to clobber
+  await depP;
+  assertEqual(player.gold, 200, 'deposit cleanly reverted; no phantom gold from an interleaved withdraw');
+  assertEqual(playerBank.deposits[cid].amount, 100, 'deposit restored to its exact prior amount');
+});
+
 // ─── Market keyboard navigation (extracted live from src/main.js) ────────────
 // The SELL tab renders only held items (and no permit row), so the keyboard
 // handler must cycle through exactly the rows the renderer shows — not the
