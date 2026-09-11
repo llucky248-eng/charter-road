@@ -65,8 +65,20 @@ async function runOnce({ name, contextOptions }) {
     die(`${name}: waitForFunction timed out — window.__QA.status never reached pass/fail.${errSummary}`);
   }
 
+  const layout = await page.evaluate(() => {
+    const canvas = document.getElementById('game');
+    const r = canvas.getBoundingClientRect();
+    return {
+      fits: document.documentElement.scrollWidth <= innerWidth,
+      undistorted: Math.abs(r.width / r.height - canvas.width / canvas.height) < 0.01,
+      fillsPhone: innerWidth > 760 || r.height >= innerHeight * 0.5,
+    };
+  });
   await browser.close();
 
+  if (!layout.fits || !layout.undistorted || !layout.fillsPhone) {
+    die(`${name}: game viewport clipped, stretched, or too short: ${JSON.stringify(layout)}`);
+  }
   if (!result || result.status !== 'pass') {
     const msg = result?.details || 'unknown failure';
     die(`${name}: ${msg}`);

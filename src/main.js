@@ -10,7 +10,11 @@
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
   const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
-  const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
+  // Show more terrain on portrait phones instead of leaving most of the
+  // screen empty. Resize the viewport itself so tiles are never stretched.
+  const BASE_H = IS_MOBILE
+    ? Math.max(460, Math.min(1040, Math.round(BASE_W * (window.innerHeight - 230) / Math.max(280, window.innerWidth - 24))))
+    : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
   canvas.height = BASE_H;
 
@@ -34,7 +38,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.46'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.47'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6720,7 +6724,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.46',
+    version: 'v0.5.47',
     whatsNew: [
       'A new strategy interface: charcoal panels, amber actions, restrained map colors, clearer trading lists, keyboard-friendly controls, and a quieter field-notes drawer.',
       'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
@@ -8408,7 +8412,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.46',
+      buildVersion: 'v0.5.47',
       savedAt: Date.now(),
       player: {
         x: player.x,
