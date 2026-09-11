@@ -62,12 +62,12 @@
       <div id="ui-root" aria-hidden="true"></div>
       <!-- Desktop FAB bar stays inside stage; mobile CSS repositions it fixed to viewport bottom -->
       <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;pointer-events:auto;z-index:200"></div>
-    </div>
-
-    <!-- Minimap corner widget (visible on mobile always, hidden on desktop — desktop uses canvas HUD) -->
+    <!-- Minimap corner widget (inside the mobile map; desktop uses the canvas HUD) -->
     <div id="minimap-widget" aria-label="Minimap">
       <canvas id="minimap-canvas" width="100" height="100"></canvas>
     </div>
+    </div>
+
     <!-- Legacy elements kept so JS getElementById calls don't null-crash -->
     <button id="minimap-toggle" style="display:none" aria-hidden="true"></button>
     <div id="minimap-overlay" style="display:none" aria-hidden="true"></div>
