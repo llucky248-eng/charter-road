@@ -65,8 +65,20 @@ async function runOnce({ name, contextOptions }) {
     die(`${name}: waitForFunction timed out — window.__QA.status never reached pass/fail.${errSummary}`);
   }
 
+  const layout = await page.evaluate(() => {
+    const canvas = document.getElementById('game');
+    const r = canvas.getBoundingClientRect();
+    return {
+      fits: document.documentElement.scrollWidth <= innerWidth,
+      undistorted: Math.abs(r.width / r.height - canvas.width / canvas.height) < 0.01,
+      fillsPhone: innerWidth > 760 || r.height >= innerHeight * 0.5,
+    };
+  });
   await browser.close();
 
+  if (!layout.fits || !layout.undistorted || !layout.fillsPhone) {
+    die(`${name}: game viewport clipped, stretched, or too short: ${JSON.stringify(layout)}`);
+  }
   if (!result || result.status !== 'pass') {
     const msg = result?.details || 'unknown failure';
     die(`${name}: ${msg}`);
@@ -699,6 +711,43 @@ async function checkAutoNavReachability() {
   console.log('QA_PASS: autonav-reachability (all 12 routes)');
 }
 
+// The entry screen must remain usable on narrow phones and with a keyboard.
+// Exercise the real login form without creating a cloud player or save.
+async function checkEntryAccessibility() {
+  const browser = await chromium.launch(launchOptions);
+  try {
+    for (const width of [360, 768, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 800 } });
+      const url = new URL(activeUrl);
+      url.searchParams.delete('qa');
+      await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+      const input = page.getByRole('textbox', { name: 'Player ID', exact: true });
+      if (await input.count() !== 1) die(`entry-${width}: Player ID needs an accessible label`);
+      await input.focus();
+      await input.fill('!');
+      await input.press('Enter');
+      if (!(await page.locator('#login-error').textContent()).includes('Invalid ID')) {
+        die(`entry-${width}: keyboard sign-in must report invalid IDs`);
+      }
+      const geometry = await page.evaluate(() => {
+        const controls = [...document.querySelectorAll('.login-box button, .login-box input')];
+        return {
+          fits: document.documentElement.scrollWidth <= innerWidth,
+          reachable: controls.every(el => {
+            const r = el.getBoundingClientRect();
+            return r.width >= 44 && r.height >= 44 && r.left >= 0 && r.right <= innerWidth;
+          }),
+        };
+      });
+      if (!geometry.fits || !geometry.reachable) die(`entry-${width}: clipped or undersized controls`);
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  console.log('QA_PASS: entry-accessibility (360 / 768 / 1280)');
+}
+
 (async () => {
   let server = null;
 
@@ -721,6 +770,7 @@ async function checkAutoNavReachability() {
   }
 
   try {
+    await checkEntryAccessibility();
     await runOnce({
       name: 'desktop',
       contextOptions: { viewport: { width: 1280, height: 720 } },

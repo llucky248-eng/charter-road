@@ -7,867 +7,82 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>The Amber Road</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;900&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      color-scheme: light;
-      --cream:#fff7e3;
-      --cream-2:#fdecc4;
-      --paper:#fffaef;
-      --ink:#3b2a1d;
-      --ink-soft:#6b4f3a;
-      --plum:#b07ec3;
-      --plum-deep:#8a5aa3;
-      --honey:#f0a830;
-      --honey-deep:#d18816;
-      --sage:#7fbf83;
-      --sage-deep:#4f9e5b;
-      --sky:#a8cef0;
-      --berry:#e57389;
-      --shadow: 0 4px 0 rgba(59,42,29,.18), 0 8px 18px rgba(59,42,29,.12);
-      --shadow-sm: 0 2px 0 rgba(59,42,29,.18);
-      /* legacy alias for any leftover var() use */
-      --amber: var(--honey);
-      --text: var(--ink);
-      --text-dim: var(--ink-soft);
-      --border: rgba(59,42,29,0.15);
-    }
-    body {
-      margin: 0;
-      color: var(--ink);
-      font: 14px/1.5 'Nunito', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      font-weight: 700;
-      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-      background:
-        radial-gradient(circle at 20% 10%, #fff3d2 0%, transparent 40%),
-        radial-gradient(circle at 80% 90%, #ffe6f0 0%, transparent 45%),
-        linear-gradient(180deg,#ffe7c2 0%, #fbd9b3 100%);
-      min-height: 100vh;
-    }
-    h1, h2, h3, h4 { font-family: 'Fredoka', system-ui, sans-serif; margin: 0; font-weight: 600; letter-spacing: -.01em; }
-
-    /* ── Header ── */
-    header {
-      padding: 8px 22px;
-      height: 64px;
-      display: flex;
-      gap: 0;
-      align-items: center;
-      justify-content: space-between;
-      background: transparent;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .header-left {
-      display: flex; align-items: center; gap: 10px;
-      background: var(--paper);
-      padding: 8px 16px 8px 12px;
-      border-radius: 999px;
-      box-shadow: var(--shadow);
-      border: 2px solid #fff;
-    }
-    header h1 {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 18px; font-weight: 700; margin: 0;
-      letter-spacing: -.01em;
-      color: var(--ink);
-      background: none;
-      -webkit-text-fill-color: currentColor;
-    }
-    .header-badge {
-      font-size: 10px; font-weight: 900; letter-spacing: 0.08em;
-      color: #fff;
-      background: var(--honey);
-      border: 0;
-      box-shadow: inset 0 -2px 0 var(--honey-deep);
-      border-radius: 999px;
-      padding: 3px 8px;
-      opacity: 1;
-    }
-    header .meta {
-      color: var(--ink-soft);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600;
-      font-size: 13px;
-      background: var(--paper);
-      padding: 8px 16px;
-      border-radius: 999px;
-      box-shadow: var(--shadow);
-      border: 2px solid #fff;
-    }
-
-    /* ── Main layout ── */
-    #wrap { display: flex; flex-direction: column; align-items: center; padding: 12px 16px 28px; gap: 14px; }
-    @media (pointer: coarse) {
-      #wrap { padding: 6px 8px 20px; gap: 10px; }
-      header { height: 56px; padding: 6px 14px; }
-      header h1 { font-size: 16px; }
-      header .meta { font-size: 11px; padding: 6px 12px; }
-    }
-
-    /* ── Game stage + canvas ── */
-    #stage {
-      position: relative;
-      width: min(960px, calc(100vw - 32px));
-    }
-    canvas {
-      width: 100%; height: auto;
-      display: block;
-      background: #fffaef;
-      image-rendering: pixelated;
-      touch-action: none;
-      border-radius: 24px;
-      box-shadow: var(--shadow), inset 0 0 0 4px #fff, 0 0 0 1px rgba(59,42,29,0.12);
-    }
-    @media (pointer: coarse) {
-      canvas { border-radius: 18px; }
-    }
-    .hint {
-      color: var(--ink-soft);
-      text-align: center;
-      max-width: min(960px, calc(100vw - 32px));
-      font-size: 12px; font-weight: 700;
-      background: var(--paper);
-      padding: 8px 18px;
-      border-radius: 999px;
-      box-shadow: var(--shadow);
-      border: 3px solid #fff;
-    }
-    .kbd {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      padding: 0 8px;
-      border: 2px solid var(--ink);
-      border-radius: 6px;
-      background: var(--cream-2);
-      color: var(--ink);
-      box-shadow: inset 0 -2px 0 rgba(0,0,0,.1);
-    }
-
-    /* ── Dev log ── */
-    .devlog {
-      width: min(960px, calc(100vw - 32px));
-      border: 3px solid #fff;
-      border-radius: 18px;
-      background: var(--paper);
-      box-shadow: var(--shadow);
-      padding: 12px 18px 14px;
-      color: var(--ink);
-      box-sizing: border-box;
-    }
-    .devlog-title {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700; font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
-      color: var(--plum-deep);
-      opacity: 1;
-      margin-bottom: 6px;
-    }
-    .devlog-body {
-      color: var(--ink-soft);
-      font-size: 12px; font-weight: 700;
-      white-space: pre-line; max-height: 120px; overflow: auto; line-height: 1.6;
-    }
-
-    /* ── Mobile bottom action bar ── */
-    #fab-bar {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    #fab-bar .fab {
-      width: 48px; height: 48px; border-radius: 50%;
-      border: 3px solid var(--ink);
-      background: var(--paper);
-      color: var(--ink);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 20px; font-weight: 600;
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 3px 0 var(--ink), 0 8px 16px rgba(59,42,29,.15);
-      transition: transform 0.12s, background 0.12s;
-      touch-action: manipulation;
-      position: relative;
-    }
-    #fab-bar .fab:hover { background: var(--cream-2); transform: translateY(-2px); }
-    #fab-bar .fab:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
-    #fab-bar .fab-label {
-      position: absolute; right: 56px; top: 50%; transform: translateY(-50%);
-      background: var(--paper);
-      border: 2px solid var(--ink);
-      box-shadow: 0 2px 0 var(--ink);
-      color: var(--ink);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-size: 12px; font-weight: 600;
-      white-space: nowrap; pointer-events: none;
-    }
-
-    /* Mobile: replace stacked FABs with a slim horizontal action bar at screen bottom */
-    @media (pointer: coarse) {
-      #fab-bar {
-        position: fixed !important;
-        left: 0; right: 0; bottom: 0;
-        top: auto !important;
-        width: 100%;
-        height: auto;
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        padding: 10px 12px max(10px, env(safe-area-inset-bottom));
-        background: var(--paper);
-        border-top: 3px solid #fff;
-        box-shadow: 0 -4px 0 var(--ink), 0 -8px 24px rgba(59,42,29,.2);
-        z-index: 500;
-        pointer-events: auto;
-        box-sizing: border-box;
-        transform: translateY(100%);
-        transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-      }
-      #fab-bar.fab-bar-visible { transform: translateY(0); }
-      #fab-bar .fab {
-        width: auto;
-        height: 44px;
-        border-radius: 22px;
-        padding: 0 16px;
-        gap: 6px;
-        font-size: 16px;
-        flex-direction: row;
-        flex: 1;
-        max-width: 160px;
-        border-width: 3px;
-        background: var(--cream-2);
-      }
-      #fab-bar .fab-label {
-        position: static;
-        transform: none;
-        background: none;
-        border: 0;
-        box-shadow: none;
-        color: var(--ink);
-        padding: 0;
-        font-size: 13px;
-        font-weight: 600;
-        white-space: nowrap;
-        pointer-events: none;
-        display: block;
-      }
-    }
-
-    /* ── Always-visible minimap corner widget ── */
-    #minimap-widget { display: none; }
-
-    @media (pointer: coarse) {
-      #minimap-widget {
-        display: block;
-        position: fixed;
-        left: 10px;
-        bottom: calc(70px + env(safe-area-inset-bottom));
-        width: 104px; height: 104px;
-        border-radius: 18px;
-        border: 4px solid #fff;
-        background: var(--paper);
-        z-index: 499;
-        overflow: hidden;
-        box-shadow: var(--shadow);
-        touch-action: manipulation;
-        transition: opacity 0.15s;
-      }
-      body.ui-open #minimap-widget { opacity: 0; pointer-events: none; }
-      #minimap-widget canvas#minimap-canvas {
-        width: 100%; height: 100%;
-        display: block;
-        image-rendering: pixelated;
-      }
-    }
-
-    #minimap-toggle  { display: none !important; }
-    #minimap-overlay { display: none !important; }
-
-    /* HTML UI overlay (modals above the canvas) */
-    #ui-root { position:absolute; inset:0; pointer-events:none; display:none; }
-    body.ui-open #ui-root { display:block; pointer-events:auto; }
-    body.ui-open { overflow:hidden; }
-
-    html, body, #wrap, #stage, #ui-root, canvas, button, .devlog, .hint {
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-
-    /* ── Modals (cr-*) ── */
-    .cr-backdrop {
-      position: absolute; inset: 0;
-      background: rgba(59,42,29,0.35);
-      backdrop-filter: blur(3px);
-      display: flex; align-items: center; justify-content: center;
-      padding: clamp(10px, 2vw, 18px);
-    }
-    .cr-panel {
-      width: min(520px, 96%);
-      max-height: 96%;
-      overflow: hidden;
-      border-radius: 28px;
-      border: 0;
-      background: var(--paper);
-      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff;
-      color: var(--ink);
-      display: flex; flex-direction: column;
-    }
-    @media (pointer: coarse) {
-      .cr-panel { width: 100%; height: 100%; max-height: 100%; border-radius: 24px; }
-    }
-
-    .cr-head {
-      display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
-      padding: 16px 20px 12px;
-      background: linear-gradient(180deg, var(--cream-2), var(--cream));
-      border-bottom: 3px dashed rgba(59,42,29,.15);
-    }
-    .cr-title {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700; font-size: 20px; line-height: 1.15;
-      color: var(--ink);
-    }
-    .cr-sub {
-      margin-top: 4px;
-      color: var(--ink-soft);
-      font-size: 12px; font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-    .cr-close {
-      border: 3px solid var(--ink);
-      background: var(--paper);
-      color: var(--ink);
-      border-radius: 50%;
-      width: 38px; height: 38px;
-      padding: 0;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700;
-      font-size: 16px;
-      box-shadow: var(--shadow-sm);
-      cursor: pointer;
-    }
-    .cr-close:hover { background: var(--cream-2); }
-    .cr-close:active { transform: translateY(2px); box-shadow: none; }
-
-    .cr-tabs { display: flex; gap: 8px; padding: 14px 20px 0; }
-    .cr-tab {
-      flex: 1;
-      border: 3px solid var(--ink);
-      background: var(--paper);
-      color: var(--ink);
-      border-radius: 14px;
-      padding: 10px 12px;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600;
-      font-size: 13px;
-      box-shadow: 0 3px 0 var(--ink);
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      transition: transform 0.12s, background 0.12s;
-    }
-    .cr-tab:hover { transform: translateY(-1px); }
-    .cr-tab[aria-selected="true"] {
-      background: var(--plum);
-      border-color: var(--ink);
-      color: #fff;
-      box-shadow: 0 3px 0 var(--plum-deep);
-    }
-    .cr-action {
-      border: 3px solid var(--ink);
-      background: var(--cream-2);
-      color: var(--ink);
-      border-radius: 12px;
-      padding: 8px 12px;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600;
-      font-size: 12px;
-      box-shadow: 0 3px 0 var(--ink);
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      transition: transform 0.1s, background 0.12s;
-    }
-    .cr-action:hover { background: #ffd5e1; }
-    .cr-action:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
-
-    /* The panel is height-capped with overflow:hidden, so the body/list must
-       flex-shrink and scroll internally — a fixed list height (the old 62vh)
-       overflows the clip edge on short panels and visually cuts off the list
-       and footer. Header/tabs/footer never shrink; the list absorbs the rest. */
-    .cr-head, .cr-tabs, .cr-foot { flex-shrink: 0; }
-    .cr-body { padding: 12px 20px 14px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-    .cr-list { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
-
-    @media (pointer: coarse) {
-      .cr-backdrop { position: fixed; inset: 0; padding: 0; z-index: 9000; }
-      .cr-panel { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
-      .cr-head { padding: 10px 14px 8px; }
-      .cr-title { font-size: 17px; }
-      .cr-sub { font-size: 11px; margin-top: 2px; }
-      .cr-close { width: 36px; height: 36px; min-height: 36px; }
-      .cr-tabs { padding: 6px 12px 4px; gap: 6px; }
-      .cr-tab { padding: 8px 10px; font-size: 13px; }
-      .cr-action { padding: 8px 10px; font-size: 12px; }
-      .cr-body { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-      .cr-list { flex: 1; min-height: 0; max-height: none; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 12px 8px; }
-      .cr-foot { padding: 8px 14px; flex-shrink: 0; font-size: 12px; }
-      .cr-rumors { margin: 4px 0; padding: 8px 10px; }
-      .cr-rumor { font-size: 12px; margin-top: 2px; }
-    }
-
-    .cr-card {
-      width: 100%;
-      box-sizing: border-box;
-      text-align: left;
-      border: 3px solid var(--ink);
-      background: var(--paper);
-      border-radius: 16px;
-      padding: 10px 12px;
-      margin: 0;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: space-between;
-      box-shadow: var(--shadow-sm);
-      cursor: pointer;
-      transition: transform 0.1s;
-    }
-    .cr-card:hover { transform: translateY(-1px); }
-    .cr-card[aria-current="true"] {
-      background: var(--cream-2);
-      box-shadow: var(--shadow-sm), 0 0 0 3px var(--plum);
-    }
-    .cr-card-left { flex: 1; min-width: 0; }
-    .cr-card-title {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600; font-size: 14px; line-height: 1.2;
-      color: var(--ink);
-    }
-    .cr-card-sub { margin-top: 2px; font-size: 12px; font-weight: 700; color: var(--ink-soft); }
-
-    .cr-price-row { display: flex; gap: 6px; align-items: baseline; margin-top: 3px; }
-    .cr-buy-price {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600; font-size: 14px; color: var(--ink);
-    }
-    .cr-sell-price { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
-
-    .cr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; text-align: right; min-width: 86px; }
-
-    .cr-delta-up,
-    .cr-delta-down,
-    .cr-delta-flat {
-      display: inline-block;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700;
-      font-size: 11px; letter-spacing: 0.03em;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 2px solid var(--ink);
-      white-space: nowrap;
-    }
-    .cr-delta-up   { background: #ffd2d2; color: #a02828; box-shadow: 0 2px 0 #a02828; }
-    .cr-delta-down { background: #cdf0c4; color: #2f6b34; box-shadow: 0 2px 0 #2f6b34; }
-    .cr-delta-flat { background: #e6e2da; color: var(--ink-soft); box-shadow: 0 2px 0 var(--ink-soft); }
-    .cr-price { font-family: 'Fredoka', system-ui, sans-serif; font-weight: 600; }
-    .cr-badge {
-      display: inline-block;
-      margin-top: 6px;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700; font-size: 11px; letter-spacing: 0.04em;
-      border: 2px solid var(--ink);
-      background: var(--honey);
-      color: #fff;
-      box-shadow: inset 0 -2px 0 var(--honey-deep);
-    }
-
-    .cr-foot {
-      display: flex; gap: 12px; justify-content: space-between; align-items: center;
-      padding: 12px 20px;
-      border-top: 3px dashed rgba(59,42,29,.15);
-      background: var(--cream);
-    }
-    .cr-foot strong { font-weight: 900; color: var(--ink); }
-    .cr-hint { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
-
-    .cr-rumors {
-      margin-top: 8px;
-      padding: 12px 14px;
-      border-radius: 16px;
-      border: 3px dashed var(--honey);
-      background: #fff5e1;
-      box-sizing: border-box;
-    }
-    .cr-rumors-title {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600; font-size: 14px;
-      color: var(--ink);
-      display: flex; align-items: center; gap: 6px;
-    }
-    .cr-rumor {
-      margin-top: 4px;
-      font-size: 13px; font-weight: 600;
-      color: var(--ink-soft);
-    }
-    .cr-rumor::before { content: "✿  "; color: var(--berry); font-weight: 900; }
-
-    @media (max-width: 520px) {
-      .cr-rumors { padding: 8px 10px; border-radius: 12px; }
-      .cr-rumor { font-size: 12px; }
-    }
-
-    @media (pointer: coarse) {
-      .cr-card { flex-direction: row; align-items: center; }
-      .cr-right { text-align: right; min-width: 72px; width: auto; }
-      .cr-action { width: auto; min-width: 72px; min-height: 38px; padding: 6px 10px; font-size: 12px; border-radius: 10px; }
-    }
-
-    /* Completion banner (stacking, max 3) */
-    .cr-banner-stack {
-      display: flex; flex-direction: column; gap: 8px;
-      padding: 12px 20px 0;
-      pointer-events: none;
-    }
-    .cr-banner {
-      background: var(--paper);
-      border: 3px solid var(--ink);
-      box-shadow: 0 4px 0 var(--ink);
-      border-radius: 14px;
-      padding: 10px 14px;
-      transform: translateY(-4px);
-      opacity: 0;
-      animation: crBannerIn 160ms ease-out forwards;
-    }
-    .cr-banner.out { animation: crBannerOut 260ms ease-in forwards; }
-    .cr-banner-title {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-      font-size: 14px;
-      color: var(--ink);
-    }
-    .cr-banner-text {
-      margin-top: 2px;
-      opacity: 1;
-      font-size: 12px; font-weight: 700;
-      line-height: 1.3;
-      color: var(--ink-soft);
-    }
-    @keyframes crBannerIn {
-      from { transform: translateY(-10px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-    @keyframes crBannerOut {
-      from { transform: translateY(0); opacity: 1; }
-      to { transform: translateY(-10px); opacity: 0; }
-    }
-
-    /* ── Road events ─────────────────────────────────────────────
-       Scoped under .cr-event* so the other modals (market/bank/…)
-       and the mobile-layout QA geometry stay untouched. Animation is
-       transform/opacity only — box metrics never move. */
-    .cr-event-backdrop { background: rgba(45,30,20,0.5); }
-    .cr-event-threat-backdrop { background: rgba(30,12,8,0.62); }
-    .cr-panel.cr-event {
-      animation: crEventIn 320ms cubic-bezier(.2,1.4,.4,1) both;
-      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff, 0 0 0 4px var(--ev-accent, #7c5cd6);
-    }
-    @keyframes crEventIn {
-      from { transform: scale(.92) translateY(14px); opacity: 0; }
-      to   { transform: scale(1) translateY(0); opacity: 1; }
-    }
-    .cr-event .cr-head { border-bottom: 3px solid var(--ev-accent, #7c5cd6); }
-    .cr-event-icon {
-      font-size: 30px; line-height: 1; flex: 0 0 auto;
-      filter: drop-shadow(0 2px 0 rgba(0,0,0,.15));
-      animation: crEventIconPop 420ms cubic-bezier(.2,1.6,.4,1) both;
-    }
-    @keyframes crEventIconPop {
-      from { transform: scale(.4) rotate(-12deg); opacity: 0; }
-      to   { transform: scale(1) rotate(0deg); opacity: 1; }
-    }
-    .cr-event .cr-head > div:not(.cr-event-icon) { flex: 1 1 auto; }
-    .cr-event-stakes {
-      margin-top: 8px; display: inline-block; padding: 3px 10px;
-      border-radius: 10px; border: 2px solid var(--ev-accent, #7c5cd6);
-      color: var(--ev-accent, #7c5cd6); background: rgba(255,255,255,.55);
-      font-weight: 800; font-size: 13px;
-    }
-    /* Cosmetic reinforcement of the JS input lock right after open. */
-    .cr-event .cr-intro-lock { pointer-events: none; opacity: .55; }
-    @media (prefers-reduced-motion: reduce) {
-      .cr-panel.cr-event, .cr-event-icon { animation: none; }
-    }
-
-    /* ── Player Login Overlay ── */
-    #login-overlay {
-      position: fixed; inset: 0; z-index: 99999;
-      background:
-        radial-gradient(circle at 20% 10%, #fff3d2 0%, transparent 40%),
-        radial-gradient(circle at 80% 90%, #ffe6f0 0%, transparent 45%),
-        linear-gradient(180deg, #ffe7c2 0%, #fbd9b3 100%);
-      display: flex; align-items: center; justify-content: center;
-      padding: 20px;
-    }
-    #login-overlay.hidden { display: none; }
-    .login-box {
-      width: min(420px, 96vw);
-      border: 0;
-      border-radius: 28px;
-      background: var(--paper);
-      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff;
-      padding: 32px 26px 26px;
-      text-align: center;
-    }
-    .login-box h2 {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 26px; font-weight: 700;
-      color: var(--ink);
-      margin: 0 0 6px;
-      letter-spacing: -.01em;
-    }
-    .login-box .login-sub {
-      color: var(--ink-soft);
-      font-size: 13px; font-weight: 700;
-      margin-bottom: 22px;
-    }
-    .login-divider {
-      display: flex; align-items: center; gap: 10px;
-      color: var(--ink-soft);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-weight: 600;
-      font-size: 12px;
-      margin: 18px 0;
-      text-transform: uppercase; letter-spacing: 0.06em;
-    }
-    .login-divider::before, .login-divider::after {
-      content: ''; flex: 1; height: 2px;
-      background: rgba(59,42,29,.15);
-      border-radius: 999px;
-    }
-    .login-input-row { display: flex; gap: 8px; align-items: stretch; }
-    .login-input {
-      flex: 1;
-      background: var(--cream);
-      border: 3px solid var(--ink);
-      border-radius: 12px;
-      padding: 10px 12px;
-      color: var(--ink);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 15px; font-weight: 600;
-      letter-spacing: 0.08em;
-      outline: none;
-      width: 100%; box-sizing: border-box;
-      box-shadow: inset 0 -3px 0 rgba(59,42,29,.08);
-    }
-    .login-input:focus { background: #fff; }
-    .login-input::placeholder { color: var(--ink-soft); font-weight: 500; letter-spacing: 0.04em; opacity: 0.65; }
-    .login-btn {
-      padding: 10px 18px;
-      border-radius: 12px;
-      border: 3px solid var(--ink);
-      background: var(--cream-2);
-      color: var(--ink);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 13px; font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      box-shadow: 0 3px 0 var(--ink);
-      transition: transform 0.1s, background 0.12s;
-    }
-    .login-btn:hover { background: #ffd5e1; }
-    .login-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
-    .login-btn-primary {
-      width: 100%;
-      padding: 14px;
-      border-radius: 14px;
-      border: 3px solid var(--ink);
-      background: var(--plum);
-      color: #fff;
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 16px; font-weight: 700;
-      cursor: pointer;
-      letter-spacing: 0.02em;
-      box-shadow: 0 4px 0 var(--plum-deep);
-      transition: transform 0.1s, background 0.12s;
-    }
-    .login-btn-primary:hover { background: var(--plum-deep); }
-    .login-btn-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--plum-deep); }
-    .login-btn-guest {
-      width: 100%;
-      padding: 11px;
-      margin-top: 10px;
-      border-radius: 12px;
-      border: 3px solid var(--ink);
-      background: var(--paper);
-      color: var(--ink-soft);
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 13px; font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 3px 0 var(--ink);
-      transition: transform 0.1s, background 0.12s;
-    }
-    .login-btn-guest:hover { background: var(--cream-2); }
-    .login-btn-guest:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
-    .login-error {
-      color: #a02828; font-size: 12px; font-weight: 700;
-      margin-top: 8px; min-height: 16px;
-    }
-    .login-id-display {
-      margin-top: 16px; padding: 12px 14px;
-      background: #fff5e1;
-      border: 3px dashed var(--honey);
-      border-radius: 14px;
-      font-size: 12px; font-weight: 700;
-      color: var(--ink-soft);
-      display: none;
-    }
-    .login-id-display span {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      color: var(--honey-deep);
-      font-weight: 700; letter-spacing: 0.08em;
-      font-size: 14px;
-    }
-
-    /* ── Cloud sync loading overlay ── */
-    #loading-overlay {
-      position: fixed; inset: 0; z-index: 99998;
-      background:
-        radial-gradient(circle at 20% 10%, #fff3d2 0%, transparent 40%),
-        radial-gradient(circle at 80% 90%, #ffe6f0 0%, transparent 45%),
-        linear-gradient(180deg, #ffe7c2 0%, #fbd9b3 100%);
-      display: flex; align-items: center; justify-content: center;
-      padding: 20px;
-      transition: opacity 0.4s;
-    }
-    #loading-overlay.hidden { display: none; }
-    .loading-box {
-      width: min(340px, 92vw);
-      border-radius: 28px;
-      background: var(--paper);
-      box-shadow: 0 20px 60px rgba(59,42,29,.4), inset 0 0 0 4px #fff;
-      padding: 36px 26px 30px;
-      text-align: center;
-    }
-    .loading-box h2 {
-      font-family: 'Fredoka', system-ui, sans-serif;
-      font-size: 22px; font-weight: 700;
-      color: var(--ink);
-      margin: 10px 0 6px;
-    }
-    .loading-icon { font-size: 40px; animation: loadingPulse 1.8s ease-in-out infinite; }
-    @keyframes loadingPulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.12); }
-    }
-    .loading-sub {
-      color: var(--ink-soft);
-      font-size: 13px; font-weight: 700;
-      margin: 0 0 20px;
-    }
-    .loading-dots { display: flex; justify-content: center; gap: 7px; }
-    .loading-dots span {
-      width: 9px; height: 9px;
-      background: var(--honey);
-      border-radius: 50%;
-      animation: loadingDot 1.2s ease-in-out infinite;
-    }
-    .loading-dots span:nth-child(2) { animation-delay: 0.18s; }
-    .loading-dots span:nth-child(3) { animation-delay: 0.36s; }
-    @keyframes loadingDot {
-      0%, 80%, 100% { transform: scale(0.55); opacity: 0.35; }
-      40% { transform: scale(1); opacity: 1; }
-    }
-
-    /* Legacy touch-ui (hidden, kept for reference) */
-    #touch-ui { display: none !important; }
-    #touch-ui .pad { display: none; align-content: start; }
-    #touch-ui .pad .btn { width: var(--btn); height: var(--btn); }
-    #touch-ui .actions {
-      display: grid;
-      grid-template-columns: var(--btn) var(--btn);
-      grid-template-rows: var(--btn) var(--btn);
-      gap: 8px;
-      justify-content: end;
-      align-content: start;
-    }
-    @media (pointer: coarse) {
-      #touch-ui { display: flex; }
-    }
-  </style>
+  <link rel="stylesheet" href="./src/strategy.css?v=1" />
 </head>
 <body>
   <header>
     <div class="header-left">
-      <h1>⚔️ The Amber Road</h1>
+      <span class="brand-mark" aria-hidden="true">◇</span>
+      <h1>The Amber Road</h1>
       <span class="header-badge">ALPHA</span>
     </div>
-    <div class="meta">Roam · Trade · Survive</div>
+    <div class="meta">A world of trade &amp; consequence</div>
   </header>
   <!-- Player Login Overlay -->
   <div id="login-overlay">
     <div class="login-box">
-      <h2>⚔️ The Amber Road</h2>
-      <p class="login-sub">A medieval trading journey</p>
+      <div class="login-eyebrow"><span class="brand-mark" aria-hidden="true">◇</span> A trading strategy game</div>
+      <h2>The Amber Road</h2>
+      <p class="login-sub">Four cities. Shifting markets. Find your fortune on the road between them.</p>
 
-      <button class="login-btn-primary" id="login-new-btn">🌟 New Journey</button>
-      <button class="login-btn-guest" id="login-guest-btn">Play as Guest (ID: 0)</button>
+      <button class="login-btn-primary" id="login-new-btn">New journey <span aria-hidden="true">↗</span></button>
+      <button class="login-btn-guest" id="login-guest-btn">Continue as guest</button>
 
-      <div class="login-divider">or sign in with Player ID</div>
+      <div class="login-divider">RESUME YOUR JOURNEY</div>
 
+      <label class="login-label" for="login-id-input">Player ID</label>
       <div class="login-input-row">
         <input class="login-input" id="login-id-input" type="text"
           placeholder="e.g. A3F2" maxlength="8" autocomplete="off" autocorrect="off" spellcheck="false" />
         <button class="login-btn" id="login-signin-btn">Sign In</button>
       </div>
-      <div class="login-error" id="login-error"></div>
+      <div class="login-error" id="login-error" role="status" aria-live="polite"></div>
 
       <div class="login-id-display" id="login-id-display">
         Your Player ID: <span id="login-id-val"></span> — write this down to continue your journey later!
       </div>
+      <p class="login-footer">Explore · Trade · Build</p>
     </div>
   </div>
 
   <!-- Cloud sync loading overlay — shown after login until world state + save are fetched -->
   <div id="loading-overlay" class="hidden">
     <div class="loading-box">
-      <div class="loading-icon">⚔️</div>
+      <div class="loading-icon" aria-hidden="true">◇</div>
       <h2>Entering the world…</h2>
       <p class="loading-sub">Fetching latest world state</p>
       <div class="loading-dots"><span></span><span></span><span></span></div>
     </div>
   </div>
 
-  <div id="wrap">
+  <main id="wrap">
+    <div class="stage-heading"><h2>The trading frontier</h2><span>4 cities / One connected world</span></div>
     <div id="stage" aria-label="Game stage">
       <canvas id="game" width="960" height="540" aria-label="The Amber Road game canvas"></canvas>
       <div id="ui-root" aria-hidden="true"></div>
       <!-- Desktop FAB bar stays inside stage; mobile CSS repositions it fixed to viewport bottom -->
       <div id="fab-bar" style="position:absolute;bottom:12px;right:12px;pointer-events:auto;z-index:200"></div>
-    </div>
-
-    <!-- Minimap corner widget (visible on mobile always, hidden on desktop — desktop uses canvas HUD) -->
+    <!-- Minimap corner widget (inside the mobile map; desktop uses the canvas HUD) -->
     <div id="minimap-widget" aria-label="Minimap">
       <canvas id="minimap-canvas" width="100" height="100"></canvas>
     </div>
+    </div>
+
     <!-- Legacy elements kept so JS getElementById calls don't null-crash -->
     <button id="minimap-toggle" style="display:none" aria-hidden="true"></button>
     <div id="minimap-overlay" style="display:none" aria-hidden="true"></div>
 
     <div class="hint">
-      Click / tap to move &nbsp;·&nbsp; Tap NPCs to talk &nbsp;·&nbsp; Tap a building to interact
+      <span>Click or tap to move · Select buildings and people to interact</span>
+      <span class="desktop-controls"><kbd class="kbd">W A S D</kbd> Move <kbd class="kbd">ESC</kbd> Close</span>
     </div>
 
-    <div id="devlog" class="devlog" aria-label="Iteration notes">
-      <div class="devlog-title">Patch Notes</div>
+    <details id="devlog" class="devlog" aria-label="Iteration notes">
+      <summary class="devlog-title">Field notes &amp; updates</summary>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.45</div>
-    </div>
-  </div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.47</div>
+    </details>
+  </main>
 
   <div id="fatal" style="display:none; margin:16px auto; max-width:900px; padding:12px 14px; border:1px solid rgba(255,255,255,0.15); border-radius:12px; background:rgba(80,10,10,0.35); color:#fecaca; font:14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space:pre-wrap;"></div>
 
@@ -1013,7 +228,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.45&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.47&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);

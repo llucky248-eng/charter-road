@@ -10,7 +10,11 @@
   // Mobile readability: use a smaller internal resolution so UI appears bigger when scaled to screen.
   const IS_MOBILE = (window.innerWidth <= 760) || !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const BASE_W = IS_MOBILE ? 640 : 960;
-  const BASE_H = IS_MOBILE ? 460 : Math.round(BASE_W * 9 / 16);
+  // Show more terrain on portrait phones instead of leaving most of the
+  // screen empty. Resize the viewport itself so tiles are never stretched.
+  const BASE_H = IS_MOBILE
+    ? Math.max(460, Math.min(1040, Math.round(BASE_W * (window.innerHeight - 230) / Math.max(280, window.innerWidth - 24))))
+    : Math.round(BASE_W * 9 / 16);
   canvas.width = BASE_W;
   canvas.height = BASE_H;
 
@@ -34,7 +38,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.45'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.47'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -1101,13 +1105,13 @@ ${line4}`;
         return `
           <button data-city="${c2.id}" style="
             display:flex; flex-direction:column; align-items:flex-start;
-            background:#1a1408; border:1px solid #5a4a20; border-radius:8px;
-            padding:10px 14px; cursor:pointer; color:#e0cfa0; text-align:left;
+            background:#1d262e; border:1px solid #46535e; border-radius:8px;
+            padding:10px 14px; cursor:pointer; color:#edf1f2; text-align:left;
             width:100%; margin-bottom:6px; transition:border-color 0.15s;
           ">
-            <span style="font-size:14px;font-weight:700;color:#f0d080">📍 ${htmlEscape(c2.name)}</span>
+            <span style="font-size:14px;font-weight:700;color:#e4b768">📍 ${htmlEscape(c2.name)}</span>
             <span style="font-size:11px;color:#888;margin-top:2px">${htmlEscape(rules.vibe || '')}</span>
-            <span style="font-size:11px;color:#a09060;margin-top:4px">
+            <span style="font-size:11px;color:#a6b3bd;margin-top:4px">
               👥 Pop: <b style="color:#cfe6ff">${popVal}</b>
               &nbsp;·&nbsp;
               💰 Treasury: <b style="color:#cfe6ff">${treVal}</b>
@@ -1119,7 +1123,7 @@ ${line4}`;
       }).join('');
 
     el.innerHTML = `
-      <div style="background:#100e08;border:2px solid #8b6914;border-radius:12px;padding:16px;width:min(300px,90vw);color:#e0cfa0">
+      <div style="background:#151c22;border:2px solid #8b6914;border-radius:12px;padding:16px;width:min(300px,90vw);color:#edf1f2">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <span style="font-size:15px;font-weight:700">🗺️ Navigate To</span>
           <button id="cr-nav-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
@@ -2486,11 +2490,11 @@ function handleGlobalHudTap(clientX, clientY, e) {
       for (let x = 0; x < MAP_W; x++) {
         const id = world.m[y * MAP_W + x];
         let r=18, g=22, b=28; // default dark
-        if (id === 0) { r=28; g=92; b=52; }         // grass
-        else if (id === 1) { r=170; g=122; b=76; }  // road
-        else if (id === 2) { r=30; g=96; b=180; }   // water
+        if (id === 0) { r=83; g=107; b=88; }         // grass
+        else if (id === 1) { r=166; g=151; b=120; }  // road
+        else if (id === 2) { r=53; g=85; b=99; }   // water
         else if (id === 3) { r=70; g=76; b=86; }    // rock
-        else if (id === 4) { r=120; g=98; b=74; }   // city floor
+        else if (id === 4) { r=179; g=180; b=160; }   // city floor
         else if (id === 5) { r=240; g=220; b=180; } // gate
         else if (id === 6) { r=234; g=179; b=8; }   // market
         else if (id === 7) { r=167; g=139; b=250; } // shrine
@@ -4540,9 +4544,9 @@ function openTraderUI(trader) {
       const canAfford = player.gold >= discountPrice;
       const hasSpace = invWeight() + it.weight <= player.capacity;
       return `
-        <div style="background:#1a1508;border:1px solid #3a2e10;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <div style="background:#1d262e;border:1px solid #34414b;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
           <div>
-            <span style="color:#f0d080;font-weight:600">${it.name}</span>
+            <span style="color:#e4b768;font-weight:600">${it.name}</span>
             <span style="color:#888;font-size:11px;margin-left:6px">×${qty} available</span>
             <div style="color:#b0a060;font-size:11px">Market: ${marketBuy}g → Trader: <b style="color:#a0d060">${discountPrice}g</b></div>
           </div>
@@ -4567,20 +4571,20 @@ function openTraderUI(trader) {
   }).filter(Boolean).join(', ') || 'empty wagon';
 
   el.innerHTML = `
-    <div style="background:#100e08;border:2px solid #8b6914;border-radius:10px;padding:16px;width:min(340px,90vw);color:#e0cfa0">
+    <div style="background:#151c22;border:2px solid #8b6914;border-radius:10px;padding:16px;width:min(340px,90vw);color:#edf1f2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:15px;font-weight:700">🛒 ${htmlEscape(trader.name)}</span>
         <button id="cr-trader-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
       </div>
       <div style="color:#888;font-size:12px;margin-bottom:10px">
         ${trader.personality === 'aggressive' ? '⚔️ Aggressive trader' : trader.personality === 'cautious' ? '🛡️ Cautious merchant' : '🎲 Opportunist'}
-        &nbsp;·&nbsp; Heading to <b style="color:#f0d080">${getCityById(trader.toId)?.name || trader.toId}</b>
+        &nbsp;·&nbsp; Heading to <b style="color:#e4b768">${getCityById(trader.toId)?.name || trader.toId}</b>
         &nbsp;·&nbsp; Carrying: <span style="color:#b0c0a0">${cargoLabel}</span>
       </div>
       <div style="color:#666;font-size:11px;margin-bottom:8px">Items offered at 12% below market rate:</div>
       ${content}
       <div style="text-align:center;margin-top:8px">
-        <button id="cr-trader-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
+        <button id="cr-trader-close2" style="background:none;border:1px solid #46535e;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
       </div>
     </div>`;
 
@@ -4961,7 +4965,7 @@ function drawAiTrader(t) {
   const labelY = -(t.radius * 2.2 * CARRIAGE_SCALE) - 10;
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(-22, labelY, 44, 12);
-  ctx.fillStyle = t.color || '#f0d080';
+  ctx.fillStyle = t.color || '#e4b768';
   ctx.font = `bold ${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText(t.name.split(' ')[0], 0, labelY + 9);
@@ -5750,12 +5754,12 @@ function renderIntelModal() {
       const daysLeft = c.expiryDay - today;
       const canSell = c.sourceCityId !== (intelUI.cityId || '');
       return `
-        <div style="background:#1e1b14;border:1px solid #3a3420;border-radius:6px;padding:8px 10px;margin-bottom:6px">
+        <div style="background:#1d262e;border:1px solid #34414b;border-radius:6px;padding:8px 10px;margin-bottom:6px">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-weight:600;color:#f0d080">${dirIcon(c.direction)} ${htmlEscape(c.itemName)}</span>
+            <span style="font-weight:600;color:#e4b768">${dirIcon(c.direction)} ${htmlEscape(c.itemName)}</span>
             <span style="color:#888;font-size:11px">${daysLeft}d left</span>
           </div>
-          <div style="color:#b0a080;font-size:12px;margin-top:3px">
+          <div style="color:#a6b3bd;font-size:12px;margin-top:3px">
             In <b>${htmlEscape(c.cityName)}</b>: ~${c.predictedPrice}g (${dirLabel(c.direction)})
           </div>
           ${canSell ? `<button data-sell="${c.id}" style="margin-top:5px;background:#2a3a1a;border:1px solid #4a6a2a;color:#a0d060;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">Sell for ${INTEL_SELL_PRICE}g</button>` : `<span style="font-size:10px;color:#555">Same city - can't sell here</span>`}
@@ -5764,18 +5768,18 @@ function renderIntelModal() {
     }).join('');
 
   el.innerHTML = `
-    <div style="background:#14110c;border:2px solid #5a4a20;border-radius:10px;padding:16px;width:min(340px,90vw);max-height:80vh;overflow-y:auto;color:#e0cfa0">
+    <div style="background:#151c22;border:2px solid #46535e;border-radius:10px;padding:16px;width:min(340px,90vw);max-height:80vh;overflow-y:auto;color:#edf1f2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span style="font-size:15px;font-weight:700">🕵️ Intelligence Market</span>
         <button id="cr-intel-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
-        ${intelUI.npc ? `<button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='buy'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='buy'?'#f0d080':'#a09060'}">Buy Tip (${INTEL_BUY_COST}g)</button>` : ''}
-        <button data-tab="ledger" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #5a4a20;background:${intelUI.tab==='ledger'?'#3a2a0a':'#1a1508'};color:${intelUI.tab==='ledger'?'#f0d080':'#a09060'}">Ledger (${activeCards.length})</button>
+        ${intelUI.npc ? `<button data-tab="buy" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #46535e;background:${intelUI.tab==='buy'?'#384957':'#1d262e'};color:${intelUI.tab==='buy'?'#e4b768':'#a6b3bd'}">Buy Tip (${INTEL_BUY_COST}g)</button>` : ''}
+        <button data-tab="ledger" style="flex:1;padding:5px;border-radius:5px;cursor:pointer;border:1px solid #46535e;background:${intelUI.tab==='ledger'?'#384957':'#1d262e'};color:${intelUI.tab==='ledger'?'#e4b768':'#a6b3bd'}">Ledger (${activeCards.length})</button>
       </div>
       ${intelUI.tab === 'buy' ? `
-        <div style="color:#b0a080;font-size:13px;margin-bottom:10px;line-height:1.5">
-          Pay <b style="color:#f0d080">${INTEL_BUY_COST}g</b> to learn about price movements in the other city.
+        <div style="color:#a6b3bd;font-size:13px;margin-bottom:10px;line-height:1.5">
+          Pay <b style="color:#e4b768">${INTEL_BUY_COST}g</b> to learn about price movements in the other city.
           Reliable tips come with a 12% accuracy bonus when verified.
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5792,7 +5796,7 @@ function renderIntelModal() {
         ${ledgerRows}
       `}
       <div style="text-align:center;margin-top:10px">
-        <button id="cr-intel-close2" style="background:none;border:1px solid #5a4a20;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
+        <button id="cr-intel-close2" style="background:none;border:1px solid #46535e;color:#888;padding:4px 16px;border-radius:5px;cursor:pointer;font-size:16px" aria-label="Close">✕</button>
       </div>
     </div>
   `;
@@ -6720,8 +6724,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.45',
+    version: 'v0.5.47',
     whatsNew: [
+      'A new strategy interface: charcoal panels, amber actions, restrained map colors, clearer trading lists, keyboard-friendly controls, and a quieter field-notes drawer.',
       'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
       'Bank reliability fixes: rapid clicks can no longer double a loan or a withdrawal, a failed deposit now restores your balance exactly (no leftover phantom interest), a withdrawal from a temporarily under-funded vault keeps the unpaid remainder as a claim you can collect later instead of losing it, and a dropped network request no longer leaves your gold out of sync.',
       'The road carriage and its horse are now painted in the same painterly style as the characters: gradient-shaded wagon body and canopy with highlights, wheels with wood-grain shading, gold hubs and a rim glint, and a soft-shaded horse with a flowing mane, a lit eye and a shaded muzzle. Gear tiers still change everything (flat roof vs. canvas canopy, cargo pack, gold trim, and the phantom mare).',
@@ -7251,8 +7256,8 @@ function drawNpcBubble() {
         .sort(([,a],[,b]) => Math.abs(b) - Math.abs(a))
         .slice(0, 3);
       const econHtml = hotItems.length ? `
-        <div class="cr-rumors" aria-label="Market pulse" style="border-color:#4a3a10">
-          <div class="cr-rumors-title" style="color:#f0d080">🌍 Global Market</div>
+        <div class="cr-rumors" aria-label="Market pulse" style="border-color:#645238">
+          <div class="cr-rumors-title" style="color:#e4b768">🌍 Global Market</div>
           ${hotItems.map(([itemId, p]) => {
             const it = ITEMS.find(x => x.id === itemId);
             const name = it ? it.name : itemId;
@@ -7321,8 +7326,8 @@ function drawNpcBubble() {
                                            : `💰 +${Math.round(g.sellBonus*100)}%`;
                     // Progress bar
                     const pct = Math.round((cur / maxT) * 100);
-                    const progressBar = `<div style="height:4px;background:#1a1408;border-radius:2px;margin:4px 0 8px;overflow:hidden">
-                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#6a4a10,#f0d080);border-radius:2px;transition:width 0.3s"></div>
+                    const progressBar = `<div style="height:4px;background:#1d262e;border-radius:2px;margin:4px 0 8px;overflow:hidden">
+                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#6a4a10,#e4b768);border-radius:2px;transition:width 0.3s"></div>
                     </div>`;
                     // Show: all owned (collapsed if >3), next 1 buyable, next 2 locked
                     const showFrom = Math.max(0, cur - 2);
@@ -7331,7 +7336,7 @@ function drawNpcBubble() {
                     const hiddenAfter  = showTo < maxT;
                     return `<div style="margin-bottom:14px">
                       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-                        <span style="font-weight:700;color:#f0d080">${slotLabels[slot]}</span>
+                        <span style="font-weight:700;color:#e4b768">${slotLabels[slot]}</span>
                         <span style="font-size:11px;color:#888">T${cur}/${maxT} &nbsp; ${statLabel(tiers[cur])}</span>
                       </div>
                       ${progressBar}
@@ -7350,11 +7355,11 @@ function drawNpcBubble() {
                           ? `<span style="color:#555;font-size:11px">✓ owned</span>`
                           : locked
                           ? `<span style="color:#333;font-size:11px">🔒</span>`
-                          : `<button style="${canBuy ? 'background:#4a3a10;border:1px solid #f0d080;color:#f0d080;cursor:pointer;' : 'background:#1a1408;border:1px solid #444;color:#666;cursor:default;'}padding:4px 10px;border-radius:4px;font-size:12px;" data-action="buy-gear" data-slot="${slot}" data-tier="${i}" ${tooExpensive ? 'disabled' : ''}>${tooExpensive ? `Need ${g.cost}g` : `Buy ${g.cost}g`}</button>`;
-                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;margin-bottom:3px;border-radius:6px;background:${isCurrent ? '#1a2010' : owned ? '#0f0e0a' : '#0e0c08'};border:1px solid ${isCurrent ? '#4ade80' : owned ? '#2a2a1a' : '#1a1810'};">
+                          : `<button style="${canBuy ? 'background:#645238;border:1px solid #e4b768;color:#e4b768;cursor:pointer;' : 'background:#1d262e;border:1px solid #444;color:#666;cursor:default;'}padding:4px 10px;border-radius:4px;font-size:12px;" data-action="buy-gear" data-slot="${slot}" data-tier="${i}" ${tooExpensive ? 'disabled' : ''}>${tooExpensive ? `Need ${g.cost}g` : `Buy ${g.cost}g`}</button>`;
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;margin-bottom:3px;border-radius:6px;background:${isCurrent ? '#24392e' : owned ? '#151c22' : '#151c22'};border:1px solid ${isCurrent ? '#4ade80' : owned ? '#34414b' : '#34414b'};">
                           <div style="flex:1;min-width:0">
                             ${tierBadge}<span style="font-size:14px">${g.icon}</span>
-                            <span style="color:${isCurrent ? '#e0cfa0' : locked ? '#444' : owned ? '#888' : '#b0a070'};margin-left:5px;font-weight:${isCurrent ? '700' : '400'}">${g.name}</span>
+                            <span style="color:${isCurrent ? '#edf1f2' : locked ? '#444' : owned ? '#888' : '#b0a070'};margin-left:5px;font-weight:${isCurrent ? '700' : '400'}">${g.name}</span>
                             <span style="font-size:10px;color:${isCurrent ? '#a0e060' : '#666'};margin-left:6px">${statLabel(g)}</span>
                             <div style="font-size:10px;color:#555;margin-left:22px;margin-top:1px">${g.desc}</div>
                           </div>
@@ -7387,9 +7392,9 @@ function drawNpcBubble() {
                         <span style="color:#8a7a5a">buy <b style="color:#e0b060">${q.buy}g</b> · sell <b style="color:#86efac">${q.sell}g</b></span>
                       </div>`;
                     }).join('');
-                    return `<div style="margin-bottom:12px;border:1px solid ${isHere ? '#4a3a10' : '#2a2a1a'};border-radius:8px;padding:8px 10px;background:#0f0e0a">
+                    return `<div style="margin-bottom:12px;border:1px solid ${isHere ? '#645238' : '#34414b'};border-radius:8px;padding:8px 10px;background:#151c22">
                       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                        <span style="font-weight:700;color:#f0d080">📍 ${htmlEscape(cityName(cid))}${isHere ? ' (here)' : ''}</span>
+                        <span style="font-weight:700;color:#e4b768">📍 ${htmlEscape(cityName(cid))}${isHere ? ' (here)' : ''}</span>
                         <span style="font-size:10px;color:#888">seen ${stale}</span>
                       </div>
                       ${itemRows}
@@ -7505,7 +7510,7 @@ function drawNpcBubble() {
         const hold = contractHoldLabel(player.inv, job);
         const cheapId = cheapestCityFor(job.want, CITY_MULTS);
         const srcHint = cheapId ? ` · 🏷️ cheapest at ${htmlEscape(cityName(cheapId))}` : '';
-        const holdLine = `<div class="cr-card-sub" style="color:${hold.met ? '#86efac' : '#a09060'}">You hold ${hold.have}/${hold.need}${hold.met ? ' ✓' : ''}${srcHint}</div>`;
+        const holdLine = `<div class="cr-card-sub" style="color:${hold.met ? '#86efac' : '#a6b3bd'}">You hold ${hold.have}/${hold.need}${hold.met ? ' ✓' : ''}${srcHint}</div>`;
         return `
           <div class="cr-card" role="button" tabindex="0" data-cidx="${i}" data-want="${htmlEscape(job.want)}" aria-current="${selected}">
             <div>
@@ -8407,7 +8412,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.45',
+      buildVersion: 'v0.5.47',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10356,13 +10361,13 @@ function drawNpcBubble() {
 
   // Icon + accent color for each building type — used for the facade plaque
   const BUILDING_META = {
-    6:  { icon: '🛒', accent: '#f0a830', ribbon: '#d18816' }, // Market — honey
-    7:  { icon: '🍺', accent: '#e57389', ribbon: '#a8485e' }, // Tavern — berry
-    8:  { icon: '📦', accent: '#a87a3e', ribbon: '#7d5230' }, // Warehouse — oak
-    12: { icon: '📜', accent: '#7fbf83', ribbon: '#4f9e5b' }, // Contracts — sage
-    13: { icon: '💰', accent: '#d18816', ribbon: '#a8753a' }, // Bank — honey-deep
-    14: { icon: '🛏️', accent: '#e57389', ribbon: '#a8485e' }, // Inn — berry
-    15: { icon: '⚒️', accent: '#b07ec3', ribbon: '#8a5aa3' }, // Guild — plum
+    6:  { icon: '🛒', accent: '#d4ab62', ribbon: '#9f804d' }, // Market — honey
+    7:  { icon: '🍺', accent: '#b38a7c', ribbon: '#665453' }, // Tavern — berry
+    8:  { icon: '📦', accent: '#85876b', ribbon: '#51594b' }, // Warehouse — oak
+    12: { icon: '📜', accent: '#91ae99', ribbon: '#3e6051' }, // Contracts — sage
+    13: { icon: '💰', accent: '#9f804d', ribbon: '#a8753a' }, // Bank — honey-deep
+    14: { icon: '🛏️', accent: '#b38a7c', ribbon: '#665453' }, // Inn — berry
+    15: { icon: '⚒️', accent: '#8b9ba8', ribbon: '#4e5c6b' }, // Guild — plum
     16: { icon: '🏚️', accent: '#a89e8a', ribbon: '#6b5e4a' }, // Vacant — muted
   };
   // Slot-key icon overrides (when multiple slots share a tile type)
@@ -10400,133 +10405,66 @@ function drawNpcBubble() {
   }
 
   function drawTile(id, x, y, tx, ty) {
-    // storybook fantasy palette + subtle variation
+    // Low-contrast terrain keeps routes, landmarks, and people legible.
+    // Presentation only: tile IDs and collision geometry are unchanged.
     if (id === 0) {
       const n = hash2(tx, ty);
-      const g = n < 0.33 ? '#a8dd92' : (n < 0.66 ? '#b5e29a' : '#9cd584');
-      ctx.fillStyle = g;
+      ctx.fillStyle = n < 0.5 ? '#536b58' : '#556d5a';
       ctx.fillRect(x, y, TILE, TILE);
-      if (n > 0.86) {
-        ctx.fillStyle = 'rgba(255, 230, 160, 0.18)';
-        ctx.fillRect(x + 3, y + 4, 2, 2);
-        ctx.fillRect(x + 10, y + 9, 1, 1);
+      if (n < 0.06) {
+        ctx.fillStyle = '#435c4a';
+        ctx.fillRect(x + 5, y + 8, 5, 2);
       }
-
-      // bushes / flowers (non-colliding detail)
-      if (n < 0.08) {
-        ctx.fillStyle = 'rgba(80, 140, 90, 0.40)';
-        ctx.fillRect(x + 4, y + 8, 8, 5);
-        ctx.fillStyle = 'rgba(127, 191, 131, 0.45)';
-        ctx.fillRect(x + 5, y + 9, 6, 3);
-      } else if (n > 0.92) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-        ctx.fillRect(x + 7, y + 6, 1, 1);
-        ctx.fillStyle = 'rgba(229, 115, 137, 0.40)';
-        ctx.fillRect(x + 9, y + 10, 1, 1);
-      }
-      ctx.fillStyle = 'rgba(0,0,0,0.04)';
-      ctx.fillRect(x, y, TILE, 1);
-      ctx.fillRect(x, y, 1, TILE);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
       return;
     }
-
     if (id === 1) {
-      const rn = hash2(tx, ty);
-      const roadBase = rn < 0.4 ? '#e6c88c' : (rn < 0.7 ? '#e8cb90' : '#e4c388');
-      ctx.fillStyle = roadBase;
+      ctx.fillStyle = '#a69778';
       ctx.fillRect(x, y, TILE, TILE);
-      // Worn center lane (lighter packed earth)
-      ctx.fillStyle = rn < 0.5 ? '#f0d9a8' : '#f2dcae';
-      ctx.fillRect(x + 3, y + 2, TILE - 6, TILE - 4);
-      // Subtle rut line
-      ctx.fillStyle = 'rgba(140,100,60,0.18)';
-      ctx.fillRect(x + 4, y, 1, TILE);
-      ctx.fillRect(x + TILE - 5, y, 1, TILE);
-      // Edge shading from adjacent tiles
-      ctx.fillStyle = 'rgba(140,100,60,0.20)';
-      if (tileAt(tx, ty-1) !== 1) ctx.fillRect(x, y, TILE, 2);
-      if (tileAt(tx, ty+1) !== 1) ctx.fillRect(x, y + TILE - 2, TILE, 2);
-      if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 2, TILE);
-      if (tileAt(tx+1, ty) !== 1) ctx.fillRect(x + TILE - 2, y, 2, TILE);
+      ctx.fillStyle = '#887d66';
+      if (tileAt(tx, ty-1) !== 1) ctx.fillRect(x, y, TILE, 1);
+      if (tileAt(tx, ty+1) !== 1) ctx.fillRect(x, y + TILE - 1, TILE, 1);
+      if (tileAt(tx-1, ty) !== 1) ctx.fillRect(x, y, 1, TILE);
+      if (tileAt(tx+1, ty) !== 1) ctx.fillRect(x + TILE - 1, y, 1, TILE);
       return;
     }
-
     if (id === 2) {
-      ctx.fillStyle = '#9ad6e8';
+      ctx.fillStyle = '#355563';
       ctx.fillRect(x, y, TILE, TILE);
-
-      const nearLand = (tileAt(tx, ty-1) !== 2) || (tileAt(tx, ty+1) !== 2) || (tileAt(tx-1, ty) !== 2) || (tileAt(tx+1, ty) !== 2);
-      if (nearLand) {
-        ctx.fillStyle = 'rgba(255,255,255,0.40)';
-        ctx.fillRect(x+1, y+1, TILE-2, 1);
-      }
-
-      const phase = (stateTime * 0.004 + (tx*7 + ty*11)) % 6;
-      ctx.fillStyle = 'rgba(255,255,255,0.30)';
-      ctx.fillRect(x, y + Math.floor(phase), TILE, 2);
-
-      // active contract (pinned)
-      // moved to drawHUD(); keeping tile rendering pure
-
+      ctx.fillStyle = '#466975';
+      if (hash2(tx, ty) > 0.78) ctx.fillRect(x + 4, y + 8, 7, 1);
       return;
     }
-
     if (id === 3) {
-      // Stone wall — weathered grey-tan stone: clearly darker than the cream
-      // city floor so ramparts read as solid barriers, with ink mortar + battlements
-      const n = hash2(tx, ty);
-      const wallBase = n < 0.5 ? '#8a7a5a' : '#7a6b4e';
-      ctx.fillStyle = wallBase;
+      ctx.fillStyle = '#5c6462';
       ctx.fillRect(x, y, TILE, TILE);
-      // Horizontal mortar line
-      ctx.fillStyle = 'rgba(40,28,16,0.42)';
-      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
-      // Block highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.30)';
-      ctx.fillRect(x+1, y+1, TILE-2, 2);
-      ctx.fillRect(x+1, y+Math.floor(TILE/2)+1, TILE-2, 2);
-      // Battlements on top row of walls (decorative notch)
-      if (tileAt(tx, ty-1) !== 3) {
-        ctx.fillStyle = '#3b2a1d';
-        ctx.fillRect(x, y, Math.floor(TILE/3), 3);
-        ctx.fillRect(x+Math.floor(TILE*2/3), y, Math.floor(TILE/3)+1, 3);
-      }
+      ctx.fillStyle = '#7a827b';
+      ctx.fillRect(x, y, TILE, 2);
+      ctx.fillStyle = '#414c49';
+      ctx.fillRect(x, y + TILE - 2, TILE, 2);
       return;
     }
-
     if (id === 4) {
-      // City floor - cream cobblestone with soft mortar lines (Plumberry)
-      const n = hash2(tx, ty);
-      const base = n < 0.33 ? '#f0e2c4' : (n < 0.66 ? '#e8d8b4' : '#ecdebc');
-      ctx.fillStyle = base;
+      ctx.fillStyle = '#b3b4a0';
       ctx.fillRect(x, y, TILE, TILE);
-      // mortar grid
-      ctx.fillStyle = 'rgba(140,100,60,0.20)';
-      ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
-      ctx.fillRect(x + Math.floor(TILE/2), y, 1, TILE);
-      // stone highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillRect(x + 1, y + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
-      ctx.fillRect(x + Math.floor(TILE/2) + 1, y + Math.floor(TILE/2) + 1, Math.floor(TILE/2) - 2, Math.floor(TILE/2) - 2);
+      // Sparse joint lines replace the high-frequency checkerboard paving.
+      ctx.fillStyle = '#a8ab98';
+      if (ty % 2 === 0) ctx.fillRect(x, y, TILE, 1);
+      if ((tx + Math.floor(ty / 2)) % 3 === 0) ctx.fillRect(x, y, 1, TILE);
       return;
     }
 
     if (id === 5) {
       // Gate arch — cream stone with honey portcullis bars
-      ctx.fillStyle = '#c8b08a';
+      ctx.fillStyle = '#757e6c';
       ctx.fillRect(x, y, TILE, TILE);
       // arch body
-      ctx.fillStyle = '#e6d4b0';
+      ctx.fillStyle = '#a5ad96';
       ctx.fillRect(x+1, y+2, TILE-2, TILE-4);
       // arch opening (dark passage)
-      ctx.fillStyle = '#3b2a1d';
+      ctx.fillStyle = '#27362f';
       ctx.fillRect(x+4, y+4, TILE-8, TILE-6);
       // portcullis bars (honey)
-      ctx.fillStyle = '#d18816';
+      ctx.fillStyle = '#9f804d';
       for (let bx = x+5; bx < x+TILE-4; bx += 3) {
         ctx.fillRect(bx, y+4, 1, TILE-7);
       }
@@ -10633,28 +10571,18 @@ function drawNpcBubble() {
     }
 
     if (id === 9) {
-      // Cobblestone plaza / courtyard — cream premium floor (Plumberry)
-      const n = hash2(tx, ty);
-      ctx.fillStyle = n < 0.4 ? '#f5e6c8' : '#eedeb8';
+      // A slightly lighter plaza marks the town center without visual noise.
+      ctx.fillStyle = '#c2c2aa';
       ctx.fillRect(x, y, TILE, TILE);
-      // Large cobble pattern
-      ctx.fillStyle = 'rgba(140,100,60,0.22)';
-      ctx.fillRect(x,   y + Math.floor(TILE/3),     TILE, 1);
-      ctx.fillRect(x,   y + Math.floor(TILE*2/3),   TILE, 1);
-      ctx.fillRect(x + Math.floor(TILE/3),   y,     1, TILE);
-      ctx.fillRect(x + Math.floor(TILE*2/3), y,     1, TILE);
-      // Stone highlights
-      ctx.fillStyle = 'rgba(255,255,255,0.40)';
-      ctx.fillRect(x+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
-      ctx.fillRect(x+Math.floor(TILE/3)+1, y+Math.floor(TILE/3)+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
-      ctx.fillRect(x+Math.floor(TILE*2/3)+1, y+1, Math.floor(TILE/3)-2, Math.floor(TILE/3)-2);
+      ctx.fillStyle = '#afb39c';
+      ctx.fillRect(x, y, TILE, 1);
+      ctx.fillRect(x, y, 1, TILE);
       return;
     }
 
-
     if (id === 10) { // forest
       const n = hash2(tx, ty);
-      ctx.fillStyle = n < 0.5 ? '#175e2f' : '#1a6433';
+      ctx.fillStyle = n < 0.5 ? '#344f40' : '#375242';
       ctx.fillRect(x, y, TILE, TILE);
       ctx.fillStyle = 'rgba(6, 95, 70, 0.32)';
       ctx.fillRect(x + 2, y + 3, TILE - 4, 2);
@@ -10863,9 +10791,9 @@ function drawNpcBubble() {
         ctx.fillRect(x+1, y+7, TILE-2, 1);
         ctx.fillRect(x+1, y+11, TILE-2, 1);
         // Verdigris copper roof (matches the 3D bank sprite; stands out vs market)
-        ctx.fillStyle = '#2f8f96';
+        ctx.fillStyle = '#3c6067';
         ctx.fillRect(x, y+2, TILE, 3);
-        ctx.fillStyle = '#48b0b8';
+        ctx.fillStyle = '#81a3a6';
         ctx.fillRect(x+1, y+3, TILE-2, 1);
         // Columns (pillars on front)
         ctx.fillStyle = '#8a8070';
@@ -10959,7 +10887,7 @@ function drawNpcBubble() {
     if (id === 16) {
       // Vacant building lot — cream foundation pad with faint blueprint grid
       // (mostly covered by the construction-site sprite; this is the fallback)
-      ctx.fillStyle = '#fff5d8';
+      ctx.fillStyle = '#7f8f7a';
       ctx.fillRect(x, y, TILE, TILE);
       ctx.fillStyle = 'rgba(208,136,22,0.22)';
       ctx.fillRect(x, y + Math.floor(TILE/2), TILE, 1);
@@ -10985,7 +10913,7 @@ function drawNpcBubble() {
     ctx.save();
 
     // Foundation pad — cream paper with a faint honey blueprint grid
-    ctx.fillStyle = '#fff5d8';
+    ctx.fillStyle = '#7f8f7a';
     ctx.fillRect(bx, by, bw, bh);
     ctx.strokeStyle = 'rgba(208,136,22,0.32)';
     ctx.lineWidth = 1;
@@ -11010,11 +10938,11 @@ function drawNpcBubble() {
     ctx.fillRect(bx + 2, by + 2 + Math.round(poleH * 0.55), bw - 4, 1);
 
     // Pulsing dashed honey border — the build hitbox itself, made obvious
-    const pulse = 0.65 + 0.35 * (Math.sin(stateTime * 0.003 + slot.tileX) * 0.5 + 0.5);
+    const pulse = 0.7;
     ctx.strokeStyle = `rgba(208,136,22,${pulse.toFixed(2)})`;
     ctx.lineWidth = 2.5;
     ctx.setLineDash([5, 4]);
-    ctx.lineDashOffset = -stateTime * 0.012;
+    ctx.lineDashOffset = 0;
     ctx.strokeRect(bx + 1.5, by + 1.5, bw - 3, bh - 3);
     ctx.setLineDash([]);
     ctx.lineDashOffset = 0;
@@ -11028,12 +10956,12 @@ function drawNpcBubble() {
 
     ctx.fillStyle = 'rgba(59,42,29,0.30)';
     ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
-    ctx.fillStyle = '#fffaef';
+    ctx.fillStyle = '#d1d1bd';
     ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
     const ribbonH = Math.max(2, Math.round(plaqueSize * 0.18));
-    ctx.fillStyle = '#f0a830';
+    ctx.fillStyle = '#d4ab62';
     ctx.fillRect(plaqueX, plaqueY, plaqueSize, ribbonH);
-    ctx.strokeStyle = '#3b2a1d';
+    ctx.strokeStyle = '#27362f';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
 
@@ -11042,12 +10970,6 @@ function drawNpcBubble() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(icon, plaqueX + plaqueSize / 2, plaqueY + ribbonH + (plaqueSize - ribbonH) / 2 + 1);
-
-    // Bobbing hammer above the plaque for an unmistakable "build me" cue
-    const bobY = Math.sin(stateTime * 0.004 + slot.tileX) * 2;
-    const hammerPx = Math.max(11, Math.round(TILE * 0.85));
-    ctx.font = `${hammerPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
-    ctx.fillText('🔨', plaqueX + plaqueSize - 2, plaqueY - 4 + bobY);
 
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
@@ -11085,42 +11007,42 @@ function drawNpcBubble() {
       const rise = Math.min(TILE + (lv >= 3 ? 2 : -2), Math.round(riseBase * (lv >= 3 ? 1.45 : lv >= 2 ? 1.22 : 1.0)));
       let roofTop, roofFace, wallMain, wallDark, wallLight, doorColor, windowColor;
 
-      // Plumberry cottage-core palette — cream walls + colorful roofs per use
+      // Restrained architectural palette; roof accents distinguish each service
       switch (type) {
         case 7: case 14: // Inn / Tavern — berry roof
-          roofTop   = '#a8485e'; roofFace  = '#c66479';
-          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(240,168,48,0.90)';
+          roofTop   = '#665453'; roofFace  = '#92736b';
+          wallMain  = '#d1d1bd'; wallDark  = '#a3a992'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(240,168,48,0.90)';
           break;
         case 6: // Market — honey roof
-          roofTop   = '#d18816'; roofFace  = '#f0a830';
-          wallMain  = '#fffaef'; wallDark  = '#e8d5a8'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,100,0.85)';
+          roofTop   = '#9f804d'; roofFace  = '#d4ab62';
+          wallMain  = '#d1d1bd'; wallDark  = '#aaae96'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(255,220,100,0.85)';
           break;
         case 8: // Warehouse / Granary — oak roof on cream-tan walls
-          roofTop   = '#7d5230'; roofFace  = '#a87a3e';
-          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(180,140,80,0.65)';
+          roofTop   = '#51594b'; roofFace  = '#85876b';
+          wallMain  = '#c0c1ab'; wallDark  = '#9da38a'; wallLight = '#dddecd';
+          doorColor = '#27362f'; windowColor = 'rgba(180,140,80,0.65)';
           break;
         case 15: // Guild — plum roof
-          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
-          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(176,126,195,0.75)';
+          roofTop   = '#4e5c6b'; roofFace  = '#8b9ba8';
+          wallMain  = '#d1d1bd'; wallDark  = '#a3a992'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(176,126,195,0.75)';
           break;
         case 12: // Contracts — sage roof
-          roofTop   = '#4f9e5b'; roofFace  = '#7fbf83';
-          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.75)';
+          roofTop   = '#3e6051'; roofFace  = '#91ae99';
+          wallMain  = '#d1d1bd'; wallDark  = '#a3a992'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(127,191,131,0.75)';
           break;
         case 13: // Bank — verdigris copper roof (distinct from the honey market)
-          roofTop   = '#2f8f96'; roofFace  = '#48b0b8';
-          wallMain  = '#fdecc4'; wallDark  = '#e0c890'; wallLight = '#fff7e3';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(72,176,184,0.85)';
+          roofTop   = '#3c6067'; roofFace  = '#81a3a6';
+          wallMain  = '#c0c1ab'; wallDark  = '#9da38a'; wallLight = '#dddecd';
+          doorColor = '#27362f'; windowColor = 'rgba(72,176,184,0.85)';
           break;
         case 4: // Foreman HQ / Barracks — slate roof, cream walls
           roofTop   = '#5b6b78'; roofFace  = '#7a8a96';
-          wallMain  = '#fffaef'; wallDark  = '#d8d2c4'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(127,191,131,0.65)';
+          wallMain  = '#d1d1bd'; wallDark  = '#a1a998'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(127,191,131,0.65)';
           break;
         case 19: // Mine — slate roof, warm tan walls (kept earthier)
           roofTop   = '#3a322a'; roofFace  = '#5c5247';
@@ -11128,9 +11050,9 @@ function drawNpcBubble() {
           doorColor = '#2a1f14'; windowColor = 'rgba(240,168,48,0.85)';
           break;
         default:
-          roofTop   = '#8a5aa3'; roofFace  = '#b07ec3';
-          wallMain  = '#fffaef'; wallDark  = '#e6d8be'; wallLight = '#ffffff';
-          doorColor = '#3b2a1d'; windowColor = 'rgba(255,220,140,0.55)';
+          roofTop   = '#4e5c6b'; roofFace  = '#8b9ba8';
+          wallMain  = '#d1d1bd'; wallDark  = '#a3a992'; wallLight = '#e0e2d3';
+          doorColor = '#27362f'; windowColor = 'rgba(255,220,140,0.55)';
       }
 
       // ── Top face (isometric-ish roof on top of rise) ──
@@ -11185,7 +11107,7 @@ function drawNpcBubble() {
         for (const px of positions) {
           const fpx = bx + Math.round(px);
           const fpy = by - rise;
-          ctx.fillStyle = '#3b2a1d';
+          ctx.fillStyle = '#27362f';
           ctx.fillRect(fpx - 1, fpy - poleH, 2, poleH);
           ctx.fillStyle = roofTop;
           ctx.beginPath();
@@ -11194,7 +11116,7 @@ function drawNpcBubble() {
           ctx.lineTo(fpx + 1, fpy - poleH + 6);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = '#3b2a1d';
+          ctx.strokeStyle = '#27362f';
           ctx.lineWidth = 0.8;
           ctx.stroke();
         }
@@ -11288,7 +11210,7 @@ function drawNpcBubble() {
         const plaqueY    = by + Math.round(TILE * 0.18);
 
         // Two short hanging ropes from roof to plaque corners
-        ctx.strokeStyle = '#3b2a1d';
+        ctx.strokeStyle = '#27362f';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(plaqueX + plaqueSize * 0.22, plaqueY);
@@ -11302,7 +11224,7 @@ function drawNpcBubble() {
         ctx.fillRect(plaqueX + 1, plaqueY + 2, plaqueSize, plaqueSize);
 
         // Cream paper plaque
-        ctx.fillStyle = '#fffaef';
+        ctx.fillStyle = '#d1d1bd';
         ctx.fillRect(plaqueX, plaqueY, plaqueSize, plaqueSize);
 
         // Accent ribbon strip across top of plaque
@@ -11322,7 +11244,7 @@ function drawNpcBubble() {
         }
 
         // Ink border (chunky outline)
-        ctx.strokeStyle = '#3b2a1d';
+        ctx.strokeStyle = '#27362f';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(plaqueX + 0.5, plaqueY + 0.5, plaqueSize - 1, plaqueSize - 1);
 
@@ -11341,7 +11263,7 @@ function drawNpcBubble() {
       }
 
       // ── Outer wall border (chunky ink) ──
-      ctx.strokeStyle = '#3b2a1d';
+      ctx.strokeStyle = '#27362f';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
 
@@ -11388,14 +11310,14 @@ function drawBuildingLabels() {
   if (!currentCity()) return;
 
   const INTERACT = {
-    6:  { icon: '🛒', color: '#f0a830', nearDist: 6 }, // Market
-    12: { icon: '📜', color: '#7fbf83', nearDist: 6 }, // Contracts
-    7:  { icon: '🍺', color: '#e57389', nearDist: 5 }, // Tavern
-    8:  { icon: '📦', color: '#a87a3e', nearDist: 5 }, // Warehouse
-    13: { icon: '💰', color: '#d18816', nearDist: 6 }, // Bank
-    14: { icon: '🛏️', color: '#e57389', nearDist: 6 }, // Inn
-    15: { icon: '⚒️', color: '#b07ec3', nearDist: 6 }, // Guild
-    16: { icon: '🔨', color: '#f0a830', nearDist: 8 }, // Construction site (vacant)
+    6:  { icon: '🛒', color: '#d4ab62', nearDist: 6 }, // Market
+    12: { icon: '📜', color: '#91ae99', nearDist: 6 }, // Contracts
+    7:  { icon: '🍺', color: '#b38a7c', nearDist: 5 }, // Tavern
+    8:  { icon: '📦', color: '#85876b', nearDist: 5 }, // Warehouse
+    13: { icon: '💰', color: '#9f804d', nearDist: 6 }, // Bank
+    14: { icon: '🛏️', color: '#b38a7c', nearDist: 6 }, // Inn
+    15: { icon: '⚒️', color: '#8b9ba8', nearDist: 6 }, // Guild
+    16: { icon: '🔨', color: '#d4ab62', nearDist: 8 }, // Construction site (vacant)
     18: { icon: '⛏️', color: '#8a7a52', nearDist: 2 }, // Ore Vein
     19: { icon: '⛏️', color: '#5c5247', nearDist: 6 }, // Mine
   };
@@ -11526,7 +11448,7 @@ function drawBuildingLabels() {
       else ctx.fillRect(chipX + 1, chipY + 2, chipSize, chipSize);
 
       // Cream paper chip
-      ctx.fillStyle = '#fffaef';
+      ctx.fillStyle = '#d1d1bd';
       if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX, chipY, chipSize, chipSize, 6); ctx.fill(); }
       else ctx.fillRect(chipX, chipY, chipSize, chipSize);
 
@@ -11543,7 +11465,7 @@ function drawBuildingLabels() {
       }
 
       // Ink border
-      ctx.strokeStyle = '#3b2a1d';
+      ctx.strokeStyle = '#27362f';
       ctx.lineWidth = 1.5;
       if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1, 6); ctx.stroke(); }
       else ctx.strokeRect(chipX + 0.5, chipY + 0.5, chipSize - 1, chipSize - 1);
@@ -12132,7 +12054,7 @@ function drawEntities() {
   // No-op: was used by toggle, kept so call sites don't crash
   function _mmClose() {}
   // ── FAB / ACTION BAR - context-sensitive action buttons ──────────────
-  // Desktop: stacked round FABs (bottom-right of canvas).
+  // Desktop: compact labelled action bar at bottom-left, clear of city stats.
   // Mobile: slim horizontal pill bar at bottom of screen - max 3 actions, always labelled.
   //         Hidden when no contextual actions available; slides in when relevant.
   let _fabLastKey = '';
@@ -12205,7 +12127,10 @@ function drawEntities() {
         btn.appendChild(lbl);
       } else {
         // Desktop: round icon only, label as tooltip
-        btn.innerHTML = icon;
+        const iconSpan = document.createElement('span');
+        iconSpan.textContent = icon;
+        iconSpan.setAttribute('aria-hidden', 'true');
+        btn.appendChild(iconSpan);
         btn.style.position = 'relative';
         const lbl = document.createElement('span');
         lbl.className = 'fab-label';
@@ -12213,7 +12138,8 @@ function drawEntities() {
         btn.appendChild(lbl);
       }
 
-      btn.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); onClick(); });
+      btn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      btn.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
       fabBar.appendChild(btn);
     };
 
@@ -12307,7 +12233,7 @@ if (IS_MOBILE) {
   const midY = Math.round(22 * UI_SCALE);
 
   // Background strip
-  ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
+  ctx.fillStyle = '#151c22';
   ctx.fillRect(0, 0, VIEW_W, topH);
   ctx.strokeStyle = 'rgba(30, 42, 54, 0.9)';
   ctx.lineWidth = 1;
@@ -12395,7 +12321,7 @@ if (IS_MOBILE) {
   return;
 }
 
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.82)';
+    ctx.fillStyle = '#151c22';
     ctx.fillRect(0, 0, VIEW_W, HUD_H);
     ctx.strokeStyle = 'rgba(30, 42, 54, 1)';
     ctx.beginPath();
@@ -12507,27 +12433,29 @@ if (IS_MOBILE) {
     // Save/Load buttons (desktop only, small icons in HUD)
     if (!IS_MOBILE) {
       const btnSaveX = rightX - Math.round(260 * UI_SCALE);
-      const btnSaveY = Math.round(14 * UI_SCALE);
+      const btnSaveY = Math.round(43 * UI_SCALE);
       const btnW = Math.round(48 * UI_SCALE);
       const btnH = Math.round(20 * UI_SCALE);
 
       // Save button
-      ctx.fillStyle = 'rgba(34,197,94,0.85)';
-      if (ctx.roundRect) ctx.roundRect(btnSaveX, btnSaveY - btnH, btnW, btnH, 4);
+      ctx.fillStyle = '#2c3c47';
+      ctx.beginPath();
+      if (ctx.roundRect) { ctx.roundRect(btnSaveX, btnSaveY - btnH, btnW, btnH, 4); ctx.fill(); }
       else ctx.fillRect(btnSaveX, btnSaveY - btnH, btnW, btnH);
       ctx.fillStyle = '#fff';
       ctx.font = `700 ${Math.round(10 * UI_SCALE)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText('💾', btnSaveX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
+      ctx.fillText('Save', btnSaveX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnSave = { x: btnSaveX, y: btnSaveY - btnH, w: btnW, h: btnH };
 
       // Load button
       const btnLoadX = btnSaveX + btnW + Math.round(8 * UI_SCALE);
-      ctx.fillStyle = 'rgba(59,130,246,0.85)';
-      if (ctx.roundRect) ctx.roundRect(btnLoadX, btnSaveY - btnH, btnW, btnH, 4);
+      ctx.fillStyle = '#2c3c47';
+      ctx.beginPath();
+      if (ctx.roundRect) { ctx.roundRect(btnLoadX, btnSaveY - btnH, btnW, btnH, 4); ctx.fill(); }
       else ctx.fillRect(btnLoadX, btnSaveY - btnH, btnW, btnH);
       ctx.fillStyle = '#fff';
-      ctx.fillText('📂', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
+      ctx.fillText('Load', btnLoadX + btnW/2, btnSaveY - Math.round(6 * UI_SCALE));
       ui._btnLoad = { x: btnLoadX, y: btnSaveY - btnH, w: btnW, h: btnH };
 
       // Player ID badge (desktop HUD, top-right corner)
@@ -12680,8 +12608,8 @@ if (!IS_MOBILE && c && rules && !ui.marketOpen && !ui.contractsOpen && !ui.event
   ctx.save();
 
   // Card background + border
-  ctx.fillStyle = 'rgba(8, 12, 18, 0.78)';
-  ctx.strokeStyle = 'rgba(30, 42, 54, 0.90)';
+  ctx.fillStyle = '#151c22';
+  ctx.strokeStyle = '#46535e';
   ctx.lineWidth = 1;
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 10);
@@ -12797,17 +12725,21 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
 }
 
     // Toast stack (newest on top, older entries fade below). The first line
-    // sits inside the HUD strip; overflow lines extend below it over the map.
+    // sits below the HUD strip, with its own backing for map contrast.
     if (ui.toasts && ui.toasts.length) {
-      const baseY = Math.min(HUD_H - Math.round(8 * UI_SCALE), line2 + Math.round(18 * UI_SCALE));
-      const stepY = Math.round(14 * UI_SCALE);
+      const baseY = HUD_H + Math.round(18 * UI_SCALE);
+      const stepY = Math.round(20 * UI_SCALE);
       const alphas = [0.95, 0.72, 0.5];
       ctx.font = `${Math.round(12 * UI_SCALE)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
       ctx.textAlign = 'left';
       // Newest entry (last in queue) draws on top; iterate backwards in place.
       for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
-        ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
-        ctx.fillText(ellipsizeText(ui.toasts[j].msg, maxTextW), titleX, baseY + k * stepY);
+        const text = ellipsizeText(ui.toasts[j].msg, maxTextW);
+        const y = baseY + k * stepY;
+        ctx.fillStyle = "#151c22eb";
+        ctx.fillRect(titleX - 6, y - 13 * UI_SCALE, ctx.measureText(text).width + 12, 18 * UI_SCALE);
+        ctx.fillStyle = `rgba(237, 241, 242, ${alphas[k] ?? 0.5})`;
+        ctx.fillText(text, titleX, y);
       }
     }
   }

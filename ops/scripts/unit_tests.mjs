@@ -2283,8 +2283,8 @@ console.log('\n=== Map palette contrast ===');
     return m[1];
   };
 
-  const wallBase = first(/const wallBase = n < 0\.5 \? '(#[0-9a-fA-F]{6})'/, 'wall base color');
-  const floorBase = first(/const base = n < 0\.33 \? '(#[0-9a-fA-F]{6})'/, 'city floor base color');
+  const wallBase = first(/if \(id === 3\) \{\s*ctx.fillStyle = '(#[0-9a-fA-F]{6})'/, 'wall base color');
+  const floorBase = first(/if \(id === 4\) \{\s*ctx.fillStyle = '(#[0-9a-fA-F]{6})'/, 'city floor base color');
   const bankRoof = first(/case 13: \/\/ Bank[\s\S]*?roofTop\s*=\s*'(#[0-9a-fA-F]{6})'/, 'bank roof color');
   const marketRoof = first(/case 6: \/\/ Market[\s\S]*?roofTop\s*=\s*'(#[0-9a-fA-F]{6})'/, 'market roof color');
 
