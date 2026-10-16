@@ -27,6 +27,8 @@ jobs:
         run: |
           node --check src/main.js
           find ops/scripts -name "*.mjs" -print0 | xargs -0 -n1 node --check
+          # Browser ES modules (package.json is commonjs, so check them as modules via stdin)
+          for f in src/world3d.js src/world3d_core.js; do node --input-type=module --check < "$f" || { echo "::error file=$f::syntax error"; exit 1; }; done
 
       - name: Run unit and parity tests
         run: npm run test:unit
@@ -54,7 +56,7 @@ jobs:
               echo "Only version lines changed in src/main.js — version bump exempted from test-first rule."
               exit 0
             fi
-            if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|mining_tests|balance_regression_test|player_sim_tests|harness_tests|qa_selftest)\.mjs$"; then
+            if ! echo "$CHANGED" | grep -qE "^ops/scripts/(unit_tests|economy_parity_test|mining_tests|balance_regression_test|player_sim_tests|harness_tests|world3d_tests|qa_selftest)\.mjs$"; then
               echo "ERROR: src/main.js changed without a corresponding test file update."
               echo ""
               echo "Test-first rule (CLAUDE.md): add or update a test in the same PR."
