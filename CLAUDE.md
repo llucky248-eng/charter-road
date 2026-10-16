@@ -30,6 +30,7 @@ Every feature must have a **failing test written before implementation** (red �
 | Pure logic (math, data transforms) | `ops/scripts/unit_tests.mjs` |
 | Economy / balance / price curves | `ops/scripts/economy_parity_test.mjs` |
 | Mining sim (sites, metal variants, rarity pricing, production, shipping) | `ops/scripts/mining_tests.mjs` |
+| 3D renderer pure helpers (ground/prop mapping, camera rig, sun, building specs) | `ops/scripts/world3d_tests.mjs` |
 | UI / interaction / visual | `ops/scripts/qa_selftest.mjs` |
 
 ## Version-bump rule
@@ -95,7 +96,8 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 | `ops/scripts/mining_tests.mjs` | Mining redesign: 2 sites, metal variants, rarity-based pricing, NPC+player production, warehouse conservation, trader+player shipping, deterministic report | Imports `lib/mining.mjs`; **fully offline, no browser** |
 | `ops/scripts/player_sim_tests.mjs` | Unit tests for the autonomous player-sim brain (`lib/player_ai.mjs`): `decideAction` policy + `detectStuck`/`detectBalance`/`detectQoL` detectors | Imports `lib/player_ai.mjs`; **fully offline, no browser** |
 | `ops/scripts/balance_regression_test.mjs` | Economy health guardrails on the **real** `world_service` model (neutralised drift/events/pressure): no dead trade goods, item-lane dominance <5×, ≥3 goods within 2× of the top lane, focused trader net-positive over 30 days. Fails CI if a price tweak re-breaks route balance. | Imports `world_service.mjs`; **fully offline, no browser** |
-| `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'` | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
+| `ops/scripts/world3d_tests.mjs` | Pure helpers of the three.js renderer (`src/world3d_core.js`): tile→ground/prop mapping, camera rig framing, sun arc, building palette parity with `main.js`, renderer preference | **Fully offline, no browser** (loads the module via a `data:` import) |
+| `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'`. Also `renderer-3d` (3D boots on SwiftShader, non-blank frame, w2s↔s2w round trip, real click paths to the clicked tile) and `renderer-2d-optout` (`?r=2d`) | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
 | `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_gameplay_sim.mjs` | Measures trade cycles to reach endgame (gear maxed + rep 7 + 500g) | Requires Playwright + `window.__QA.api` |
 | `ops/scripts/qa_mobile_dialog_layout.mjs` | Checks modal proportions on iPhone 12; saves screenshots to `ops/screenshots/` | Requires Playwright |
@@ -124,6 +126,24 @@ In the live game (`src/main.js`): the two sites are carved onto the map as tagga
 ore veins, `playerMineNode` drops the site's metal variant, and copper/silver are
 real market goods (cheapest at their hub city, dearer elsewhere) so server traders
 and the player both ship them for profit.
+
+### 3D world renderer (three.js)
+
+The world (terrain, walls, buildings, trees, water, carriages, characters) is drawn by
+three.js; the HUD, minimap and menus stay on the 2D canvas, which sits transparent on top.
+
+| File | What it does |
+|---|---|
+| `src/world3d.js` | ES module, dynamically imported by `main.js` (`boot3D`). `createWorld3D(host, core)` (main.js passes the `?v=`-versioned `world3d_core.js`, so there is one copy per build) → `{render(frame), project, projectBillboard, unproject, stats, dispose}`. Ground is painted lazily per 32×32-tile chunk **with `main.js`'s own `drawTile` art**; walls/trees/hills are instanced props; buildings come from `cityBuildings` slots; characters are billboards painted by the 2D figure painters. |
+| `src/world3d_core.js` | Pure helpers (no three/DOM) — unit-tested by `world3d_tests.mjs`. Building palette, ore colours and carriage `HORSE_PAL`/`WAGON_PAL` mirror `main.js` (tests enforce parity — edit both together). |
+| `vendor/three/r170/three.module.min.js` | three.js r170, vendored (no CDN at runtime). The revision is in the path so an upgrade is a new URL — put a new version in a new folder. |
+
+Rules: world-anchored overlays and tap input must go through `w2s`/`w2sLift`/`s2w` in `main.js`,
+never `x - camera.x`, or they drift in 3D. `?r=2d` opts out (remembered in `localStorage`
+`cr_renderer`; `?r=3d` restores); missing WebGL2 or a runtime three.js error falls back to 2D.
+`__QA.renderer()` reports `pending|active|off|failed` + scene stats. Keep `#world3d`, `#game` and `#ui-root`
+without z-index: as positioned siblings they stack in DOM order, so HTML dialogs stay clickable
+(`renderer-3d` QA checks this). CI syntax-checks the two modules with `node --input-type=module --check`.
 
 ### Simulation (Supabase-backed — requires network)
 

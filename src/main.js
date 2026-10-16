@@ -14,7 +14,54 @@
   canvas.width = BASE_W;
   canvas.height = BASE_H;
 
-  const ctx = canvas.getContext('2d');
+  // `let` (not const): the 3D renderer borrows the 2D painters — ground tiles,
+  // character figures — by pointing ctx at an offscreen canvas for one call
+  // (see paintWithCtx). Everything else only ever sees the game canvas.
+  let ctx = canvas.getContext('2d');
+  const MAIN_SCRIPT_URL = (document.currentScript && document.currentScript.src) || location.href;
+
+  // ── Renderer adapter ────────────────────────────────────────────────────
+  // The world is drawn either by the classic 2D painters or, once
+  // src/world3d.js has booted, by three.js under this (then transparent)
+  // canvas. Overlays that sit on world objects (bubbles, paths, labels) and
+  // tap-to-world input go through w2s/s2w so they line up in both modes.
+  const R3D = { active: false, api: null, status: 'pending', error: null };
+  // World px → canvas px. k = canvas px per world px at that spot (1 in 2D).
+  function w2s(wx, wy) {
+    if (R3D.active) {
+      const p = R3D.api.project(wx, wy, 0);
+      const q = R3D.api.project(wx + TILE, wy, 0);
+      return { x: p.x, y: p.y, k: Math.abs(q.x - p.x) / TILE, behind: p.behind };
+    }
+    return { x: wx - camera.x, y: wy - camera.y, k: 1, behind: false };
+  }
+  // Screen point above a world object: px2d canvas px up in 2D; in 3D either
+  // hTiles world units up (meshes) or billboardPx up a character billboard.
+  function w2sLift(wx, wy, px2d, { hTiles = 0, billboardPx = 0 } = {}) {
+    if (!R3D.active) return { x: wx - camera.x, y: wy - camera.y - px2d };
+    return billboardPx ? R3D.api.projectBillboard(wx, wy, billboardPx) : R3D.api.project(wx, wy, hTiles);
+  }
+  // Where gain/loss popups spawn: 18px over the player in 2D; in 3D over the
+  // head of the on-foot billboard or the top of the wagon canopy.
+  function playerPopupAnchor() {
+    const onFoot = !playerOnRoad();
+    const p = w2sLift(player.x, player.y, 18, onFoot
+      ? { billboardPx: figureHeadPx(player.r || 8) }
+      : { hTiles: 2.2 });
+    return { sx: p.x, sy: p.y };
+  }
+  // Canvas px → world px (3D: whatever the tap visibly hit, else the ground).
+  function s2w(sx, sy) {
+    if (R3D.active) { const p = R3D.api.unproject(sx, sy); if (p) return p; }
+    return { x: sx + camera.x, y: sy + camera.y };
+  }
+  // Run a 2D painter against another context, with the camera shifted so the
+  // painter's world→screen math lands where the caller wants it.
+  function paintWithCtx(g, camX, camY, fn) {
+    const savedCtx = ctx, cx = camera.x, cy = camera.y;
+    ctx = g; camera.x = camX; camera.y = camY;
+    try { fn(); } finally { ctx = savedCtx; camera.x = cx; camera.y = cy; }
+  }
 
 
   // Crash guard: never fail silently (prevents blank screen reports)
@@ -34,7 +81,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.45'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.46'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -108,6 +155,8 @@ ${line4}`;
   };
   // @ts-ignore
   window.__QA = __QA;
+  // Which world renderer is live ('pending' | 'active' | 'off' | 'failed') + 3D stats.
+  __QA.renderer = () => ({ status: R3D.status, error: R3D.error, ...(R3D.active && R3D.api ? R3D.api.stats() : {}) });
 
   function qaPass(details = '') {
     if (!__QA.enabled) return;
@@ -707,6 +756,39 @@ ${line4}`;
 
       // ── Mining QA helpers ─────────────────────────────────────────────
       /** Force-build the Ironholt mine to a target level (1..maxLevel). */
+      /** Renderer-agnostic world px ↔ canvas px mapping (what overlays + taps use). */
+      qaW2S: (wx, wy) => { const p = w2s(wx, wy); return { x: p.x, y: p.y }; },
+      qaS2W: (sx, sy) => { const p = s2w(sx, sy); return { x: p.x, y: p.y }; },
+      qaTileAt: (tx, ty) => tileAt(tx, ty),
+      /** Key of the city building slot whose footprint covers (tx,ty), or null. */
+      qaSlotAt: (tx, ty) => {
+        for (const [cityId, slots] of Object.entries(cityBuildings)) {
+          for (const [key, sl] of Object.entries(slots)) {
+            if (sl && sl.tileX > 0 && tx >= sl.tileX && tx < sl.tileX + sl.tileW && ty >= sl.tileY && ty < sl.tileY + sl.tileH) return cityId + ':' + key;
+          }
+        }
+        return null;
+      },
+      qaView: () => ({ w: VIEW_W, h: VIEW_H, tile: TILE }),
+      /** Where the last click/tap-to-move is heading (world px), or null. */
+      qaClickTarget: () => {
+        if (!clickMove.active) return null;
+        const last = clickMove.path[clickMove.path.length - 1];
+        return last ? { x: last.x, y: last.y } : { x: clickMove.tx, y: clickMove.ty };
+      },
+      /** Mark every city building slot built at `level` (visual QA of the 3D city). */
+      qaBuildAllSlots: (level = 1) => {
+        let n = 0;
+        for (const slots of Object.values(cityBuildings)) {
+          for (const slot of Object.values(slots)) {
+            if (!slot || slot.tileX <= 0) continue;
+            slot.built = true;
+            slot.level = clamp(Math.floor(Number(level) || 1), 1, slot.maxLevel || 1);
+            n++;
+          }
+        }
+        return n;
+      },
       qaForceBuildMine: (level = 1) => {
         const slot = cityBuildings.ironholt?.mine;
         if (!slot) return false;
@@ -789,7 +871,7 @@ ${line4}`;
       qaCityMineTick: () => { cityMineTick(); return cityBuildings.ironholt?.mine || null; },
       /** Snapshot of AI traders for assertions (state, fromId, toId, cityTimer). */
       qaAiTraders: () => AI_TRADERS.map(t => ({
-        id: t.id, state: t.state, fromId: t.fromId, toId: t.toId,
+        id: t.id, state: t.state, fromId: t.fromId, toId: t.toId, x: t.x, y: t.y,
         itemId: t.itemId, cityTimer: t.cityTimer ?? 0,
       })),
     };
@@ -1324,10 +1406,11 @@ ${line4}`;
     ctx.strokeStyle = 'rgba(251,191,36,0.55)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(player.x - camera.x, player.y - camera.y);
+    { const p0 = w2s(player.x, player.y); ctx.moveTo(p0.x, p0.y); }
     for (let i = autoNav.pathIdx; i < autoNav.path.length; i++) {
-      const wp = autoNav.path[i];
-      ctx.lineTo(wp.x - camera.x, wp.y - camera.y);
+      const wp = w2s(autoNav.path[i].x, autoNav.path[i].y);
+      if (wp.behind) break; // 3D: beyond the camera plane projection flips
+      ctx.lineTo(wp.x, wp.y);
     }
     ctx.stroke();
     ctx.setLineDash([]);
@@ -1337,7 +1420,8 @@ ${line4}`;
     ctx.strokeStyle = `rgba(251,191,36,${(0.5 + pulse * 0.4).toFixed(2)})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(dest.x - camera.x, dest.y - camera.y, 12 + pulse * 4, 0, Math.PI * 2);
+    const dp = w2s(dest.x, dest.y);
+    if (!dp.behind) ctx.arc(dp.x, dp.y, (12 + pulse * 4) * dp.k, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -1647,8 +1731,7 @@ function handleGlobalHudTap(clientX, clientY, e) {
 
     // ── Click/tap-to-move + smart tap detection ────────────────────────
     // Convert screen to world coords
-    const worldX = sx + camera.x;
-    const worldY = sy + camera.y;
+    const { x: worldX, y: worldY } = s2w(sx, sy);
 
     // Check if tap is on an NPC (interact)
     const nearbyNpc = findNearestNpc(worldX, worldY, NPC_INTERACT_RADIUS * 2);
@@ -1709,7 +1792,9 @@ function handleGlobalHudTap(clientX, clientY, e) {
         // construction-site bobbing hammer.
         const rise = slot.built ? Math.min(TILE - 2, Math.round(slot.tileH * TILE * 0.55)) : 0;
         const riseTop = fy0 - rise - 10;
-        if (worldY >= riseTop && worldY < fy0 && !spriteHitRise) {
+        // 2D only: in 3D nothing is drawn above the footprint (the raycast in
+        // s2w already maps roof/wall taps onto it), so this strip is floor.
+        if (!R3D.active && worldY >= riseTop && worldY < fy0 && !spriteHitRise) {
           spriteHitRise = { tile: slotTapTile, tx: cx, ty: cy };
         }
       }
@@ -4679,7 +4764,7 @@ const _traderBubbles = new Map();
 // Called from updateAiTraders to occasionally fire a quip
 function maybeFireTraderBubble(t, dt) {
   // Don't fire if trader not visible
-  const sx = t.x - camera.x, sy = t.y - camera.y;
+  const { x: sx, y: sy } = w2s(t.x, t.y);
   if (sx < -20 || sx > VIEW_W+20 || sy < -20 || sy > VIEW_H+20) return;
 
   // Timers stored on trader object
@@ -4707,9 +4792,9 @@ function drawTraderBubbles() {
     const t = AI_TRADERS.find(tr => tr.id === traderId);
     if (!t) { _traderBubbles.delete(traderId); continue; }
 
-    const sx = t.x - camera.x;
-    const sy = t.y - camera.y;
+    const { x: sx, y: sy } = w2s(t.x, t.y);
     if (sx < -20 || sx > VIEW_W+40 || sy < -40 || sy > VIEW_H+20) continue;
+    const top = w2sLift(t.x, t.y, t.radius + 14, { hTiles: 1.7 });
 
     const maxW = IS_MOBILE ? Math.min(180, VIEW_W - 20) : 220;
     const pad = 9;
@@ -4719,7 +4804,7 @@ function drawTraderBubbles() {
     const th = Math.round(17 * UI_SCALE);
 
     let bx = sx - tw / 2;
-    let by = sy - t.radius - th - 14;
+    let by = top.y - th;
     if (IS_MOBILE && by < HUD_H + 6) by = sy + t.radius + 6;
     bx = clamp(bx, 8, VIEW_W - tw - 8);
     by = clamp(by, HUD_H + 6, VIEW_H - th - 8);
@@ -4956,22 +5041,27 @@ function drawAiTrader(t) {
   ctx.restore();
 
   // Name label (unscaled)
+  drawTraderNameTag(t, sx, sy - (t.radius * 2.2 * CARRIAGE_SCALE) - 10);
+}
+
+// Trader name plate whose top edge sits at (x, top), plus the [T] Trade hint
+// when the player is close enough. Shared by the 2D and 3D renderers.
+function drawTraderNameTag(t, x, top) {
   ctx.save();
-  ctx.translate(sx, sy);
-  const labelY = -(t.radius * 2.2 * CARRIAGE_SCALE) - 10;
+  ctx.translate(x, top);
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(-22, labelY, 44, 12);
+  ctx.fillRect(-22, 0, 44, 12);
   ctx.fillStyle = t.color || '#f0d080';
   ctx.font = `bold ${Math.round(8*UI_SCALE)}px system-ui,sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(t.name.split(' ')[0], 0, labelY + 9);
+  ctx.fillText(t.name.split(' ')[0], 0, 9);
   ctx.textAlign = 'left';
   const dist = Math.hypot(t.x - player.x, t.y - player.y);
   if (dist < TRADER_INTERACT_RADIUS) {
     ctx.fillStyle = 'rgba(251,191,36,0.9)';
     ctx.font = `${Math.round(9*UI_SCALE)}px system-ui,sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText('[T] Trade', 0, labelY - 4);
+    ctx.fillText('[T] Trade', 0, -4);
     ctx.textAlign = 'left';
   }
   ctx.restore();
@@ -6259,8 +6349,8 @@ function computeNpcBubbleLayout() {
   const npc = entities.find(e => e.id === b.npcId);
   if (!npc) return null;
 
-  const sx = npc.x - camera.x;
-  const sy = npc.y - camera.y - npc.radius - 10;
+  const { x: sx, y: sy } = w2sLift(npc.x, npc.y, npc.radius + 10,
+    { billboardPx: figureHeadPx(npc.radius || 6) });
   const text = b.text || '';
 
   ctx.save();
@@ -6720,8 +6810,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.45',
+    version: 'v0.5.46',
     whatsNew: [
+      'The world is now rendered in real 3D with three.js: walled cities with gabled-roof buildings (chimney smoke, glowing windows, columns on the bank, crates at the market, scaffolding on construction sites), forests of low-poly trees, rolling hills, animated water with shoreline foam, 3D wagons with trotting horses, and soft sun shadows that sweep across the day into a warm dusk. Characters stay in their painterly style as standing billboards, and the HUD and menus are unchanged. Prefer the old look or on a weak device? Add ?r=2d to the URL (remembered); ?r=3d switches back.',
       'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
       'Bank reliability fixes: rapid clicks can no longer double a loan or a withdrawal, a failed deposit now restores your balance exactly (no leftover phantom interest), a withdrawal from a temporarily under-funded vault keeps the unpaid remainder as a claim you can collect later instead of losing it, and a dropped network request no longer leaves your gold out of sync.',
       'The road carriage and its horse are now painted in the same painterly style as the characters: gradient-shaded wagon body and canopy with highlights, wheels with wood-grain shading, gold hubs and a rim glint, and a soft-shaded horse with a flowing mane, a lit eye and a shaded muzzle. Gear tiers still change everything (flat roof vs. canvas canopy, cargo pack, gold trim, and the phantom mare).',
@@ -8407,7 +8498,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.45',
+      buildVersion: 'v0.5.46',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9412,8 +9503,7 @@ function drawNpcBubble() {
     _lootPopups.push({
       itemId,
       qty,
-      sx: player.x - camera.x,
-      sy: player.y - camera.y - 18,
+      ...playerPopupAnchor(),
       startMs: stateTime,
     });
   }
@@ -9424,8 +9514,7 @@ function drawNpcBubble() {
     _lootPopups.push({
       itemId: '__alert',
       qty: 0,
-      sx: player.x - camera.x,
-      sy: player.y - camera.y - 18,
+      ...playerPopupAnchor(),
       startMs: stateTime,
     });
   }
@@ -11576,9 +11665,11 @@ function drawEntities() {
       ctx.strokeStyle = 'rgba(251,191,36,0.45)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(player.x - camera.x, player.y - camera.y);
+      { const p0 = w2s(player.x, player.y); ctx.moveTo(p0.x, p0.y); }
       for (let i = clickMove.pathIdx; i < clickMove.path.length; i++) {
-        ctx.lineTo(clickMove.path[i].x - camera.x, clickMove.path[i].y - camera.y);
+        const wp = w2s(clickMove.path[i].x, clickMove.path[i].y);
+        if (wp.behind) break;
+        ctx.lineTo(wp.x, wp.y);
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -11586,7 +11677,8 @@ function drawEntities() {
       const last = clickMove.path[clickMove.path.length - 1];
       ctx.fillStyle = 'rgba(251,191,36,0.7)';
       ctx.beginPath();
-      ctx.arc(last.x - camera.x, last.y - camera.y, 4, 0, Math.PI * 2);
+      const lp = w2s(last.x, last.y);
+      if (!lp.behind) ctx.arc(lp.x, lp.y, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -11882,27 +11974,32 @@ function drawEntities() {
       const sx = Math.round(op.x - camera.x);
       const sy = Math.round(op.y - camera.y);
       if (sx < -32 || sx > VIEW_W + 32 || sy < -32 || sy > VIEW_H + 32) continue;
-      ctx.save();
-      ctx.globalAlpha = 0.85;
-      const col = op.color || '#a78bfa';
-      // Shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(sx, sy + 10, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
-      // Body circle (color-coded per player)
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // Name label
-      const label = op.name || `Trader ${uid}`;
-      ctx.font = 'bold 9px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 3;
-      ctx.strokeText(label, sx, sy - 12);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, sx, sy - 12);
-      ctx.restore();
+      drawOtherPlayerFigure(op, uid, sx, sy);
     }
+  }
+
+  // Another online player: colour-coded token + name (2D pass and 3D billboard).
+  function drawOtherPlayerFigure(op, uid, ox, oy) {
+    const col = op.color || '#a78bfa';
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(ox, oy + 10, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // Body circle (color-coded per player)
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(ox, oy, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Name label
+    const label = op.name || `Trader ${uid}`;
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 3;
+    ctx.strokeText(label, ox, oy - 12);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, ox, oy - 12);
+    ctx.restore();
   }
 
   // Compute the player figure's appearance (skin/hair/shirt/hat/boots) from
@@ -13363,6 +13460,125 @@ function drawEvent() {
     ctx.fillText('Use ↑/↓ to choose · Enter to confirm · Esc to close', bx + 18, by + boxH - Math.round(20 * UI_SCALE));
   }
 
+  // ── 3D world (three.js) glue ────────────────────────────────────────────
+  // Character figures become camera-facing billboards painted by the same 2D
+  // painters; spec = canvas size + where the entity origin and feet sit on it.
+  // Height of a figure's head above its feet, in figure-canvas px (the
+  // painter spans y∈[-36,+17]·r/12 around the origin) + a small gap.
+  function figureHeadPx(r) { return 53 * r / 12 + 4; }
+  function figureSpec(key, x, y, r, draw) {
+    const sc = r / 12;
+    const w = Math.ceil(48 * sc) + 8;
+    const top = Math.ceil(44 * sc) + 6;     // hats/hair poke above the figure origin
+    const h = top + Math.ceil(22 * sc) + 2;
+    return { key, x, y, w, h, ox: w / 2, oy: top, fy: top + 17 * sc,
+      paint: (g) => paintWithCtx(g, x - w / 2, y - top, draw) };
+  }
+
+  let _3dSlotList = null;
+  function build3DFrame() {
+    const figures = [];
+    const onRoad = playerOnRoad();
+    if (!onRoad) figures.push(figureSpec('__player', player.x, player.y, player.r || 8, drawPlayer));
+    for (const e of entities) {
+      if (e.kind === 'npc') figures.push(figureSpec('npc:' + e.id, e.x, e.y, e.radius || 6, () => drawNpcEntity(e)));
+    }
+    const myCity = currentCity()?.id || null;
+    for (const [uid, op] of Object.entries(otherPlayers)) {
+      if ((op.city_id || null) !== myCity) continue;
+      figures.push({ key: 'op:' + uid, x: op.x, y: op.y, w: 110, h: 40, ox: 55, oy: 24, fy: 34,
+        paint: (g) => paintWithCtx(g, camera.x, camera.y, () => drawOtherPlayerFigure(op, uid, 55, 24)) });
+    }
+    // Slot objects live for the whole session, so list them (by reference) once.
+    if (!_3dSlotList) {
+      _3dSlotList = [];
+      for (const city of world.cities) {
+        for (const [key, slot] of Object.entries(cityBuildings[city.id] || {})) {
+          if (slot) _3dSlotList.push({ key: city.id + ':' + key, slot });
+        }
+      }
+    }
+    const slots = _3dSlotList;
+    return {
+      camX: camera.x, camY: camera.y, time: stateTime,
+      // Game clock is a day fraction; light the travelling day 07:00→18:30 so
+      // the world reads as daytime ending in a warm dusk, never pitch night.
+      hour: 7 + ((((time.frac || 0) % 1) + 1) % 1) * 11.5,
+      player: {
+        x: player.x, y: player.y, onRoad, facing: player.facing,
+        moving: autoNav.active || clickMove.active || Math.hypot(player.vx || 0, player.vy || 0) > 0.01,
+        packTier: player.gear?.pack ?? 0, bootsTier: player.gear?.boots ?? 0,
+      },
+      traders: AI_TRADERS.map(t => ({ id: t.id, x: t.x, y: t.y, facing: t.facing, color: t.color,
+        moving: t.state === 'traveling', parked: t.state === 'in_city' })),
+      figures, slots,
+    };
+  }
+
+  // Returns false (and drops back to 2D for good) if three.js throws mid-game.
+  function render3DWorld() {
+    try {
+      R3D.api.render(build3DFrame());
+      return true;
+    } catch (err) {
+      console.error('[3D] renderer failed, falling back to 2D:', err);
+      R3D.active = false; R3D.status = 'failed'; R3D.error = String(err && err.message || err);
+      try { R3D.api.dispose(); } catch {}
+      return false;
+    }
+  }
+
+  // Trader name tag (+ [T] Trade hint) floating over a 3D carriage.
+  function drawAiTraderLabel3D(t) {
+    const p = R3D.api.project(t.x, t.y, 2.4);
+    if (p.behind || p.x < -40 || p.x > VIEW_W + 40 || p.y < -40 || p.y > VIEW_H + 40) return;
+    drawTraderNameTag(t, p.x, p.y - 12);
+  }
+
+  // Boot three.js in the background; the 2D renderer covers until it's up,
+  // and stays if the player opted out (?r=2d) or WebGL isn't available.
+  function boot3D() {
+    const v = '?v=' + NPC_DIAG_BUILD.replace(/^v/, '');
+    import(new URL('./world3d_core.js' + v, MAIN_SCRIPT_URL).href).then((core) => {
+      let stored = null;
+      try { stored = localStorage.getItem('cr_renderer'); } catch {}
+      const pref = core.rendererPreference(location.search, stored);
+      try { if (/[?&]r=(2d|3d)\b/.test(location.search)) localStorage.setItem('cr_renderer', pref); } catch {}
+      if (pref !== '3d') { R3D.status = 'off'; return null; }
+      return Promise.all([core, import(new URL('./world3d.js' + v, MAIN_SCRIPT_URL).href)]);
+    }).then((mods) => {
+      if (!mods) return;
+      const [core, mod] = mods;
+      // Building footprints are static once the map is laid out: index them
+      // once so chunk building can skip their wall-ring tiles in O(1).
+      const buildingTiles = new Set();
+      for (const c of world.cities) {
+        for (const sl of Object.values(cityBuildings[c.id] || {})) {
+          if (!sl || sl.tileX <= 0) continue;
+          for (let ty = sl.tileY; ty < sl.tileY + sl.tileH; ty++) {
+            for (let tx = sl.tileX; tx < sl.tileX + sl.tileW; tx++) buildingTiles.add(ty * MAP_W + tx);
+          }
+        }
+      }
+      R3D.api = mod.createWorld3D({
+        canvas2d: canvas, MAP_W, MAP_H, TILE, VIEW_W, VIEW_H, IS_MOBILE, tileAt, hash2,
+        cities: world.cities,
+        drawTileInto: (g, id, x, y, tx, ty) => paintWithCtx(g, camera.x, camera.y, () => drawTile(id, x, y, tx, ty)),
+        buildingTiles,
+        mineMetal: (tx, ty) => MINE_SITE_NODES[ty * MAP_W + tx] || null,
+        isMineSpent: (tx, ty) => ((player.mineCooldown || {})[ty * MAP_W + tx] || 0) > stateTime,
+        preserveDrawingBuffer: !!__QA.enabled, debug: !!__QA.enabled,
+      }, core);
+      R3D.active = true; R3D.status = 'active';
+    }).catch((err) => {
+      console.warn('[3D] unavailable, using 2D renderer:', err);
+      R3D.active = false; R3D.status = 'failed'; R3D.error = String(err && err.message || err);
+      // A half-built renderer may already have inserted its canvas.
+      document.getElementById('world3d')?.remove();
+      canvas.style.background = ''; canvas.style.position = '';
+    });
+  }
+
   // --- Game loop
   let last = performance.now();
   function tick() {
@@ -13646,15 +13862,22 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
 
     // draw
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
-    drawWorld();
-    // Building labels are now baked into drawBuildingSprites() as facade banners.
-    drawEntities();
-    for (const t of AI_TRADERS) drawAiTrader(t);
+    const drew3D = R3D.active && render3DWorld();
+    if (drew3D) {
+      for (const t of AI_TRADERS) drawAiTraderLabel3D(t);
+    } else {
+      drawWorld();
+      // Building labels are now baked into drawBuildingSprites() as facade banners.
+      drawEntities();
+      for (const t of AI_TRADERS) drawAiTrader(t);
+    }
     drawTraderBubbles();
     drawNavPath();
     drawClickMarker();
-    drawPlayer();
-    drawOtherPlayers();
+    if (!drew3D) {
+      drawPlayer();
+      drawOtherPlayers();
+    }
     drawNpcBubble();
     drawLootPopups();
     drawMobileOverlay();
@@ -14901,4 +15124,5 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
   });
 
   tick();
+  boot3D();
 })();

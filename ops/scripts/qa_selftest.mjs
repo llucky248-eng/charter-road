@@ -699,6 +699,145 @@ async function checkAutoNavReachability() {
   console.log('QA_PASS: autonav-reachability (all 12 routes)');
 }
 
+function withParam(url, k, v) {
+  const u = new URL(url);
+  u.searchParams.set(k, v);
+  return u.href;
+}
+
+// three.js 3D world: the renderer boots, draws a non-blank frame, and the
+// world↔screen mapping that overlays and taps rely on round-trips — proven
+// with a real pointerdown on the canvas that must path the player to the clicked tile.
+async function check3DRenderer() {
+  // Software WebGL so the check is deterministic on GPU-less CI runners.
+  const browser = await chromium.launch({
+    ...launchOptions,
+    args: [...(launchOptions.args || []), '--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
+  });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e && (e.stack || e.message) || e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+
+  await page.goto(withParam(activeUrl, 'r', '3d'), { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => window.__QA && window.__QA.status !== 'pending'
+    && window.__QA.renderer && window.__QA.renderer().status !== 'pending', { timeout: 30_000 });
+  const r = await page.evaluate(() => window.__QA.renderer());
+  if (r.status !== 'active') { await browser.close(); die(`renderer-3d: expected status 'active', got ${JSON.stringify(r)}`); }
+  if (!(r.chunks > 0 && r.buildings > 0)) { await browser.close(); die(`renderer-3d: empty scene ${JSON.stringify(r)}`); }
+
+  // Put the player on open city floor and find an open floor tile 4 tiles south.
+  const setup = await page.evaluate(() => {
+    const api = window.__QA.api;
+    api.teleportToCity('valdenmere');
+    api.step(1 / 60);
+    const { tile } = api.qaView();
+    const snap = api.snapshot();
+    const px = Math.floor(snap.player.x / tile), py = Math.floor(snap.player.y / tile);
+    // Taps near a trader open trade, near an NPC start a chat — keep clear.
+    const busy = [...api.qaAiTraders(), ...api.getNpcEntities()].filter(o => Number.isFinite(o.x));
+    // A floor tap within ±4 tiles of a building tile opens that building
+    // (tap-to-interact), so the target must be clear of those too.
+    const ACTION_TILES = [6, 7, 8, 12, 13, 14, 15, 16, 18, 19];
+    const nearBuilding = (tx, ty) => {
+      for (let oy = -4; oy <= 4; oy++) for (let ox = -4; ox <= 4; ox++) {
+        if (ACTION_TILES.includes(api.qaTileAt(tx + ox, ty + oy)) || api.qaSlotAt(tx + ox, ty + oy)) return true;
+      }
+      return false;
+    };
+    for (let d = 3; d <= 14; d++) {
+      for (const [dx, dy] of [[0, d], [d, 0], [-d, 0], [0, -d], [d, d], [-d, d], [d, -d], [-d, -d]]) {
+        const tx = px + dx, ty = py + dy;
+        if (nearBuilding(tx, ty)) continue;
+        // Wagons span ~3 tiles plus the horse, so give traders a wider berth.
+        let open = !busy.some(o => Math.hypot(o.x - (tx + 0.5) * tile, o.y - (ty + 0.5) * tile) < tile * (o.state ? 6 : 4));
+        for (let oy = -1; oy <= 1 && open; oy++) for (let ox = -1; ox <= 1; ox++) {
+          // Open floor only: a tap on a building footprint (even an unbuilt
+          // one, which is plain floor) rightly opens that building instead.
+          if (![4, 9, 1].includes(api.qaTileAt(tx + ox, ty + oy)) || api.qaSlotAt(tx + ox, ty + oy)) { open = false; break; }
+        }
+        if (open) return { tx, ty, tile };
+      }
+    }
+    return null;
+  });
+  if (!setup) { await browser.close(); die('renderer-3d: no open floor tile near the city centre'); }
+  // Let the camera settle (it eases after the player) and a few 3D frames render.
+  await page.waitForFunction(({ tx, ty, tile }) => {
+    const p = window.__QA.api.qaW2S((tx + 0.5) * tile, (ty + 0.5) * tile);
+    const prev = window.__qaPrevW2S; window.__qaPrevW2S = p;
+    return prev && Math.abs(prev.x - p.x) < 0.01 && Math.abs(prev.y - p.y) < 0.01;
+  }, setup, { timeout: 10_000, polling: 100 });
+
+  const outcome = await page.evaluate(({ tx, ty, tile }) => {
+    const api = window.__QA.api;
+    const wx = (tx + 0.5) * tile, wy = (ty + 0.5) * tile;
+    const s = api.qaW2S(wx, wy);
+    const back = api.qaS2W(s.x, s.y);
+    const tapWorld = back;
+    // Non-blank frame: sample the WebGL canvas and count distinct colours.
+    const gl = document.getElementById('world3d');
+    const c = document.createElement('canvas'); c.width = 64; c.height = 36;
+    const g = c.getContext('2d'); g.drawImage(gl, 0, 0, 64, 36);
+    const px = g.getImageData(0, 0, 64, 36).data;
+    const colors = new Set();
+    for (let i = 0; i < px.length; i += 4) colors.add((px[i] >> 3) << 10 | (px[i + 1] >> 3) << 5 | (px[i + 2] >> 3));
+    return { wx, wy, s, back, tapWorld, colors: colors.size };
+  }, setup);
+  if (outcome.colors < 12) { await browser.close(); die(`renderer-3d: WebGL frame looks blank (${outcome.colors} colours)`); }
+  const err = Math.hypot(outcome.back.x - outcome.wx, outcome.back.y - outcome.wy);
+  if (err > 1.5) { await browser.close(); die(`renderer-3d: w2s→s2w round trip off by ${err.toFixed(2)}px (${JSON.stringify(outcome)})`); }
+
+  // Project and tap in the same JS turn so no camera movement can slip in
+  // between (a real pointerdown on #game, through the game's own handler).
+  const target = await page.evaluate(({ wx, wy }) => {
+    const api = window.__QA.api;
+    const s = api.qaW2S(wx, wy), view = api.qaView();
+    const game = document.getElementById('game');
+    const r = game.getBoundingClientRect();
+    game.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0,
+      clientX: r.left + s.x * r.width / view.w, clientY: r.top + s.y * r.height / view.h,
+    }));
+    return api.qaClickTarget();
+  }, outcome);
+  const tapState = target ? null : await page.evaluate(({ wx, wy }) => {
+    const api = window.__QA.api;
+    const near = api.qaAiTraders().map(t => ({ id: t.id, state: t.state, d: Math.round(Math.hypot(t.x - wx, t.y - wy)) })).sort((a, b) => a.d - b.d)[0];
+    return { dialog: document.getElementById('ui-root').innerText.slice(0, 60), bubble: api.getNpcBubble(), nearestTrader: near };
+  }, outcome);
+
+  // HTML dialogs (#ui-root) must stay above the HUD canvas once the WebGL
+  // canvas is inserted, or their buttons never receive clicks.
+  const dialog = await page.evaluate(() => {
+    window.__QA.api.openBankUI('valdenmere', 'deposit');
+    const btn = document.querySelector('#ui-root button');
+    if (!btn) return { ok: false, why: 'bank dialog rendered no button' };
+    const b = btn.getBoundingClientRect();
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    return { ok: !!(hit && hit.closest('#ui-root')), why: `top element is ${hit ? (hit.id || hit.tagName) : 'none'}` };
+  });
+  await browser.close();
+  if (!dialog.ok) die(`renderer-3d: dialog buttons are covered — ${dialog.why}`);
+  if (!target) die(`renderer-3d: clicking the 3D view did not start click-to-move (tap resolved to ${JSON.stringify(outcome.tapWorld)}, wanted ${outcome.wx},${outcome.wy}; state ${JSON.stringify(tapState)})`);
+  const miss = Math.hypot(target.x - outcome.wx, target.y - outcome.wy);
+  if (miss > setup.tile) die(`renderer-3d: click landed ${miss.toFixed(1)}px from the clicked tile (target ${JSON.stringify(target)}, wanted ${outcome.wx},${outcome.wy})`);
+  if (errors.length) die(`renderer-3d: console/page errors:\n- ${errors.join('\n- ')}`);
+  console.log(`QA_PASS: renderer-3d (${r.chunks} chunks, ${r.buildings} buildings, ${outcome.colors} colours)`);
+}
+
+// ?r=2d opts out: no WebGL canvas, the classic 2D renderer keeps drawing.
+async function check2DOptOut() {
+  const browser = await chromium.launch(launchOptions);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await page.goto(withParam(activeUrl, 'r', '2d'), { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForFunction(() => window.__QA && window.__QA.renderer && window.__QA.renderer().status !== 'pending', { timeout: 30_000 });
+  const out = await page.evaluate(() => ({ r: window.__QA.renderer(), gl: !!document.getElementById('world3d') }));
+  await browser.close();
+  if (out.r.status !== 'off' || out.gl) die(`renderer-2d-optout: expected 2D only, got ${JSON.stringify(out)}`);
+  console.log('QA_PASS: renderer-2d-optout');
+}
+
 (async () => {
   let server = null;
 
@@ -742,6 +881,8 @@ async function checkAutoNavReachability() {
     await checkPriceLedger();
     await checkMarketPanelNotClipped();
     await checkAutoNavReachability();
+    await check3DRenderer();
+    await check2DOptOut();
 
     console.log('QA_PASS: all');
   } finally {
