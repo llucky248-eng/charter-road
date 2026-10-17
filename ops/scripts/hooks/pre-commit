@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Guards two invariants when src/main.js is staged:
+# Guards three invariants when src/main.js is staged:
 #   1. index.html version must match (consistency)
 #   2. version must be bumped from the last commit (progress)
+#   3. for non-version-only changes, ITERATION.whatsNew must be updated
 STAGED=$(git diff --cached --name-only)
 if echo "$STAGED" | grep -q "^src/main\.js$"; then
   JS_VER=$(git show :src/main.js | sed -n "s/.*NPC_DIAG_BUILD *= *'v\([0-9.]*\)'.*/\1/p" | head -1)
@@ -22,5 +23,31 @@ if echo "$STAGED" | grep -q "^src/main\.js$"; then
     echo "ERROR: src/main.js changed but version is still v${JS_VER} (same as last commit)."
     echo "Run: node ops/scripts/bump_version.mjs +patch && git add index.html src/main.js"
     exit 1
+  fi
+
+  # 3. Feature changes (non-version-only) must update ITERATION.whatsNew so
+  #    each release ships with a one-line summary of what's new. Pure version
+  #    bumps (only NPC_DIAG_BUILD / version: / buildVersion: lines touched) are
+  #    exempt — same exemption used by the enforce-test-first CI check.
+  NONVER=$(git diff --cached -- src/main.js \
+    | grep "^[+-]" | grep -v "^[+-][+-][+-]" \
+    | grep -vE "NPC_DIAG_BUILD|[^a-z]version:|buildVersion:" || true)
+  if [[ -n "$NONVER" ]]; then
+    EXTRACT='let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const m=s.match(/whatsNew:\s*\[([\s\S]*?)\],\s*whatsNext:/);process.stdout.write(m?m[1]:"")})'
+    HEAD_WN=$(git show HEAD:src/main.js 2>/dev/null | node -e "$EXTRACT")
+    STAGED_WN=$(git show :src/main.js | node -e "$EXTRACT")
+    if [[ -n "$HEAD_WN" && "$STAGED_WN" == "$HEAD_WN" ]]; then
+      echo "ERROR: src/main.js has feature changes but ITERATION.whatsNew was not updated."
+      echo ""
+      echo "Each release ships with a one-line summary. Add an entry around src/main.js:6375:"
+      echo "    whatsNew: ["
+      echo "      '<one-line summary of what shipped in v${JS_VER}>',"
+      echo "      ...existing entries..."
+      echo "    ],"
+      echo ""
+      echo "If this commit truly has no user-visible change worth noting, you can"
+      echo "still satisfy the rule by replacing the oldest entry with the new one."
+      exit 1
+    fi
   fi
 fi
