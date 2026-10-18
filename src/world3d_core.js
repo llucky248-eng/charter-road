@@ -166,3 +166,201 @@ export function advanceHour(cur, target, dt, rate) {
   if (k >= 1 || Math.abs(gap) < 1e-4) return ((target % 24) + 24) % 24;
   return (((cur + gap * k) % 24) + 24) % 24;
 }
+
+// ── City life: non-slot buildings, street decor, townsfolk ─────────────────
+// All pure + deterministic (hash-driven); the renderer only draws the results.
+// `rect` is a city's wall ring in tiles: { x0, y0, x1, y1 } (inclusive).
+
+const ROOM_TILES = new Set([6, 7, 8, 13, 14, 15, 16, 19]);
+const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+// Building rooms the map carves out of walls but that are not cityBuildings
+// slots (e.g. a bank): flood-fill each cluster of building tiles, then take
+// its wall ring as the footprint. Returns [{ x, y, w, h, tileType, doorSide }].
+export function findTileRooms(rect, tileAt, isFootprint) {
+  const seen = new Set(), rooms = [];
+  const inRect = (x, y) => x > rect.x0 && x < rect.x1 && y > rect.y0 && y < rect.y1;
+  for (let y = rect.y0 + 1; y < rect.y1; y++) {
+    for (let x = rect.x0 + 1; x < rect.x1; x++) {
+      const k0 = y * 100000 + x;
+      if (seen.has(k0) || !ROOM_TILES.has(tileAt(x, y)) || isFootprint(x, y)) continue;
+      let minX = x, maxX = x, minY = y, maxY = y;
+      const counts = new Map(), stack = [[x, y]];
+      seen.add(k0);
+      while (stack.length) {
+        const [cx, cy] = stack.pop();
+        const t = tileAt(cx, cy);
+        counts.set(t, (counts.get(t) || 0) + 1);
+        minX = Math.min(minX, cx); maxX = Math.max(maxX, cx); minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+        for (const [dx, dy] of N4) {
+          const nx = cx + dx, ny = cy + dy, k = ny * 100000 + nx;
+          if (seen.has(k) || !inRect(nx, ny) || !ROOM_TILES.has(tileAt(nx, ny)) || isFootprint(nx, ny)) continue;
+          seen.add(k); stack.push([nx, ny]);
+        }
+      }
+      const rx = minX - 1, ry = minY - 1, rw = maxX - minX + 3, rh = maxY - minY + 3;
+      let ring = 0, walls = 0, door = null;
+      for (let yy = ry; yy < ry + rh; yy++) for (let xx = rx; xx < rx + rw; xx++) {
+        if (xx !== rx && xx !== rx + rw - 1 && yy !== ry && yy !== ry + rh - 1) continue;
+        ring++;
+        if (tileAt(xx, yy) === 3) { walls++; continue; }
+        const corner = (xx === rx || xx === rx + rw - 1) && (yy === ry || yy === ry + rh - 1);
+        if (!door && !corner) {
+          door = xx === rx ? 'west' : xx === rx + rw - 1 ? 'east' : yy === ry ? 'north' : 'south';
+        }
+      }
+      if (walls / ring < 0.6) continue; // not a walled room (e.g. a loose POI tile)
+      const tileType = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      rooms.push({ x: rx, y: ry, w: rw, h: rh, tileType, doorSide: door || 'south' });
+    }
+  }
+  return rooms;
+}
+
+// Street furniture for one city. `blocked(x,y)` = inside a building footprint
+// (slot or room). Items: { kind, x, z, rot, s, v } in world units (tile centre
+// + small jitter), kinds: pennant (on the city wall), fountain, bench (plaza),
+// lamp, stall, crates, barrel, tree, flowers (city floor). Never on roads,
+// gates, the contracts board, footprints, or a door's front step.
+export function planCityDecor(rect, tileAt, blocked, hash) {
+  const items = [], taken = new Set();
+  const key = (x, y) => y * 100000 + x;
+  const T = (x, y) => tileAt(x, y);
+  const isFloor = (x, y) => T(x, y) === 4 && !blocked(x, y);
+  const adj4 = (x, y, f) => N4.some(([dx, dy]) => f(x + dx, y + dy));
+  const adj8 = (x, y, f) => N8.some(([dx, dy]) => f(x + dx, y + dy));
+  const interior = [];
+  for (let y = rect.y0 + 1; y < rect.y1; y++) for (let x = rect.x0 + 1; x < rect.x1; x++) interior.push([x, y]);
+
+  // Keep clear: a door's front step — any non-wall tile of a footprint that
+  // touches the street (built doors are floor 4, vacant lots paint theirs 16,
+  // so a whole vacant lot keeps its rim clear) — and around gate and board.
+  const reserved = new Set();
+  for (const [x, y] of interior) {
+    if (blocked(x, y) && T(x, y) !== 3) for (const [dx, dy] of N4) if (!blocked(x + dx, y + dy)) reserved.add(key(x + dx, y + dy));
+    if (T(x, y) === 12 || adj8(x, y, (a, b) => T(a, b) === 5 || T(a, b) === 12)) reserved.add(key(x, y));
+  }
+  const free = (x, y) => !taken.has(key(x, y)) && !reserved.has(key(x, y));
+  const jit = (x, y, k) => (hash(x * 3 + k, y * 7 - k) - 0.5) * 0.4;
+  const put = (kind, x, y, extra = {}) => {
+    taken.add(key(x, y));
+    items.push({ kind, x: x + 0.5 + jit(x, y, 1), z: y + 0.5 + jit(x, y, 2), rot: hash(x + 13, y + 29) * Math.PI * 2, s: 0.85 + hash(x + 5, y + 11) * 0.3, v: hash(x + 71, y + 3), ...extra });
+  };
+  const near = (kind, x, y, d) => items.some(it => it.kind === kind && Math.hypot(it.x - (x + 0.5), it.z - (y + 0.5)) < d);
+
+  // Pennants along the city wall (not beside the gate).
+  for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
+    const onRing = x === rect.x0 || x === rect.x1 || y === rect.y0 || y === rect.y1;
+    if (!onRing || T(x, y) !== 3 || (x + y) % 8 !== 0 || adj8(x, y, (a, b) => T(a, b) === 5)) continue;
+    items.push({ kind: 'pennant', x: x + 0.5, z: y + 0.5, rot: 0, s: 1, v: hash(x, y) });
+  }
+
+  // Fountain: the plaza tile farthest from the roads and the contracts board.
+  const plaza = interior.filter(([x, y]) => T(x, y) === 9 && !blocked(x, y));
+  const busy = interior.filter(([x, y]) => T(x, y) === 1 || T(x, y) === 12);
+  let fountain = null, best = -1;
+  for (const [x, y] of plaza) {
+    let d = Infinity;
+    for (const [bx, by] of busy) d = Math.min(d, Math.hypot(bx - x, by - y));
+    if (d > best) { best = d; fountain = [x, y]; }
+  }
+  // Its basin overhangs its tile, so it needs a full tile of clearance.
+  if (fountain && plaza.length >= 6 && best >= 2 && free(fountain[0], fountain[1])) put('fountain', fountain[0], fountain[1], { x: fountain[0] + 0.5, z: fountain[1] + 0.5 });
+
+  // Benches on the plaza's rim.
+  for (const [x, y] of plaza) {
+    if (items.filter(i => i.kind === 'bench').length >= 4) break;
+    if (!free(x, y) || !adj4(x, y, isFloor) || hash(x + 3, y + 17) > 0.35) continue;
+    if (near('bench', x, y, 3) || near('fountain', x, y, 1.5)) continue;
+    put('bench', x, y);
+  }
+
+  // Street lamps on the floor beside roads, ≥4 tiles apart, nudged to the kerb.
+  for (const [x, y] of interior) {
+    if (!isFloor(x, y) || !free(x, y) || !adj4(x, y, (a, b) => T(a, b) === 1)) continue;
+    if (hash(x + 101, y + 7) > 0.55 || near('lamp', x, y, 4)) continue;
+    const [dx, dy] = N4.find(([ax, ay]) => T(x + ax, y + ay) === 1);
+    put('lamp', x, y, { x: x + 0.5 + dx * 0.32, z: y + 0.5 + dy * 0.32 });
+  }
+
+  // Market stalls around the plaza, facing it.
+  for (const [x, y] of interior) {
+    if (items.filter(i => i.kind === 'stall').length >= 4) break;
+    if (!isFloor(x, y) || !free(x, y) || !adj8(x, y, (a, b) => T(a, b) === 9)) continue;
+    if (adj4(x, y, (a, b) => T(a, b) === 1) || near('stall', x, y, 2.5)) continue;
+    const p = N8.find(([dx, dy]) => T(x + dx, y + dy) === 9);
+    put('stall', x, y, { rot: Math.atan2(-p[1], p[0]) });
+  }
+
+  // Crates and barrels stacked against walls and buildings, off the street.
+  for (const [x, y] of interior) {
+    if (!isFloor(x, y) || !free(x, y) || adj4(x, y, (a, b) => T(a, b) === 1)) continue;
+    if (!adj4(x, y, (a, b) => blocked(a, b) || T(a, b) === 3)) continue;
+    const h = hash(x + 41, y + 59);
+    if (h < 0.07) put('barrel', x, y); else if (h < 0.16) put('crates', x, y);
+  }
+
+  // Trees and flower beds in the open squares, away from the roads.
+  const open = (x, y) => isFloor(x, y) && N8.every(([dx, dy]) => isFloor(x + dx, y + dy))
+    && !N8.some(([dx, dy]) => T(x + 2 * dx, y + 2 * dy) === 1);
+  for (const [x, y] of interior) {
+    if (!free(x, y) || !open(x, y)) continue;
+    const h = hash(x + 7, y + 3);
+    if (h < 0.1 && !near('tree', x, y, 3)) put('tree', x, y);
+    else if (h >= 0.1 && h < 0.16 && !near('flowers', x, y, 2.5)) put('flowers', x, y);
+  }
+  return items;
+}
+
+// Ambient townsfolk walk straight road runs inside the city. Each route is a
+// sub-stretch of a run (so walkers spread out), with its own pace and phase.
+export function townsfolkRoutes(rect, tileAt, n, hash) {
+  const runs = [];
+  const scan = (horizontal) => {
+    for (let o = horizontal ? rect.y0 + 1 : rect.x0 + 1; o <= (horizontal ? rect.y1 - 1 : rect.x1 - 1); o++) {
+      let start = null;
+      const lo = horizontal ? rect.x0 + 1 : rect.y0 + 1, hi = horizontal ? rect.x1 - 1 : rect.y1 - 1;
+      for (let i = lo; i <= hi + 1; i++) {
+        const isRoad = i <= hi && (horizontal ? tileAt(i, o) : tileAt(o, i)) === 1;
+        if (isRoad && start === null) start = i;
+        if (!isRoad && start !== null) {
+          if (i - start >= 6) runs.push(horizontal ? { ax: start, az: o, bx: i - 1, bz: o } : { ax: o, az: start, bx: o, bz: i - 1 });
+          start = null;
+        }
+      }
+    }
+  };
+  scan(true); scan(false);
+  if (!runs.length) return [];
+  runs.sort((a, b) => (Math.abs(b.bx - b.ax) + Math.abs(b.bz - b.az)) - (Math.abs(a.bx - a.ax) + Math.abs(a.bz - a.az)));
+  const routes = [];
+  for (let k = 0; k < n; k++) {
+    const r = runs[k % runs.length];
+    const h1 = hash(k * 31 + r.ax, r.az + 17), h2 = hash(r.bx + 3, k * 13 + r.bz), h3 = hash(k + 99, k * 7 + 5);
+    const len = Math.abs(r.bx - r.ax) + Math.abs(r.bz - r.az);
+    const seg = Math.min(len, Math.max(5, Math.round(len * (0.45 + 0.5 * h1))));
+    const off = Math.floor(h2 * (len - seg + 1));
+    const ux = Math.sign(r.bx - r.ax), uz = Math.sign(r.bz - r.az);
+    const sx = r.ax + ux * off, sz = r.az + uz * off;
+    routes.push({
+      ax: sx + 0.5, az: sz + 0.5, bx: sx + ux * seg + 0.5, bz: sz + uz * seg + 0.5,
+      // style is a raw index; the painter takes it modulo its wardrobe size.
+      speed: 0.8 + 0.5 * h3, pause: 1 + 2 * h1, phase: h2 * 100, style: Math.floor(hash(k * 17 + 3, k * 5 + 11) * 9973), id: k,
+    });
+  }
+  return routes;
+}
+
+// Position of a townsfolk walker at time tSec: a → b, pause, b → a, pause.
+// fx/fy = heading in the 2D game's axes (x right, y down) for the painter.
+export function walkerAt(route, tSec) {
+  const L = Math.hypot(route.bx - route.ax, route.bz - route.az);
+  const leg = L / route.speed, cycle = 2 * (leg + route.pause);
+  const u = (((tSec + route.phase) % cycle) + cycle) % cycle;
+  const dx = (route.bx - route.ax) / (L || 1), dz = (route.bz - route.az) / (L || 1);
+  if (u < leg) { const k = u / leg; return { x: route.ax + (route.bx - route.ax) * k, z: route.az + (route.bz - route.az) * k, fx: dx, fy: dz, moving: true }; }
+  if (u < leg + route.pause) return { x: route.bx, z: route.bz, fx: dx, fy: dz, moving: false };
+  if (u < 2 * leg + route.pause) { const k = (u - leg - route.pause) / leg; return { x: route.bx + (route.ax - route.bx) * k, z: route.bz + (route.az - route.bz) * k, fx: -dx, fy: -dz, moving: true }; }
+  return { x: route.ax, z: route.az, fx: -dx, fy: -dz, moving: false };
+}

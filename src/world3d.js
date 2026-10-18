@@ -32,6 +32,7 @@ export function createWorld3D(host, core) {
   const {
     groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
     sunForHour, buildingSpec, ndcToCanvas, advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
+    findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
   } = core;
   const stage = host.canvas2d.parentElement;
   // Probe first: without WebGL2 three.js would log a console error; the
@@ -137,9 +138,29 @@ export function createWorld3D(host, core) {
   };
 
   // ── Ground: lazily painted chunks using the game's own tile art ──────────
-  const cityRects = host.cities.map(c => ({ x0: c.x - 1, y0: c.y - 1, x1: c.x + c.w + 1, y1: c.y + c.h + 1 }));
-  const inCityAt = (tx, ty) => cityRects.some(r => tx >= r.x0 && tx < r.x1 && ty >= r.y0 && ty < r.y1);
+  // One convention for a city's extent: its wall ring, inclusive on all sides
+  // (the city floor is c.x..c.x+c.w-1; walls sit one tile outside it).
+  const cityRects = host.cities.map(c => ({ x0: c.x - 1, y0: c.y - 1, x1: c.x + c.w, y1: c.y + c.h }));
+  const inCityAt = (tx, ty) => cityRects.some(r => tx >= r.x0 && tx <= r.x1 && ty >= r.y0 && ty <= r.y1);
   const texScale = IS_MOBILE ? 1.5 : 2;
+
+  // ── City life plans (pure, from world3d_core): rooms the map walls off that
+  // aren't building slots (they get a real 3D building), street furniture,
+  // and townsfolk routes. Tiles under any building are skipped by chunk props.
+  const blockedTiles = new Set(host.buildingTiles || []);
+  const cityPlans = host.cities.map((c, i) => {
+    const rect = cityRects[i];
+    const inSlot = (x, y) => (host.buildingTiles || new Set()).has(y * MAP_W + x);
+    const rooms = findTileRooms(rect, tileAt, inSlot);
+    for (const r of rooms) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) blockedTiles.add(y * MAP_W + x);
+    const blocked = (x, y) => blockedTiles.has(y * MAP_W + x);
+    return {
+      id: c.id, rect, rooms,
+      bounds: new THREE.Box3(new THREE.Vector3(rect.x0, 0, rect.y0), new THREE.Vector3(rect.x1 + 1, 3, rect.y1 + 1)),
+      decor: planCityDecor(rect, tileAt, blocked, hash2),
+      routes: townsfolkRoutes(rect, tileAt, IS_MOBILE ? 6 : 9, hash2),
+    };
+  });
 
   // Backdrop beyond the map edge so the tilted camera never sees a void.
   {
@@ -175,13 +196,36 @@ export function createWorld3D(host, core) {
   }
 
   // Collect per-chunk prop transforms, then emit one InstancedMesh per part.
-  function buildChunkProps(group, cx, cy, w, h) {
+  // Collect prop transforms by part name, then emit one InstancedMesh per part.
+  function makeInstancer() {
     const parts = new Map(); // name → { geo, mat, items:[{p,s,r,c}], shadow }
     const add = (name, geo, mat, p, s, r = 0, c = null, shadow = true) => {
       let e = parts.get(name);
       if (!e) { e = { geo, mat, items: [], shadow }; parts.set(name, e); }
       e.items.push({ p, s, r, c });
     };
+    const emit = (group) => {
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+      for (const [, e] of parts) {
+        const im = new THREE.InstancedMesh(e.geo, e.mat, e.items.length);
+        e.items.forEach((it, i) => {
+          q.setFromAxisAngle(up, it.r);
+          m4.compose(new THREE.Vector3(...it.p), q, new THREE.Vector3(...it.s));
+          im.setMatrixAt(i, m4);
+          if (it.c) im.setColorAt(i, it.c);
+        });
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        im.castShadow = e.shadow;
+        im.receiveShadow = true;
+        im.computeBoundingSphere();
+        group.add(im);
+      }
+    };
+    return { add, emit };
+  }
+
+  function buildChunkProps(group, cx, cy, w, h) {
+    const { add, emit } = makeInstancer();
     const gateNear = (tx, ty) => tileAt(tx - 1, ty) === 5 || tileAt(tx + 1, ty) === 5 || tileAt(tx, ty - 1) === 5 || tileAt(tx, ty + 1) === 5;
 
     for (let ty = cy; ty < cy + h; ty++) {
@@ -192,7 +236,7 @@ export function createWorld3D(host, core) {
         const X = tx + 0.5, Z = ty + 0.5;
         // Building footprints are wall-ringed rooms in the tile map; the slot's
         // 3D building (or construction site) stands there instead.
-        const kind = host.buildingTiles?.has(ty * MAP_W + tx) ? null : propKindFor(id, { inCity });
+        const kind = blockedTiles.has(ty * MAP_W + tx) ? null : propKindFor(id, { inCity });
 
         if (kind === 'wall') {
           if (gateNear(tx, ty)) {
@@ -243,21 +287,7 @@ export function createWorld3D(host, core) {
       }
     }
 
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-    for (const [, e] of parts) {
-      const im = new THREE.InstancedMesh(e.geo, e.mat, e.items.length);
-      e.items.forEach((it, i) => {
-        q.setFromAxisAngle(up, it.r);
-        m4.compose(new THREE.Vector3(...it.p), q, new THREE.Vector3(...it.s));
-        im.setMatrixAt(i, m4);
-        if (it.c) im.setColorAt(i, it.c);
-      });
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      im.castShadow = e.shadow;
-      im.receiveShadow = true;
-      im.computeBoundingSphere();
-      group.add(im);
-    }
+    emit(group);
   }
 
   const gemMats = new Map(); // shared per metal so rebuilt chunks don't leak materials
@@ -457,6 +487,19 @@ export function createWorld3D(host, core) {
       group.add(mesh(G.box, M.wood, -hx, 1.0, 0, 0.08, 0.08, d - 0.5));
       group.add(mesh(G.box, M.wood, hx, 1.0, 0, 0.08, 0.08, d - 0.5));
       for (let i = 0; i < 3; i++) group.add(mesh(G.box, M.wood, -w / 4, 0.16 + i * 0.09, d / 6, 1.2, 0.08, 0.28));
+      // Work in progress: a half-raised timber frame, cut stone and a crane.
+      for (let fx = -hx + 0.6; fx < hx - 0.3; fx += 0.9) group.add(mesh(G.box, M.wood, fx, 0.55, -hz + 0.15, 0.09, 1.1, 0.09));
+      group.add(mesh(G.box, M.wood, 0, 1.1, -hz + 0.15, w - 0.8, 0.09, 0.09));
+      group.add(mesh(G.box, M.wood, -hx + 0.15, 0.4, 0, 0.09, 0.09, d - 0.8));
+      for (let i = 0; i < 4; i++) group.add(mesh(G.box, M.stone, w / 4 + (i % 2) * 0.32, 0.13 + Math.floor(i / 2) * 0.24, d / 5, 0.3, 0.22, 0.3));
+      const crane = new THREE.Group();
+      crane.position.set(hx - 0.35, 0, -hz + 0.35);
+      crane.add(mesh(G.box, M.darkWood, 0, 1.4, 0, 0.12, 2.8, 0.12));
+      // Jib swings out over the street so the load never hides the 🔨 plaque.
+      crane.add(mesh(G.box, M.darkWood, 0.45, 2.75, 0, 1.1, 0.09, 0.09));
+      crane.add(mesh(G.cyl6, M.darkWood, 0.85, 2.25, 0, 0.02, 1.0, 0.02, false));
+      crane.add(mesh(G.box, M.stone, 0.85, 1.65, 0, 0.26, 0.22, 0.26));
+      group.add(crane);
       const bob = addPlaque(group, icon, '#f0a830', 0, 2.3);
       return { group, smoke, own, bob };
     }
@@ -778,7 +821,7 @@ export function createWorld3D(host, core) {
     }
 
     syncBuildings(frame.slots || []);
-    for (const [, b] of buildings) {
+    for (const b of [...buildings.values(), ...roomBuildings]) {
       for (const p of b.smoke) {
         const k = ((t / 2600) + p.userData.phase) % 1;
         p.position.copy(p.userData.base).add(tmpV.set(k * 0.3, k * 1.2, -k * 0.1));
@@ -808,11 +851,28 @@ export function createWorld3D(host, core) {
       }
     }
 
-    // Billboards (player on foot, city NPCs, other players)
+    // Fountain spray: droplets arc out of the top basin and fall back in.
+    for (const f of fountains) {
+      for (const d of f.spray) {
+        const k = ((t / 1400) + d.userData.a / (Math.PI * 2)) % 1;
+        const r = 0.15 + k * 0.55;
+        d.position.set(Math.cos(d.userData.a) * r, 1.1 + Math.sin(k * Math.PI) * 0.45 - k * 0.7, Math.sin(d.userData.a) * r);
+      }
+    }
+
+    // Billboards (player on foot, city NPCs, other players, townsfolk)
     for (const [, b] of billboards) b.seen = false;
     projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projView);
     for (const f of frame.figures || []) syncBillboard(f);
+    if (host.townsfolkFigure) {
+      for (const r of cityPlans.flatMap(p => frustum.intersectsBox(p.bounds) ? p.walkers : [])) {
+        const w = walkerAt(r, t / 1000);
+        figSphere.center.set(w.x, 1, w.z);
+        if (!frustum.intersectsSphere(figSphere)) continue; // skip building the spec off-screen
+        syncBillboard(host.townsfolkFigure({ key: r.key, x: w.x * TILE, y: w.z * TILE, style: r.style, fx: w.fx, moving: w.moving }));
+      }
+    }
     for (const [k, b] of billboards) {
       if (!b.seen) {
         b.sprite.visible = false;
@@ -850,7 +910,7 @@ export function createWorld3D(host, core) {
     // stands (its anchor), which is what the NPC/trader tap radius expects.
     const actors = [];
     // (The player's own figure/wagon is never a tap target.)
-    for (const [k, b] of billboards) if (b.sprite.visible && k !== '__player') actors.push(b.sprite);
+    for (const [k, b] of billboards) if (b.sprite.visible && k !== '__player' && !k.startsWith('tf:')) actors.push(b.sprite);
     for (const [k, c] of carriages) if (c.obj.visible && k !== '__player') actors.push(c.obj);
     const hits = ray.intersectObjects([...pickables], false);
     const nearestStructure = hits.length ? hits[0].distance : Infinity;
@@ -882,13 +942,118 @@ export function createWorld3D(host, core) {
     host.canvas2d.style.position = '';
   }
 
+  // ── City life: room buildings, street furniture, fountains, townsfolk ────
+  const STALL_COLORS = ['#e57389', '#f0a830', '#7fbf83', '#6fa8dc', '#b07ec3'];
+  const FLOWER_COLORS = ['#e57389', '#f6d365', '#ffffff', '#b07ec3', '#f0a830'];
+  const lampGlow = glowMat('#ffd27a', 0.2, 2.2);
+  const fountainWater = new THREE.MeshLambertMaterial({ color: '#7cc6e0', emissive: '#4fa6c8', emissiveIntensity: 0.25 });
+  const fountainSpray = new THREE.MeshLambertMaterial({ color: '#e8f7ff', transparent: true, opacity: 0.75, depthWrite: false });
+  const fountains = []; // { spray:[mesh], x, z }
+  const roomBuildings = [];
+  const decorGroup = new THREE.Group();
+  scene.add(decorGroup);
+
+  function buildCityLife(plan) {
+    for (const r of plan.rooms) {
+      const b = buildBuilding({ tileX: r.x, tileY: r.y, tileW: r.w, tileH: r.h, tileType: r.tileType, doorSide: r.doorSide, built: true, level: 1 });
+      scene.add(b.group);
+      roomBuildings.push(b);
+    }
+    const { add, emit } = makeInstancer();
+    const C = (hex) => new THREE.Color(hex);
+    // Place a part at a local offset (lx, ly, lz) rotated with the item.
+    const part = (name, geo, mat, it, lx, ly, lz, sx, sy, sz, color = null, shadow = true) => {
+      const c = Math.cos(it.rot), sn = Math.sin(it.rot);
+      add(name, geo, mat, [it.x + lx * c + lz * sn, ly, it.z - lx * sn + lz * c], [sx, sy, sz], it.rot, color, shadow);
+    };
+    for (const it of plan.decor) {
+      const pick = (arr) => arr[Math.floor(it.v * arr.length) % arr.length];
+      switch (it.kind) {
+        case 'lamp':
+          part('lampBase', G.cyl6, M.stone, it, 0, 0.08, 0, 0.26, 0.16, 0.26);
+          part('lampPost', G.cyl6, M.darkWood, it, 0, 0.9, 0, 0.1, 1.6, 0.1);
+          part('lampBox', G.box, lampGlow, it, 0, 1.86, 0, 0.32, 0.36, 0.32, null, false);
+          part('lampCap', G.cone4, M.darkWood, it, 0, 2.14, 0, 0.46, 0.22, 0.46);
+          break;
+        case 'bench':
+          part('benchSeat', G.box, M.wood, it, 0, 0.26, 0, 0.9, 0.07, 0.3);
+          part('benchLeg', G.box, M.darkWood, it, -0.35, 0.12, 0, 0.07, 0.24, 0.26);
+          part('benchLeg', G.box, M.darkWood, it, 0.35, 0.12, 0, 0.07, 0.24, 0.26);
+          break;
+        case 'stall': {
+          const col = C(pick(STALL_COLORS));
+          for (const [px, pz] of [[-0.4, -0.3], [0.4, -0.3], [-0.4, 0.3], [0.4, 0.3]]) part('stallPost', G.box, M.darkWood, it, px, 0.55, pz, 0.06, 1.1, 0.06);
+          part('stallCounter', G.box, M.wood, it, 0.1, 0.4, 0, 0.3, 0.12, 0.8);
+          part('stallAwning', G.box, M.white, it, 0, 1.12, 0, 1.0, 0.06, 0.9, col);
+          part('stallStripe', G.box, M.white, it, 0, 1.15, -0.2, 1.02, 0.06, 0.16, C('#fffaef'), false);
+          part('stallStripe', G.box, M.white, it, 0, 1.15, 0.2, 1.02, 0.06, 0.16, C('#fffaef'), false);
+          for (let k = 0; k < 3; k++) part('stallGoods', G.ico, M.flatWhite, it, 0.1, 0.52, -0.25 + k * 0.25, 0.16, 0.14, 0.16, C(pick(FLOWER_COLORS.slice(k))), false);
+          break;
+        }
+        case 'crates':
+          part('crate', G.box, M.wood, it, 0, 0.18, 0, 0.36, 0.36, 0.36);
+          part('crate', G.box, M.wood, it, 0.3, 0.15, 0.18, 0.3, 0.3, 0.3);
+          if (it.v > 0.5) part('crate', G.box, M.wood, it, 0.05, 0.5, 0.02, 0.28, 0.28, 0.28);
+          break;
+        case 'barrel':
+          part('barrel', G.cyl, M.wood, it, 0, 0.24, 0, 0.36, 0.48, 0.36);
+          part('barrelBand', G.cyl, M.darkWood, it, 0, 0.36, 0, 0.38, 0.04, 0.38, null, false);
+          part('barrelBand', G.cyl, M.darkWood, it, 0, 0.12, 0, 0.38, 0.04, 0.38, null, false);
+          if (it.v > 0.4) part('barrel', G.cyl, M.wood, it, 0.38, 0.24, 0.1, 0.34, 0.48, 0.34);
+          break;
+        case 'tree':
+          part('planter', G.cyl, M.stone, it, 0, 0.12, 0, 0.8, 0.24, 0.8);
+          part('trunk', G.cyl6, M.trunk, it, 0, 0.6, 0, 0.14 * it.s, 1.0 * it.s, 0.14 * it.s);
+          part('crown', G.ico1, M.flatWhite, it, 0, 1.35 * it.s, 0, 1.1 * it.s, 0.95 * it.s, 1.1 * it.s, shade('#5fae62', (it.v - 0.5) * 0.14));
+          break;
+        case 'flowers':
+          part('bed', G.box, M.stone, it, 0, 0.08, 0, 0.84, 0.16, 0.64);
+          part('foliage', G.ico, M.flatWhite, it, 0, 0.2, 0, 0.78, 0.22, 0.56, C('#6faa66'));
+          for (let k = 0; k < 6; k++) {
+            const fx = ((k % 3) - 1) * 0.24, fz = (k < 3 ? -0.13 : 0.13);
+            part('flower', G.ico, M.flatWhite, it, fx, 0.3, fz, 0.17, 0.15, 0.17, C(FLOWER_COLORS[(k + Math.floor(it.v * 5)) % FLOWER_COLORS.length]), false);
+          }
+          break;
+        case 'pennant':
+          add('pennantPole', G.cyl6, M.darkWood, [it.x, WALL_H + 0.6, it.z], [0.05, 1.2, 0.05]);
+          add('pennantFlag', G.box, M.white, [it.x + 0.22, WALL_H + 1.0, it.z], [0.42, 0.3, 0.03], 0, C(pick(STALL_COLORS)));
+          break;
+        case 'fountain': {
+          const g = new THREE.Group();
+          g.position.set(it.x, 0, it.z);
+          g.add(mesh(G.cyl, M.stone, 0, 0.18, 0, 1.6, 0.36, 1.6));
+          const water = new THREE.Mesh(G.cyl, fountainWater);
+          water.position.y = 0.34; water.scale.set(1.4, 0.04, 1.4);
+          g.add(water);
+          g.add(mesh(G.cyl6, M.stone, 0, 0.6, 0, 0.22, 0.9, 0.22));
+          g.add(mesh(G.cyl, M.stone, 0, 1.02, 0, 0.6, 0.1, 0.6));
+          const spray = [];
+          for (let k = 0; k < 8; k++) {
+            const d = mesh(G.ico, fountainSpray, 0, 1.1, 0, 0.1, 0.1, 0.1, false);
+            d.userData.a = (k / 8) * Math.PI * 2;
+            g.add(d); spray.push(d);
+          }
+          decorGroup.add(g);
+          fountains.push({ spray });
+          break;
+        }
+      }
+    }
+    emit(decorGroup);
+  }
+  for (const plan of cityPlans) buildCityLife(plan);
+
+  // Townsfolk: decorative walkers along each city's roads (never tap targets).
+  for (const p of cityPlans) p.walkers = p.routes.map(r => ({ ...r, key: `tf:${p.id}:${r.id}` }));
+  const townsfolkCount = cityPlans.reduce((n, p) => n + p.walkers.length, 0);
+
   if (host.debug) window.__R3D_DEBUG = { THREE, renderer, scene, camera, sun };
   // Prime the camera so project/unproject work before the first render.
   placeCamera(0, 0);
 
   return {
     ok: true, renderer: 'three', version: THREE.REVISION, render, project, projectBillboard, unproject, dispose,
-    stats: () => ({ chunks: chunks.size, buildings: buildings.size, carriages: carriages.size, billboards: billboards.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+    stats: () => ({ chunks: chunks.size, buildings: buildings.size, rooms: roomBuildings.length, decor: cityPlans.reduce((n, p) => n + p.decor.length, 0), townsfolk: townsfolkCount, carriages: carriages.size, billboards: billboards.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
   };
 }
 

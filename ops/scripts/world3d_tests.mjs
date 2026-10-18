@@ -30,7 +30,8 @@ function close(a, b, tol = 1e-6, msg) { if (Math.abs(a - b) > tol) throw new Err
 
 const { groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
         sunForHour, buildingSpec, ndcToCanvas, rendererPreference,
-        advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL } = core;
+        advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
+        findTileRooms, planCityDecor, townsfolkRoutes, walkerAt } = core;
 
 console.log('\n=== world3d_core: ground substitution ===');
 test('flat terrain keeps its own art', () => {
@@ -186,6 +187,152 @@ test('advanceHour converges without overshooting', () => {
 test('advanceHour result stays in [0, 24)', () => {
   const h = advanceHour(23.9, 0.5, 0.05, 4);
   assert(h >= 0 && h < 24, `${h}`);
+});
+
+// ── Synthetic walled city (mirrors makeMap's shapes) ──────────────────────
+//  walls ring x0..x1/y0..y1, a N–S road (x 14–15) and an E–W road (y 12),
+//  a plaza (9) around the crossing with a contracts board (12), a gate (5)
+//  in the south wall, one slot footprint, and a wall-ringed bank room (13).
+const CITY = { x0: 0, y0: 0, x1: 29, y1: 23 };
+const W = 30, H = 24;
+const grid = new Array(W * H).fill(4);
+const setT = (x, y, v) => { grid[y * W + x] = v; };
+for (let x = 0; x < W; x++) { setT(x, 0, 3); setT(x, H - 1, 3); }
+for (let y = 0; y < H; y++) { setT(0, y, 3); setT(W - 1, y, 3); }
+for (let y = 1; y < H - 1; y++) { setT(14, y, 1); setT(15, y, 1); }
+for (let x = 1; x < W - 1; x++) setT(x, 12, 1);
+for (let y = 9; y <= 11; y++) for (let x = 10; x <= 19; x++) if (x < 14 || x > 15) setT(x, y, 9);
+setT(16, 11, 12);
+setT(14, H - 1, 5); setT(15, H - 1, 5);
+for (let y = 16; y <= 18; y++) for (let x = 3; x <= 7; x++) setT(x, y, (y === 16 || y === 18 || x === 3 || x === 7) ? 3 : 13);
+setT(7, 17, 4); // bank door (east)
+const tileAt = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 3 : grid[y * W + x];
+const SLOT = { x: 3, y: 3, w: 5, h: 3 };
+const inSlot = (x, y) => x >= SLOT.x && x < SLOT.x + SLOT.w && y >= SLOT.y && y < SLOT.y + SLOT.h;
+const hash = (x, y) => { let n = (x * 374761393 + y * 668265263) >>> 0; n = (n ^ (n >> 13)) >>> 0; n = (n * 1274126177) >>> 0; return ((n ^ (n >> 16)) >>> 0) / 4294967295; };
+
+console.log('\n=== world3d_core: wall-ringed rooms (non-slot buildings) ===');
+test('finds the bank room with its wall ring, type and door side', () => {
+  const rooms = findTileRooms(CITY, tileAt, inSlot);
+  eq(rooms.length, 1, JSON.stringify(rooms));
+  const r = rooms[0];
+  eq(JSON.stringify([r.x, r.y, r.w, r.h]), JSON.stringify([3, 16, 5, 3]));
+  eq(r.tileType, 13); eq(r.doorSide, 'east');
+});
+test('slot footprints are not reported as rooms', () => {
+  setT(4, 4, 6); // a market tile inside the slot footprint
+  const rooms = findTileRooms(CITY, tileAt, inSlot);
+  setT(4, 4, 4);
+  assert(rooms.every(r => !(r.x <= 4 && 4 < r.x + r.w && r.y <= 4 && 4 < r.y + r.h)), 'slot reported as room');
+});
+
+console.log('\n=== world3d_core: city decor plan ===');
+const rooms = findTileRooms(CITY, tileAt, inSlot);
+const inRoom = (x, y) => rooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+const blocked = (x, y) => inSlot(x, y) || inRoom(x, y);
+const decor = planCityDecor(CITY, tileAt, blocked, hash);
+const at = (it) => [Math.floor(it.x), Math.floor(it.z)];
+test('decor is deterministic', () => eq(JSON.stringify(planCityDecor(CITY, tileAt, blocked, hash)), JSON.stringify(decor)));
+test('nothing on roads, gates, footprints or rooms; only pennants on walls; only fountain/bench on the plaza', () => {
+  for (const it of decor) {
+    const [x, y] = at(it), t = tileAt(x, y);
+    assert(t !== 1 && t !== 5, `${it.kind} on road/gate at ${x},${y}`);
+    assert(!blocked(x, y), `${it.kind} inside a building at ${x},${y}`);
+    if (t === 3) eq(it.kind, 'pennant', `${it.kind} on a wall at ${x},${y}`);
+    if (it.kind === 'pennant') eq(t, 3, `pennant off-wall at ${x},${y}`);
+    if (t === 9) assert(it.kind === 'fountain' || it.kind === 'bench', `${it.kind} on the plaza at ${x},${y}`);
+    if (t === 12) assert(false, `${it.kind} on the contracts board`);
+  }
+});
+test('street lamps line the roads and are spaced out', () => {
+  const lamps = decor.filter(d => d.kind === 'lamp');
+  assert(lamps.length >= 4, `only ${lamps.length} lamps`);
+  for (const l of lamps) {
+    const [x, y] = at(l);
+    assert([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => tileAt(x + dx, y + dy) === 1), `lamp at ${x},${y} not beside a road`);
+  }
+  for (const a of lamps) for (const b of lamps) if (a !== b) assert(Math.hypot(a.x - b.x, a.z - b.z) >= 3, 'lamps too close');
+});
+test('exactly one fountain, on the plaza', () => {
+  const f = decor.filter(d => d.kind === 'fountain');
+  eq(f.length, 1); eq(tileAt(...at(f[0])), 9);
+});
+test('open squares get trees/flowers; walls of buildings get crates', () => {
+  assert(decor.some(d => d.kind === 'tree' || d.kind === 'flowers'), 'no greenery');
+  assert(decor.some(d => d.kind === 'crates' || d.kind === 'barrel'), 'no crates/barrels');
+  assert(decor.some(d => d.kind === 'stall'), 'no market stalls');
+});
+test('door fronts stay clear (no decor on the tile outside a room door)', () => {
+  assert(!decor.some(d => at(d)[0] === 8 && at(d)[1] === 17), 'decor blocks the bank door');
+});
+
+test('unbuilt lots (tile 16, door included) keep their door step clear', () => {
+  // A walled vacant lot whose door tile is 16, like initCityBuildingSlots paints.
+  const g2 = grid.slice();
+  const T2 = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 3 : g2[y * W + x];
+  for (let y = 3; y <= 6; y++) for (let x = 20; x <= 25; x++) g2[y * W + x] = (y === 3 || y === 6 || x === 20 || x === 25) ? 3 : 16;
+  g2[5 * W + 25] = 16; // east door
+  const lot = (x, y) => x >= 20 && x <= 25 && y >= 3 && y <= 6;
+  // hash ≡ 0 places decor everywhere it is allowed, so only the rule keeps the step clear.
+  const plan = planCityDecor(CITY, T2, (x, y) => lot(x, y) || blocked(x, y), () => 0);
+  assert(!plan.some(d => Math.floor(d.x) === 26 && Math.floor(d.z) === 5), 'decor on the vacant lot door step');
+  eq(findTileRooms(CITY, T2, (x, y) => lot(x, y) || inSlot(x, y)).filter(r => r.x === 20).length, 0, 'walled slot reported as a room');
+});
+test('fountain never sits beside a road or the contracts board', () => {
+  const f = decor.find(d => d.kind === 'fountain');
+  const [x, y] = at(f);
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) assert(![1, 12].includes(tileAt(x + dx, y + dy)), `fountain at ${x},${y} touches road/board`);
+  // A plaza that is all road-side gets no fountain at all.
+  const g3 = grid.slice();
+  for (let y = 9; y <= 11; y++) for (let x = 10; x <= 19; x++) if (g3[y * W + x] === 9) g3[y * W + x] = 4;
+  for (const x of [10, 11, 12, 13, 17, 18, 19]) g3[11 * W + x] = 9;
+  const T3 = (xx, yy) => (xx < 0 || yy < 0 || xx >= W || yy >= H) ? 3 : g3[yy * W + xx];
+  eq(planCityDecor(CITY, T3, blocked, hash).filter(d => d.kind === 'fountain').length, 0);
+});
+
+console.log('\n=== world3d_core: townsfolk ===');
+const routes = townsfolkRoutes(CITY, tileAt, 6, hash);
+test('routes follow straight road runs inside the city', () => {
+  assert(routes.length >= 1, 'no routes');
+  for (const r of routes) {
+    assert(r.ax === r.bx || r.az === r.bz, 'route not axis-aligned');
+    const n = Math.round(Math.hypot(r.bx - r.ax, r.bz - r.az));
+    assert(n >= 5, 'route too short');
+    for (let i = 0; i <= n; i++) {
+      const k = i / n, x = Math.floor(r.ax + (r.bx - r.ax) * k), z = Math.floor(r.az + (r.bz - r.az) * k);
+      assert([1, 9].includes(tileAt(x, z)), `route leaves the road at ${x},${z}`);
+    }
+  }
+});
+test('walkers stay on their route, are deterministic and face their heading', () => {
+  const r = routes[0];
+  let prev = null;
+  for (let t = 0; t < 60; t += 0.25) {
+    const p = walkerAt(r, t);
+    eq(JSON.stringify(p), JSON.stringify(walkerAt(r, t)));
+    const minX = Math.min(r.ax, r.bx) - 1e-9, maxX = Math.max(r.ax, r.bx) + 1e-9;
+    const minZ = Math.min(r.az, r.bz) - 1e-9, maxZ = Math.max(r.az, r.bz) + 1e-9;
+    assert(p.x >= minX && p.x <= maxX && p.z >= minZ && p.z <= maxZ, `off route at t=${t}`);
+    if (prev && p.moving && prev.moving) {
+      const dx = p.x - prev.x, dz = p.z - prev.z;
+      if (Math.hypot(dx, dz) > 1e-6) assert(dx * p.fx + dz * p.fy >= 0, `facing opposes motion at t=${t}`);
+    }
+    prev = p;
+  }
+});
+test('walker looks are a raw index, so every look in any wardrobe size gets used', () => {
+  const looks = new Set(townsfolkRoutes(CITY, tileAt, 40, hash).map(r => r.style % 8));
+  assert(looks.size >= 7, `only ${looks.size} of 8 looks used`);
+});
+test('walkers turn around at the ends (both ends get visited)', () => {
+  const r = routes[0];
+  let nearA = false, nearB = false;
+  for (let t = 0; t < 200; t += 0.5) {
+    const p = walkerAt(r, t);
+    if (Math.hypot(p.x - r.ax, p.z - r.az) < 0.6) nearA = true;
+    if (Math.hypot(p.x - r.bx, p.z - r.bz) < 0.6) nearB = true;
+  }
+  assert(nearA && nearB, 'walker never reached both ends');
 });
 
 console.log('\n=== world3d_core: projection + preference ===');

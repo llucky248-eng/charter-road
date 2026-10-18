@@ -81,7 +81,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.46'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.47'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6810,8 +6810,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.46',
+    version: 'v0.5.47',
     whatsNew: [
+      'Cities feel alive in 3D: townsfolk stroll the streets, lanterns line the roads (and glow at dusk), the plaza has a fountain, benches and striped market stalls, and the open squares have trees in planters and flower beds, with crates and barrels by the buildings and pennants on the walls. The bank and other walled rooms are proper buildings now, and construction sites show a rising timber frame, cut stone and a crane. All decoration — nothing blocks your path or changes the game.',
       'The world is now rendered in real 3D with three.js: walled cities with gabled-roof buildings (chimney smoke, glowing windows, columns on the bank, crates at the market, scaffolding on construction sites), forests of low-poly trees, rolling hills, animated water with shoreline foam, 3D wagons with trotting horses, and soft sun shadows that sweep across the day into a warm dusk. Characters stay in their painterly style as standing billboards, and the HUD and menus are unchanged. Prefer the old look or on a weak device? Add ?r=2d to the URL (remembered); ?r=3d switches back.',
       'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
       'Bank reliability fixes: rapid clicks can no longer double a loan or a withdrawal, a failed deposit now restores your balance exactly (no leftover phantom interest), a withdrawal from a temporarily under-funded vault keeps the unpaid remainder as a claim you can collect later instead of losing it, and a dropped network request no longer leaves your gold out of sync.',
@@ -8498,7 +8499,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.46',
+      buildVersion: 'v0.5.47',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -13476,6 +13477,13 @@ function drawEvent() {
   }
 
   let _3dSlotList = null;
+  // Townsfolk wardrobe: the town NPC looks plus a few plain-clothes variants.
+  const TOWNSFOLK_LOOKS = [
+    ...Object.values(_NPC_STYLE_OPTS).filter(o => o.hat !== 'helm'),
+    { skin: '#f0c9a0', hair: '#8a5a2e', shirt: '#e57389', hat: 'straw' },
+    { skin: '#d2a77a', hair: '#2a1a10', shirt: '#6fa8dc', hat: 'cap' },
+    { skin: '#f5d2b8', hair: '#c9a24a', shirt: '#f0a830', hat: 'straw' },
+  ];
   function build3DFrame() {
     const figures = [];
     const onRoad = playerOnRoad();
@@ -13566,6 +13574,18 @@ function drawEvent() {
         drawTileInto: (g, id, x, y, tx, ty) => paintWithCtx(g, camera.x, camera.y, () => drawTile(id, x, y, tx, ty)),
         buildingTiles,
         mineMetal: (tx, ty) => MINE_SITE_NODES[ty * MAP_W + tx] || null,
+        // Decorative townsfolk (3D only): the NPC figure art in a rotating
+        // set of looks, walking when `moving`. Visual only — no game entity.
+        townsfolkFigure: ({ key, x, y, style, fx, moving }) => {
+          const looks = TOWNSFOLK_LOOKS[style % TOWNSFOLK_LOOKS.length];
+          return figureSpec(key, x, y, 6, () => {
+            const walk = moving ? Math.sin(stateTime * 0.016 + style * 1.7) : 0;
+            ctx.save();
+            ctx.translate(x - camera.x, y - camera.y + walk * 0.5);
+            _drawFigure(looks, 0.5, fx < -0.1, walk);
+            ctx.restore();
+          });
+        },
         isMineSpent: (tx, ty) => ((player.mineCooldown || {})[ty * MAP_W + tx] || 0) > stateTime,
         preserveDrawingBuffer: !!__QA.enabled, debug: !!__QA.enabled,
       }, core);
