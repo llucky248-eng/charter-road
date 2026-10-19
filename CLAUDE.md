@@ -135,7 +135,7 @@ three.js; the HUD, minimap and menus stay on the 2D canvas, which sits transpare
 | File | What it does |
 |---|---|
 | `src/world3d.js` | ES module, dynamically imported by `main.js` (`boot3D`). `createWorld3D(host, core)` (main.js passes the `?v=`-versioned `world3d_core.js`, so there is one copy per build) → `{render(frame), project, projectBillboard, unproject, stats, dispose}`. Ground is painted lazily per 32×32-tile chunk **with `main.js`'s own `drawTile` art**; walls/trees/hills are instanced props; buildings come from `cityBuildings` slots; characters are billboards painted by the 2D figure painters. |
-| `src/world3d_core.js` | Pure helpers (no three/DOM) — unit-tested by `world3d_tests.mjs`. Building palette, ore colours and carriage `HORSE_PAL`/`WAGON_PAL` mirror `main.js` (tests enforce parity — edit both together). |
+| `src/world3d_core.js` | Pure helpers (no three/DOM) — unit-tested by `world3d_tests.mjs`. City life is planned here too: `findTileRooms` (walled rooms that aren't slots, e.g. the bank → real 3D buildings), `planCityDecor` (lamps, fountain, stalls, benches, trees, flowers, crates, pennants — never on roads/gates/footprints/door steps), `townsfolkRoutes`/`walkerAt` (decorative walkers on city roads; not tappable, not game entities). Building palette, ore colours and carriage `HORSE_PAL`/`WAGON_PAL` mirror `main.js` (tests enforce parity — edit both together). |
 | `vendor/three/r170/three.module.min.js` | three.js r170, vendored (no CDN at runtime). The revision is in the path so an upgrade is a new URL — put a new version in a new folder. |
 
 Rules: world-anchored overlays and tap input must go through `w2s`/`w2sLift`/`s2w` in `main.js`,
