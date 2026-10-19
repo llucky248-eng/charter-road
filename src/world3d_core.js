@@ -364,3 +364,104 @@ export function walkerAt(route, tSec) {
   if (u < 2 * leg + route.pause) { const k = (u - leg - route.pause) / leg; return { x: route.bx + (route.ax - route.bx) * k, z: route.bz + (route.az - route.bz) * k, fx: -dx, fy: -dz, moving: true }; }
   return { x: route.ax, z: route.az, fx: -dx, fy: -dz, moving: false };
 }
+
+// ── Characters ─────────────────────────────────────────────────────────────
+// One rig for the player, NPCs and townsfolk: same body, same size; only the
+// look (colours, hat, the player's merchant kit) differs. Units are tiles,
+// feet at y=0, facing +X, left = +Z. Limb parts are relative to their group's
+// pivot (CHAR_PIVOTS) so the renderer can swing them for the walk cycle.
+// Part: { part, group, shape: box|sphere|cyl|cone, p:[x,y,z], s:[w,h,d], color, r? }.
+export const CHAR_HEIGHT = 1.35;
+export const CHAR_PIVOTS = {
+  legL: [0, 0.5, 0.1], legR: [0, 0.5, -0.1],
+  armL: [0, 0.96, 0.24], armR: [0, 0.96, -0.24],
+};
+const HATS = {
+  straw: (P) => {
+    P('hatBrim', 'cyl', [0, 1.3, 0], [0.64, 0.03, 0.64], '#e8c87a');
+    P('hatCrown', 'cyl', [0, 1.39, 0], [0.3, 0.16, 0.3], '#e8c87a');
+    P('hatBand', 'cyl', [0, 1.34, 0], [0.31, 0.04, 0.31], '#c0504d');
+  },
+  travelhat: (P) => {
+    P('hatBrim', 'cyl', [0, 1.31, 0], [0.58, 0.03, 0.58], '#6b4a2c');
+    P('hatCrown', 'cyl', [0, 1.42, 0], [0.32, 0.2, 0.32], '#7d5230');
+    P('hatBand', 'cyl', [0, 1.35, 0], [0.33, 0.04, 0.33], '#d4a020');
+    P('hatFeather', 'box', [-0.06, 1.47, 0.15], [0.2, 0.03, 0.05], '#e57389', [0, 0, 0.6]);
+  },
+  tophat: (P) => {
+    P('hatBrim', 'cyl', [0, 1.31, 0], [0.5, 0.03, 0.5], '#2a2230');
+    P('hatCrown', 'cyl', [0, 1.5, 0], [0.3, 0.36, 0.3], '#2a2230');
+    P('hatBand', 'cyl', [0, 1.37, 0], [0.31, 0.05, 0.31], '#d4a020');
+  },
+  helm: (P) => {
+    P('hatDome', 'sphere', [0, 1.24, 0], [0.46, 0.3, 0.46], '#9aa4ae');
+    P('hatRidge', 'box', [0, 1.37, 0], [0.38, 0.04, 0.05], '#7a8590');
+    P('hatPlume', 'cone', [-0.02, 1.48, 0], [0.09, 0.2, 0.09], '#c0504d');
+  },
+  hood: (P) => {
+    P('hatHood', 'sphere', [-0.08, 1.18, 0], [0.48, 0.44, 0.48], '#5b5561');
+    P('hatPeak', 'cone', [-0.14, 1.42, 0], [0.16, 0.12, 0.16], '#5b5561');
+  },
+  scribeHood: (P) => {
+    P('hatHood', 'sphere', [-0.08, 1.18, 0], [0.48, 0.44, 0.48], '#7a5a3a');
+    P('hatTassel', 'sphere', [-0.2, 1.38, 0], [0.08, 0.08, 0.08], '#d4a020');
+  },
+  cap: (P) => {
+    P('hatCrown', 'sphere', [0, 1.28, 0], [0.43, 0.2, 0.43], '#4a5a6a');
+    P('hatVisor', 'box', [0.2, 1.27, 0], [0.16, 0.025, 0.26], '#3a4652');
+  },
+  bakerCap: (P) => {
+    P('hatBand', 'cyl', [0, 1.34, 0], [0.36, 0.1, 0.36], '#ffffff');
+    P('hatPuff', 'sphere', [0, 1.45, 0], [0.44, 0.2, 0.44], '#fbfbf6');
+  },
+  sailor: (P) => {
+    P('hatCrown', 'cyl', [0, 1.33, 0], [0.42, 0.09, 0.42], '#ffffff');
+    P('hatBand', 'cyl', [0, 1.3, 0], [0.43, 0.035, 0.43], '#2f5a8a');
+  },
+};
+
+export function characterParts(look) {
+  const parts = [];
+  const P = (part, shape, p, s, color, r) => parts.push(r ? { part, group: 'body', shape, p, s, color, r } : { part, group: 'body', shape, p, s, color });
+  const L = (group, part, shape, p, s, color) => parts.push({ part, group, shape, p, s, color });
+  const skin = look.skin || '#f0c9a0', hair = look.hair || '#4a3320', shirt = look.shirt || '#c7b9a5';
+  const pants = look.pants || '#4f3b2a', boots = look.boots || '#5a3d28';
+
+  // Body: torso, hips, neck, head with hair and a simple storybook face.
+  P('hips', 'cyl', [0, 0.52, 0], [0.32, 0.12, 0.36], pants);
+  P('torso', 'cyl', [0, 0.74, 0], [0.34, 0.46, 0.4], shirt);
+  P('collar', 'cyl', [0, 0.96, 0], [0.26, 0.04, 0.3], mixHex(shirt, '#ffffff', 0.25));
+  P('neck', 'cyl', [0, 1.0, 0], [0.12, 0.08, 0.12], skin);
+  P('head', 'sphere', [0, 1.14, 0], [0.4, 0.42, 0.4], skin);
+  P('hair', 'sphere', [-0.04, 1.18, 0], [0.4, 0.34, 0.42], hair);
+  for (const z of [0.075, -0.075]) {
+    P('eye', 'sphere', [0.18, 1.15, z], [0.05, 0.07, 0.05], '#2a1a10');
+    P('brow', 'box', [0.185, 1.215, z], [0.02, 0.02, 0.075], mixHex(hair, '#000000', 0.2));
+    P('cheek', 'sphere', [0.16, 1.085, z * 1.45], [0.04, 0.03, 0.05], '#f2a0a0');
+  }
+  P('nose', 'sphere', [0.2, 1.12, 0], [0.05, 0.05, 0.05], mixHex(skin, '#c07050', 0.25));
+  P('mouth', 'box', [0.195, 1.06, 0], [0.012, 0.016, 0.06], '#8a4030');
+
+  // Limbs (relative to their pivots).
+  for (const g of ['legL', 'legR']) {
+    L(g, 'leg', 'cyl', [0, -0.2, 0], [0.13, 0.36, 0.13], pants);
+    L(g, 'boot', 'box', [0.03, -0.44, 0], [0.2, 0.12, 0.14], boots);
+  }
+  for (const g of ['armL', 'armR']) {
+    L(g, 'sleeve', 'cyl', [0, -0.15, 0], [0.11, 0.3, 0.11], shirt);
+    L(g, 'hand', 'sphere', [0, -0.34, 0], [0.1, 0.1, 0.1], skin);
+  }
+
+  // The player's merchant kit: vest, belt, coin pouch, satchel on a strap.
+  if (look.merchantKit) {
+    P('vest', 'cyl', [0, 0.76, 0], [0.37, 0.38, 0.43], mixHex(shirt, '#000000', 0.35));
+    P('belt', 'cyl', [0, 0.54, 0], [0.36, 0.05, 0.42], '#6b4a2c');
+    P('pouch', 'sphere', [0.06, 0.48, 0.21], [0.1, 0.12, 0.08], '#d4a020');
+    P('strap', 'box', [0, 0.78, 0], [0.38, 0.05, 0.45], '#6b4a2c', [0.65, 0, 0]);
+    P('satchel', 'box', [-0.08, 0.6, -0.24], [0.16, 0.16, 0.07], '#7d5230');
+  }
+
+  const hat = HATS[look.hat] ? look.hat : 'straw';
+  HATS[hat](P);
+  return { parts, hat, height: CHAR_HEIGHT };
+}

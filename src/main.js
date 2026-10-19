@@ -35,19 +35,17 @@
     }
     return { x: wx - camera.x, y: wy - camera.y, k: 1, behind: false };
   }
-  // Screen point above a world object: px2d canvas px up in 2D; in 3D either
-  // hTiles world units up (meshes) or billboardPx up a character billboard.
-  function w2sLift(wx, wy, px2d, { hTiles = 0, billboardPx = 0 } = {}) {
+  // Screen point above a world object: px2d canvas px up in 2D, hTiles world
+  // units up in 3D. `overHead: true` means "above a character's hat" in 3D.
+  function w2sLift(wx, wy, px2d, { hTiles = 0, overHead = false } = {}) {
     if (!R3D.active) return { x: wx - camera.x, y: wy - camera.y - px2d };
-    return billboardPx ? R3D.api.projectBillboard(wx, wy, billboardPx) : R3D.api.project(wx, wy, hTiles);
+    return R3D.api.project(wx, wy, overHead ? R3D.api.charTop : hTiles);
   }
   // Where gain/loss popups spawn: 18px over the player in 2D; in 3D over the
-  // head of the on-foot billboard or the top of the wagon canopy.
+  // walking character's head or the top of the wagon canopy.
   function playerPopupAnchor() {
-    const onFoot = !playerOnRoad();
-    const p = w2sLift(player.x, player.y, 18, onFoot
-      ? { billboardPx: figureHeadPx(player.r || 8) }
-      : { hTiles: 2.2 });
+    const p = playerOnRoad() ? w2sLift(player.x, player.y, 18, { hTiles: 2.2 })
+                             : w2sLift(player.x, player.y, FIGURE_HEAD_PX, { overHead: true });
     return { sx: p.x, sy: p.y };
   }
   // Canvas px → world px (3D: whatever the tap visibly hit, else the ground).
@@ -81,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.47'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.48'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -330,6 +328,7 @@ ${line4}`;
         if (Number.isFinite(p.capacity)) player.capacity = p.capacity;
         if (Number.isFinite(p.x)) player.x = p.x;
         if (Number.isFinite(p.y)) player.y = p.y;
+        if (p.facing && Number.isFinite(p.facing.x) && Number.isFinite(p.facing.y)) player.facing = { x: p.facing.x, y: p.facing.y };
         if (p.inv && typeof p.inv === 'object') {
           for (const k of Object.keys(p.inv)) player.inv[k] = p.inv[k];
         }
@@ -881,6 +880,12 @@ ${line4}`;
   // Scale factor applied to player carriage + AI trader carriage drawings.
   // 2.0 = carriage spans ~2×2 tiles, matching the visual weight of buildings.
   const CARRIAGE_SCALE = 2.0;
+  // One figure size for every person (player, NPCs) — collision radii differ,
+  // looks don't. 0.6 ≈ the old player (0.67) and NPC (0.5) sizes averaged.
+  const FIGURE_SCALE = 0.6;
+  // 2D: how far above a figure's feet-origin its hat ends (painter spans
+  // y∈[-36,+17] at scale 1, hats add ~8) — bubbles/popups sit above this.
+  const FIGURE_HEAD_PX = Math.round(46 * FIGURE_SCALE);
   // How many pixels building tiles extend upward as a raised 3D top face.
   // Makes buildings visually taller/bigger relative to the player (who is ~1 tile tall).
   const BUILDING_RISE = IS_MOBILE ? 10 : 14;
@@ -6325,19 +6330,17 @@ const _NPC_DEFAULT_OPTS = { skin: '#f5d2b8', hair: '#5a3a1a', shirt: '#c7b9a5', 
 function drawNpcEntity(e) {
   const sx = e.x - camera.x;
   const sy = e.y - camera.y;
-  const r = e.radius || 6;
 
   const opts = _NPC_STYLE_OPTS[e.style] || _NPC_DEFAULT_OPTS;
-  const scale = r / 12;
   // Phase offset per NPC so they don't all animate in sync
   const phase = (typeof e.id === 'string') ? e.id.charCodeAt(0) * 0.37 : 0;
   const walkPhase = Math.sin(stateTime * 0.016 + phase);
-  const bob = walkPhase * (r * 0.08);
+  const bob = walkPhase * FIGURE_SCALE; // same bob for everyone, like the figure size
   const flip = (e.facing && typeof e.facing.x === 'number') ? e.facing.x < -0.1 : false;
 
   ctx.save();
   ctx.translate(sx, sy + bob);
-  _drawFigure(opts, scale, flip, walkPhase);
+  _drawFigure(opts, FIGURE_SCALE, flip, walkPhase);
   ctx.restore();
 }
 
@@ -6349,8 +6352,7 @@ function computeNpcBubbleLayout() {
   const npc = entities.find(e => e.id === b.npcId);
   if (!npc) return null;
 
-  const { x: sx, y: sy } = w2sLift(npc.x, npc.y, npc.radius + 10,
-    { billboardPx: figureHeadPx(npc.radius || 6) });
+  const { x: sx, y: sy } = w2sLift(npc.x, npc.y, FIGURE_HEAD_PX, { overHead: true });
   const text = b.text || '';
 
   ctx.save();
@@ -6810,8 +6812,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.47',
+    version: 'v0.5.48',
     whatsNew: [
+      'New look for every character: your trader, the townsfolk and every NPC now share one polished 3D body — same size, same storybook style — with soft cel shading, an ink outline, real shadows, faces with eyes and rosy cheeks, and a proper walk cycle (swinging arms and legs, a little bounce) and idle sway. Roles still read at a glance by their hats (guard helm, baker cap, sailor cap, hoods, straw and travel hats), and you stand out by your merchant kit — vest, belt, coin pouch and satchel — whose hat and colours still follow your gear. In the 2D view (?r=2d) you and the NPCs are now drawn at the same size too.',
       'Cities feel alive in 3D: townsfolk stroll the streets, lanterns line the roads (and glow at dusk), the plaza has a fountain, benches and striped market stalls, and the open squares have trees in planters and flower beds, with crates and barrels by the buildings and pennants on the walls. The bank and other walled rooms are proper buildings now, and construction sites show a rising timber frame, cut stone and a crane. All decoration — nothing blocks your path or changes the game.',
       'The world is now rendered in real 3D with three.js: walled cities with gabled-roof buildings (chimney smoke, glowing windows, columns on the bank, crates at the market, scaffolding on construction sites), forests of low-poly trees, rolling hills, animated water with shoreline foam, 3D wagons with trotting horses, and soft sun shadows that sweep across the day into a warm dusk. Characters stay in their painterly style as standing billboards, and the HUD and menus are unchanged. Prefer the old look or on a weak device? Add ?r=2d to the URL (remembered); ?r=3d switches back.',
       'Trade tools rebalanced so each upgrade matters and every label is honest. Sell bonuses now climb evenly +2% → +40% across the whole tree, with the flagship tool at the +40% cap the game already enforced on the combined tool+guild bonus. Before, tools advertised up to +75% but everything past +40% was silently discarded, so the priciest upgrades did nothing — and several mid-tier tools were bunched at the cap. Spreading them out means some tools you already own now show (and give) a different bonus than before — a few mid/high tiers deliver less than the capped +40% they used to, in exchange for a progression where every tier is a real step up. Descriptions now always match the bonus applied.',
@@ -8499,7 +8502,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.47',
+      buildVersion: 'v0.5.48',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -12035,8 +12038,6 @@ function drawEntities() {
       return;
     }
 
-    const r = player.r || 8;
-    const scale = r / 12;
     const moving = Math.hypot(player.vx || 0, player.vy || 0) > 0.01;
     const walkPhase = moving ? Math.sin(stateTime * 0.018) : 0;
     const bob = walkPhase * 1.2;
@@ -12048,7 +12049,7 @@ function drawEntities() {
     ctx.save();
     ctx.translate(x, y + bob);
     if (bootsTier >= 4) { ctx.shadowColor = '#ffd84d'; ctx.shadowBlur = 7; }
-    _drawFigure(opts, scale, flip, walkPhase);
+    _drawFigure(opts, FIGURE_SCALE, flip, walkPhase);
     ctx.restore();
   }
 
@@ -13462,19 +13463,9 @@ function drawEvent() {
   }
 
   // ── 3D world (three.js) glue ────────────────────────────────────────────
-  // Character figures become camera-facing billboards painted by the same 2D
-  // painters; spec = canvas size + where the entity origin and feet sit on it.
-  // Height of a figure's head above its feet, in figure-canvas px (the
-  // painter spans y∈[-36,+17]·r/12 around the origin) + a small gap.
-  function figureHeadPx(r) { return 53 * r / 12 + 4; }
-  function figureSpec(key, x, y, r, draw) {
-    const sc = r / 12;
-    const w = Math.ceil(48 * sc) + 8;
-    const top = Math.ceil(44 * sc) + 6;     // hats/hair poke above the figure origin
-    const h = top + Math.ceil(22 * sc) + 2;
-    return { key, x, y, w, h, ox: w / 2, oy: top, fy: top + 17 * sc,
-      paint: (g) => paintWithCtx(g, x - w / 2, y - top, draw) };
-  }
+  // People (player on foot, NPCs) are sent as looks — the same skin/hair/
+  // shirt/hat options the 2D figure painter uses — and world3d builds them on
+  // one shared 3D rig, so everyone has the same size and style.
 
   let _3dSlotList = null;
   // Townsfolk wardrobe: the town NPC looks plus a few plain-clothes variants.
@@ -13487,15 +13478,21 @@ function drawEvent() {
   function build3DFrame() {
     const figures = [];
     const onRoad = playerOnRoad();
-    if (!onRoad) figures.push(figureSpec('__player', player.x, player.y, player.r || 8, drawPlayer));
+    if (!onRoad) {
+      figures.push({ key: '__player', x: player.x, y: player.y, look: _playerChibiOpts(), facing: player.facing,
+        moving: Math.hypot(player.vx || 0, player.vy || 0) > 0.01 });
+    }
     for (const e of entities) {
-      if (e.kind === 'npc') figures.push(figureSpec('npc:' + e.id, e.x, e.y, e.radius || 6, () => drawNpcEntity(e)));
+      if (e.kind !== 'npc') continue;
+      // NPCs keep no velocity/facing; the renderer derives both from motion.
+      figures.push({ key: 'npc:' + e.id, x: e.x, y: e.y, look: _NPC_STYLE_OPTS[e.style] || _NPC_DEFAULT_OPTS });
     }
     const myCity = currentCity()?.id || null;
     for (const [uid, op] of Object.entries(otherPlayers)) {
       if ((op.city_id || null) !== myCity) continue;
-      figures.push({ key: 'op:' + uid, x: op.x, y: op.y, w: 110, h: 40, ox: 55, oy: 24, fy: 34,
-        paint: (g) => paintWithCtx(g, camera.x, camera.y, () => drawOtherPlayerFigure(op, uid, 55, 24)) });
+      // Other traders get the same rig: merchant kit in their player colour.
+      figures.push({ key: 'op:' + uid, x: op.x, y: op.y,
+        look: { skin: '#f0c9a0', hair: '#4a3320', shirt: op.color || '#a78bfa', hat: 'travelhat', merchantKit: true } });
     }
     // Slot objects live for the whole session, so list them (by reference) once.
     if (!_3dSlotList) {
@@ -13536,6 +13533,25 @@ function drawEvent() {
     }
   }
 
+  // Name over each other online trader's 3D character (same city only).
+  function drawOtherPlayerNames3D() {
+    const myCity = currentCity()?.id || null;
+    ctx.save();
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    for (const [uid, op] of Object.entries(otherPlayers)) {
+      if ((op.city_id || null) !== myCity) continue;
+      const p = R3D.api.project(op.x, op.y, R3D.api.charTop);
+      if (p.behind) continue;
+      const label = op.name || `Trader ${uid}`;
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 3;
+      ctx.strokeText(label, p.x, p.y);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, p.x, p.y);
+    }
+    ctx.restore();
+  }
+
   // Trader name tag (+ [T] Trade hint) floating over a 3D carriage.
   function drawAiTraderLabel3D(t) {
     const p = R3D.api.project(t.x, t.y, 2.4);
@@ -13574,18 +13590,8 @@ function drawEvent() {
         drawTileInto: (g, id, x, y, tx, ty) => paintWithCtx(g, camera.x, camera.y, () => drawTile(id, x, y, tx, ty)),
         buildingTiles,
         mineMetal: (tx, ty) => MINE_SITE_NODES[ty * MAP_W + tx] || null,
-        // Decorative townsfolk (3D only): the NPC figure art in a rotating
-        // set of looks, walking when `moving`. Visual only — no game entity.
-        townsfolkFigure: ({ key, x, y, style, fx, moving }) => {
-          const looks = TOWNSFOLK_LOOKS[style % TOWNSFOLK_LOOKS.length];
-          return figureSpec(key, x, y, 6, () => {
-            const walk = moving ? Math.sin(stateTime * 0.016 + style * 1.7) : 0;
-            ctx.save();
-            ctx.translate(x - camera.x, y - camera.y + walk * 0.5);
-            _drawFigure(looks, 0.5, fx < -0.1, walk);
-            ctx.restore();
-          });
-        },
+        // Decorative townsfolk (3D only) wear a rotating set of looks.
+        townsfolkLook: (style) => TOWNSFOLK_LOOKS[style % TOWNSFOLK_LOOKS.length],
         isMineSpent: (tx, ty) => ((player.mineCooldown || {})[ty * MAP_W + tx] || 0) > stateTime,
         preserveDrawingBuffer: !!__QA.enabled, debug: !!__QA.enabled,
       }, core);
@@ -13885,6 +13891,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     const drew3D = R3D.active && render3DWorld();
     if (drew3D) {
       for (const t of AI_TRADERS) drawAiTraderLabel3D(t);
+      drawOtherPlayerNames3D();
     } else {
       drawWorld();
       // Building labels are now baked into drawBuildingSprites() as facade banners.

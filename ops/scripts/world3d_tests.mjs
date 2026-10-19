@@ -31,7 +31,8 @@ function close(a, b, tol = 1e-6, msg) { if (Math.abs(a - b) > tol) throw new Err
 const { groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
         sunForHour, buildingSpec, ndcToCanvas, rendererPreference,
         advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
-        findTileRooms, planCityDecor, townsfolkRoutes, walkerAt } = core;
+        findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
+        characterParts, CHAR_HEIGHT, CHAR_PIVOTS } = core;
 
 console.log('\n=== world3d_core: ground substitution ===');
 test('flat terrain keeps its own art', () => {
@@ -333,6 +334,77 @@ test('walkers turn around at the ends (both ends get visited)', () => {
     if (Math.hypot(p.x - r.bx, p.z - r.bz) < 0.6) nearB = true;
   }
   assert(nearA && nearB, 'walker never reached both ends');
+});
+
+console.log('\n=== world3d_core: characters (player + NPCs share one rig) ===');
+const PLAYER_LOOK = { skin: '#f0c9a0', hair: '#4a3320', shirt: '#b07ec3', hat: 'travelhat', boots: '#8a5a30', merchantKit: true };
+const GUARD_LOOK = { skin: '#e6c08a', hair: '#3b2a1d', shirt: '#7a8a96', hat: 'helm' };
+const top = (p) => p.p[1] + (CHAR_PIVOTS[p.group] ? CHAR_PIVOTS[p.group][1] : 0) + p.s[1] / 2;
+const bottom = (p) => p.p[1] + (CHAR_PIVOTS[p.group] ? CHAR_PIVOTS[p.group][1] : 0) - p.s[1] / 2;
+const body = (look) => characterParts(look).parts.filter(p => !p.part.startsWith('hat') && !['vest', 'belt', 'satchel', 'pouch', 'strap'].includes(p.part));
+test('player and NPCs share the exact same body (size, proportions, limbs)', () => {
+  const geo = (look) => JSON.stringify(body(look).map(p => [p.part, p.group, p.shape, p.p, p.s]));
+  eq(geo(PLAYER_LOOK), geo(GUARD_LOOK));
+  eq(geo(PLAYER_LOOK), geo({ skin: '#fff', hair: '#000', shirt: '#123456', hat: 'straw' }));
+});
+test('the head tops out at CHAR_HEIGHT and feet stand on the ground', () => {
+  const parts = characterParts(GUARD_LOOK).parts;
+  close(Math.max(...body(GUARD_LOOK).map(top)), CHAR_HEIGHT, 1e-6);
+  close(Math.min(...parts.map(bottom)), 0, 1e-6);
+});
+test('hats sit on the head and stay modest', () => {
+  for (const hat of ['straw', 'travelhat', 'tophat', 'helm', 'hood', 'scribeHood', 'cap', 'bakerCap', 'sailor']) {
+    const r = characterParts({ ...GUARD_LOOK, hat });
+    eq(r.hat, hat, `hat ${hat} fell back`);
+    const hats = r.parts.filter(p => p.part.startsWith('hat'));
+    assert(hats.length >= 1, `no parts for ${hat}`);
+    const t = Math.max(...hats.map(top));
+    assert(t > CHAR_HEIGHT - 0.1 && t <= CHAR_HEIGHT + 0.42, `${hat} top ${t.toFixed(2)} out of range`);
+  }
+});
+test('every hat the game uses is a real 3D hat (no silent fallback)', () => {
+  const used = new Set([...mainSrc.matchAll(/hat:\s*'(\w+)'/g)].map(m => m[1]));
+  for (const t of mainSrc.matchAll(/'(\w+)'\s*:\s*packTier/g)) used.add(t[1]);
+  for (const h of ['straw', 'travelhat', 'tophat']) used.add(h);
+  for (const hat of used) eq(characterParts({ ...GUARD_LOOK, hat }).hat, hat, `hat '${hat}' from main.js unsupported`);
+});
+test('unknown hats fall back to straw rather than throwing', () => eq(characterParts({ ...GUARD_LOOK, hat: 'crown?' }).hat, 'straw'));
+test('only the merchant kit look gets vest, belt, satchel and coin pouch', () => {
+  const kit = (look) => characterParts(look).parts.filter(p => ['vest', 'belt', 'satchel', 'pouch'].includes(p.part)).map(p => p.part);
+  for (const k of ['vest', 'belt', 'satchel', 'pouch']) assert(kit(PLAYER_LOOK).includes(k), `player missing ${k}`);
+  eq(kit(GUARD_LOOK).length, 0, 'NPC wears the merchant kit');
+});
+test('look colours reach the right parts; face looks forward (+X)', () => {
+  const parts = characterParts(PLAYER_LOOK).parts;
+  eq(parts.find(p => p.part === 'torso').color, PLAYER_LOOK.shirt);
+  eq(parts.find(p => p.part === 'head').color, PLAYER_LOOK.skin);
+  assert(parts.filter(p => p.part === 'boot').every(p => p.color === PLAYER_LOOK.boots), 'boot colour');
+  const eyes = parts.filter(p => p.part === 'eye');
+  eq(eyes.length, 2);
+  const head = parts.find(p => p.part === 'head');
+  assert(eyes.every(e => e.p[0] > head.p[0]), 'eyes not on the front of the head');
+});
+test('limbs live in their pivot groups (so they can swing)', () => {
+  const parts = characterParts(GUARD_LOOK).parts;
+  for (const g of ['legL', 'legR', 'armL', 'armR']) assert(parts.some(p => p.group === g), `no ${g} parts`);
+  assert(parts.filter(p => p.group === 'legL').every(p => p.p[1] <= 0), 'leg parts must hang below the hip pivot');
+});
+test('2D fallback: player and NPC figures are drawn at one shared scale', () => {
+  // The function's own body: from its declaration to the closing brace at the
+  // same indentation (drawPlayer is nested two spaces deep, drawNpcEntity isn't).
+  const body = (name) => {
+    const m = new RegExp(`\\n( *)function ${name}\\(`).exec(mainSrc);
+    assert(m, `${name} not found`);
+    const end = mainSrc.indexOf(`\n${m[1]}}`, m.index + 1);
+    return mainSrc.slice(m.index, end);
+  };
+  for (const fn of ['drawPlayer', 'drawNpcEntity']) {
+    const src = body(fn);
+    assert(/_drawFigure\([^,]+,\s*FIGURE_SCALE\s*,/.test(src), `${fn} must draw with FIGURE_SCALE, not its own scale`);
+  }
+});
+test('characterParts is deterministic and pure', () => {
+  eq(JSON.stringify(characterParts(PLAYER_LOOK)), JSON.stringify(characterParts(PLAYER_LOOK)));
 });
 
 console.log('\n=== world3d_core: projection + preference ===');
