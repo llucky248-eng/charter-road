@@ -16,7 +16,6 @@ const CHUNK = 32;          // tiles per ground/prop chunk edge
 const PITCH_DEG = 52;
 const FOV_DEG = 30;
 const WALL_H = 1.25;
-const FIGURE_SCALE = 1.25; // characters read a touch larger among 3D buildings
 
 const SLOT_ICONS = { 6: '🛒', 7: '🍺', 14: '🛏️', 8: '📦', 15: '⚒️', 12: '📜', 13: '💰', 4: '🛡️', 19: '⛏️' };
 
@@ -33,6 +32,7 @@ export function createWorld3D(host, core) {
     groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
     sunForHour, buildingSpec, ndcToCanvas, advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
     findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
+    characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
   } = core;
   const stage = host.canvas2d.parentElement;
   // Probe first: without WebGL2 three.js would log a console error; the
@@ -683,45 +683,138 @@ export function createWorld3D(host, core) {
     u.horse.visible = !parked;
   }
 
-  // ── Billboard characters (reuse main.js's painterly 2D figure art) ───────
-  const billboards = new Map(); // key → { sprite, cv, g, tex, w, h }
-  const bbScale = Math.min(window.devicePixelRatio || 1, 2) * FIGURE_SCALE * 1.6;
+  // Frustum for skipping off-screen characters.
   const frustum = new THREE.Frustum(), projView = new THREE.Matrix4(), figSphere = new THREE.Sphere(new THREE.Vector3(), 2.5);
-  function syncBillboard(f) {
-    // Off-screen figures keep their sprite hidden and skip the repaint/upload.
-    figSphere.center.set(f.x / TILE, 1, f.y / TILE);
-    if (!frustum.intersectsSphere(figSphere)) return;
-    let b = billboards.get(f.key);
-    if (!b || b.w !== f.w || b.h !== f.h) {
-      if (b) { scene.remove(b.sprite); b.tex.dispose(); b.sprite.material.dispose(); }
-      const cv = document.createElement('canvas');
-      cv.width = Math.ceil(f.w * bbScale); cv.height = Math.ceil(f.h * bbScale);
-      const tex = new THREE.CanvasTexture(cv);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.02 }));
-      sprite.renderOrder = 2;
-      sprite.userData.anchor = true;
-      scene.add(sprite);
-      b = { sprite, cv, g: cv.getContext('2d', { willReadFrequently: true }), tex, w: f.w, h: f.h };
-      sprite.userData.bb = b;
-      billboards.set(f.key, b);
+
+  // ── Characters: one 3D rig for player, NPCs and townsfolk ────────────────
+  // characterParts (world3d_core) gives the body plan; here each pivot group
+  // becomes one merged, vertex-coloured mesh with cel shading and an ink
+  // outline (inverted hull). Geometry is cached per look and shared.
+  const CHAR_SCALE = 1.75;                        // chunky storybook proportions: readable from the tilted camera
+  const CHAR_TOP = (CHAR_HEIGHT + 0.45) * CHAR_SCALE; // above the tallest hat
+  const toonRamp = (() => {
+    const t = new THREE.DataTexture(new Uint8Array([90, 90, 90, 255, 175, 175, 175, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
+    t.magFilter = t.minFilter = THREE.NearestFilter; t.needsUpdate = true;
+    return t;
+  })();
+  const charMat = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonRamp });
+  const inkMat = new THREE.MeshBasicMaterial({ color: '#3b2a1d', side: THREE.BackSide });
+  const PART_GEO = {
+    box: new THREE.BoxGeometry(1, 1, 1),
+    sphere: new THREE.SphereGeometry(0.5, 12, 9),   // cel shading hides facets; keeps crowds cheap
+    cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 12),
+    cone: new THREE.ConeGeometry(0.5, 1, 10),
+  };
+  const lookGeo = new Map(); // look signature → { group: merged geometry }
+  const lookSig = new WeakMap(); // look object → signature (looks are mostly shared objects)
+
+  // Merge parts into one non-indexed geometry with per-vertex colour; the ink
+  // hull is the same mesh pushed out along its normals.
+  function mergeParts(parts) {
+    const pos = [], nor = [], col = [];
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color();
+    for (const pt of parts) {
+      const g = PART_GEO[pt.shape].clone().toNonIndexed();
+      e.set(...(pt.r || [0, 0, 0]));
+      m.compose(new THREE.Vector3(...pt.p), q.setFromEuler(e), new THREE.Vector3(...pt.s));
+      g.applyMatrix4(m);
+      c.set(pt.color);
+      const pa = g.attributes.position.array, na = g.attributes.normal.array;
+      for (let i = 0; i < pa.length; i += 3) { pos.push(pa[i], pa[i + 1], pa[i + 2]); nor.push(na[i], na[i + 1], na[i + 2]); col.push(c.r, c.g, c.b); }
+      g.dispose();
     }
-    // Figures animate at a walk cycle; repainting + re-uploading every other
-    // frame is visually identical and halves the canvas/texture traffic.
-    if (b.paintedAt === undefined || frameNo - b.paintedAt >= 2) {
-      b.paintedAt = frameNo;
-      b.g.setTransform(1, 0, 0, 1, 0, 0);
-      b.g.clearRect(0, 0, b.cv.width, b.cv.height);
-      b.g.setTransform(bbScale, 0, 0, bbScale, 0, 0);
-      f.paint(b.g);
-      b.tex.needsUpdate = true;
+    // Second half of the buffer is the ink hull (same triangles pushed out
+    // along their normals), drawn with group 1 = inkMat: one mesh per limb.
+    const n = pos.length;
+    const all = new Float32Array(n * 2), allN = new Float32Array(n * 2), allC = new Float32Array(n * 2);
+    all.set(pos); allN.set(nor); allC.set(col);
+    for (let i = 0; i < n; i++) { all[n + i] = pos[i] + nor[i] * 0.014; allN[n + i] = nor[i]; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(all, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(allN, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(allC, 3));
+    geo.addGroup(0, n / 3, 0);
+    geo.addGroup(n / 3, n / 3, 1);
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  function sigOf(look) {
+    let sig = lookSig.get(look);
+    if (!sig) {
+      sig = JSON.stringify([look.skin, look.hair, look.shirt, look.pants, look.boots, look.hat, !!look.merchantKit]);
+      lookSig.set(look, sig);
     }
-    const s = b.sprite;
-    s.center.set(f.ox / f.w, 1 - f.fy / f.h);
-    s.scale.set((f.w / TILE) * FIGURE_SCALE, (f.h / TILE) * FIGURE_SCALE, 1);
-    s.position.set(f.x / TILE, 0.02, f.y / TILE);
-    s.material.color.copy(spriteTint);
-    s.visible = true; b.seen = true;
+    return sig;
+  }
+  function geometryFor(look) {
+    const sig = sigOf(look);
+    let g = lookGeo.get(sig);
+    if (!g) {
+      const { parts } = characterParts(look);
+      g = {};
+      for (const grp of ['body', 'legL', 'legR', 'armL', 'armR']) g[grp] = mergeParts(parts.filter(p => p.group === grp));
+      lookGeo.set(sig, g);
+    }
+    return { sig, g };
+  }
+
+  function makeCharacter(look) {
+    const { sig, g } = geometryFor(look);
+    const root = new THREE.Group();
+    const rig = new THREE.Group();        // bobs/sways; root holds position + yaw
+    rig.scale.setScalar(CHAR_SCALE);
+    root.add(rig);
+    const limbs = {};
+    for (const grp of ['body', 'legL', 'legR', 'armL', 'armR']) {
+      const holder = new THREE.Group();
+      if (CHAR_PIVOTS[grp]) holder.position.set(...CHAR_PIVOTS[grp]);
+      const body = new THREE.Mesh(g[grp], [charMat, inkMat]);
+      body.castShadow = true;
+      holder.add(body);
+      rig.add(holder);
+      limbs[grp] = holder;
+    }
+    root.userData = { sig, rig, limbs, anchor: true, yaw: 0, dist: 0, lastX: null, lastZ: null };
+    return root;
+  }
+
+  const characters = new Map(); // key → root
+  function syncCharacter(key, look, x, z, facing, moving, t, dt) {
+    let c = characters.get(key);
+    if (!c || c.userData.sig !== sigOf(look)) {
+      if (c) scene.remove(c);
+      c = makeCharacter(look);
+      const f0 = facing && (facing.x || facing.y) ? facing : { x: 0, y: 1 };
+      c.userData.yaw = facingToYaw(f0.x, f0.y);
+      characters.set(key, c);
+      scene.add(c);
+    }
+    const u = c.userData;
+    // Not drawn last frame (culled, respawned, teleported)? Don't count the
+    // jump as walking.
+    if (u.lastFrame !== frameNo - 1) { u.lastX = null; u.lastZ = null; u.spd = 0; }
+    u.lastFrame = frameNo;
+    const dx = u.lastX === null ? 0 : x - u.lastX, dz = u.lastZ === null ? 0 : z - u.lastZ;
+    const step = Math.hypot(dx, dz);
+    u.dist += step;
+    u.lastX = x; u.lastZ = z;
+    // Callers without velocity/facing (NPCs) get both from smoothed motion.
+    u.spd = (u.spd || 0) + ((dt > 0 ? step / dt : 0) - (u.spd || 0)) * Math.min(1, dt * 10);
+    if (moving === undefined) moving = u.spd > 0.25;
+    if (!facing && step > 1e-4) facing = { x: dx, y: dz };
+    if (facing && (facing.x || facing.y)) u.yaw = lerpAngle(u.yaw, facingToYaw(facing.x, facing.y), 1 - Math.exp(-14 * dt));
+    c.position.set(x, 0, z);
+    c.rotation.y = u.yaw;
+    // Walk cycle driven by distance travelled (feet don't skate); idle sway otherwise.
+    const ph = u.dist * 7.5;
+    const swing = moving ? Math.sin(ph) * 0.65 : 0;
+    u.limbs.legL.rotation.z = swing; u.limbs.legR.rotation.z = -swing;
+    u.limbs.armL.rotation.z = -swing * 0.8; u.limbs.armR.rotation.z = swing * 0.8;
+    u.rig.position.y = moving ? Math.abs(Math.cos(ph)) * 0.05 : 0;
+    u.rig.rotation.x = moving ? 0 : Math.sin(t * 0.0018 + x) * 0.025;
+    u.rig.scale.y = CHAR_SCALE * (moving ? 1 : 1 + Math.sin(t * 0.0025 + z) * 0.01);
+    c.visible = true; u.seen = true;
   }
 
   // ── Per-frame ────────────────────────────────────────────────────────────
@@ -730,7 +823,6 @@ export function createWorld3D(host, core) {
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let lastOreUpdate = -1e9;
   let litHour = null, lastT = 0;
-  const spriteTint = new THREE.Color(1, 1, 1); // unlit sprites follow the scene's light
   let frameNo = 0;
 
   function placeCamera(camX, camY) {
@@ -805,7 +897,6 @@ export function createWorld3D(host, core) {
     waterMat.uniforms.uTime.value = t / 1000;
     const lightLevel = 0.55 + 0.45 * (1 - s.night);
     waterMat.uniforms.uLight.value.setRGB(lightLevel, lightLevel, lightLevel * (1 + 0.12 * s.night));
-    spriteTint.set(s.color).lerp(new THREE.Color('#ffffff'), 0.6).multiplyScalar(lightLevel);
     M.fire.emissiveIntensity = 1.6 + Math.sin(t * 0.02) * 0.4 + s.night;
 
     // Ore veins: spent/active state (cheap; a handful of nodes)
@@ -860,24 +951,26 @@ export function createWorld3D(host, core) {
       }
     }
 
-    // Billboards (player on foot, city NPCs, other players, townsfolk)
-    for (const [, b] of billboards) b.seen = false;
+    // Characters: player on foot, NPCs, other players, townsfolk.
     projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projView);
-    for (const f of frame.figures || []) syncBillboard(f);
-    if (host.townsfolkFigure) {
+    for (const [, c] of characters) c.userData.seen = false;
+    for (const f of frame.figures || []) {
+      figSphere.center.set(f.x / TILE, 1, f.y / TILE);
+      if (frustum.intersectsSphere(figSphere)) syncCharacter(f.key, f.look, f.x / TILE, f.y / TILE, f.facing, f.moving, t, frameDt);
+    }
+    if (host.townsfolkLook) {
       for (const r of cityPlans.flatMap(p => frustum.intersectsBox(p.bounds) ? p.walkers : [])) {
         const w = walkerAt(r, t / 1000);
         figSphere.center.set(w.x, 1, w.z);
-        if (!frustum.intersectsSphere(figSphere)) continue; // skip building the spec off-screen
-        syncBillboard(host.townsfolkFigure({ key: r.key, x: w.x * TILE, y: w.z * TILE, style: r.style, fx: w.fx, moving: w.moving }));
+        if (!frustum.intersectsSphere(figSphere)) continue;
+        syncCharacter(r.key, host.townsfolkLook(r.style), w.x, w.z, { x: w.fx, y: w.fy }, w.moving, t, frameDt);
       }
     }
-    for (const [k, b] of billboards) {
-      if (!b.seen) {
-        b.sprite.visible = false;
-        if (frameNo % 120 === 0) { scene.remove(b.sprite); b.tex.dispose(); b.sprite.material.dispose(); billboards.delete(k); }
-      }
+    for (const [k, c] of characters) {
+      if (c.userData.seen) continue;
+      c.visible = false;
+      if (frameNo % 120 === 0) { scene.remove(c); characters.delete(k); }
     }
 
     renderer.render(scene, camera);
@@ -891,17 +984,6 @@ export function createWorld3D(host, core) {
     return c;
   }
 
-  // A point `px` figure-canvas pixels above a billboard's feet, offset along
-  // the camera's up vector exactly as the sprite itself is drawn.
-  const camUp = new THREE.Vector3();
-  function projectBillboard(wx, wy, px) {
-    camUp.setFromMatrixColumn(camera.matrixWorld, 1).multiplyScalar((px / TILE) * FIGURE_SCALE);
-    tmpV.set(wx / TILE, 0, wy / TILE).add(camUp).project(camera);
-    const c = ndcToCanvas(tmpV.x, tmpV.y, VIEW_W, VIEW_H);
-    c.behind = tmpV.z > 1;
-    return c;
-  }
-
   // 2D canvas pixel → world pixel. Prefers what the tap visibly hit (a roof,
   // a wall, a rock) and falls back to the ground plane.
   function unproject(sx, sy) {
@@ -910,18 +992,12 @@ export function createWorld3D(host, core) {
     // stands (its anchor), which is what the NPC/trader tap radius expects.
     const actors = [];
     // (The player's own figure/wagon is never a tap target.)
-    for (const [k, b] of billboards) if (b.sprite.visible && k !== '__player' && !k.startsWith('tf:')) actors.push(b.sprite);
     for (const [k, c] of carriages) if (c.obj.visible && k !== '__player') actors.push(c.obj);
+    for (const [k, c] of characters) if (c.visible && k !== '__player' && !k.startsWith('tf:')) actors.push(c);
     const hits = ray.intersectObjects([...pickables], false);
     const nearestStructure = hits.length ? hits[0].distance : Infinity;
     for (const h of ray.intersectObjects(actors, true)) {
       if (h.distance > nearestStructure) break;     // hidden behind a building/rock
-      const bb = h.object.userData.bb;
-      if (bb && h.uv) {                              // skip the billboard's transparent padding
-        const px = bb.g.getImageData(Math.min(bb.cv.width - 1, h.uv.x * bb.cv.width) | 0,
-          Math.min(bb.cv.height - 1, (1 - h.uv.y) * bb.cv.height) | 0, 1, 1).data;
-        if (px[3] < 24) continue;
-      }
       let o = h.object;
       while (o && !o.userData.anchor) o = o.parent;
       if (o) return { x: o.position.x * TILE, y: o.position.z * TILE, hit: true, actor: true };
@@ -936,6 +1012,9 @@ export function createWorld3D(host, core) {
 
   function dispose() {
     ro?.disconnect();
+    for (const [, g] of lookGeo) for (const k in g) g[k].dispose();
+    for (const k in PART_GEO) PART_GEO[k].dispose();
+    charMat.dispose(); inkMat.dispose(); toonRamp.dispose();
     renderer.dispose();
     glCanvas.remove();
     host.canvas2d.style.background = '';
@@ -1052,8 +1131,8 @@ export function createWorld3D(host, core) {
   placeCamera(0, 0);
 
   return {
-    ok: true, renderer: 'three', version: THREE.REVISION, render, project, projectBillboard, unproject, dispose,
-    stats: () => ({ chunks: chunks.size, buildings: buildings.size, rooms: roomBuildings.length, decor: cityPlans.reduce((n, p) => n + p.decor.length, 0), townsfolk: townsfolkCount, carriages: carriages.size, billboards: billboards.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+    ok: true, renderer: 'three', version: THREE.REVISION, charTop: CHAR_TOP, render, project, unproject, dispose,
+    stats: () => ({ characters: characters.size, chunks: chunks.size, buildings: buildings.size, rooms: roomBuildings.length, decor: cityPlans.reduce((n, p) => n + p.decor.length, 0), townsfolk: townsfolkCount, carriages: carriages.size, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
   };
 }
 
