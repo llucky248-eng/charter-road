@@ -30,7 +30,6 @@ export function propKindFor(id, { inCity }) {
     case 3: return 'wall';
     case 5: return 'gate';
     case 10: return 'tree';
-    case 17: return 'hill';
     case 18: return 'ore';
     case 12: return 'board';
     case 8: return inCity ? null : 'camp';
@@ -464,4 +463,165 @@ export function characterParts(look) {
   const hat = HATS[look.hat] ? look.hat : 'straw';
   HATS[hat](P);
   return { parts, hat, height: CHAR_HEIGHT };
+}
+
+// ── World map: organic terrain, mountains, bridges, wilderness ─────────────
+// Visual only: the tile map (what is walkable, where roads and cities are) is
+// untouched; these turn it into terrain colours, heights and props.
+
+const ih = (x, y, seed) => {
+  let n = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041)) >>> 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+};
+// Smooth 2D value noise in [0,1].
+export function vnoise(x, y, seed = 0) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = ih(x0, y0, seed), b = ih(x0 + 1, y0, seed), c = ih(x0, y0 + 1, seed), d = ih(x0 + 1, y0 + 1, seed);
+  return lerp(lerp(a, b, sx), lerp(c, d, sx), sy);
+}
+
+// For each hill tile (17), how many tiles deep into its range it sits
+// (Chebyshev distance to the nearest non-hill tile; 0 off the range).
+export function hillDepthMap(tileAt, W, H, cap = 8) {
+  const depth = new Uint8Array(W * H);
+  let frontier = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (tileAt(x, y) === 17) depth[y * W + x] = 255; else frontier.push([x, y]);
+  }
+  for (let d = 1; d <= cap && frontier.length; d++) {
+    const next = [];
+    for (const [x, y] of frontier) for (const [dx, dy] of N8) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || depth[ny * W + nx] !== 255) continue;
+      depth[ny * W + nx] = d; next.push([nx, ny]);
+    }
+    frontier = next;
+  }
+  for (let i = 0; i < depth.length; i++) if (depth[i] === 255) depth[i] = cap;
+  return depth;
+}
+
+// Height of the terrain at tile corner (cx, cz): 0 wherever any of its four
+// tiles is off the range (so everything walkable stays flat), rising with
+// depth into a mountain, with noise for ridges.
+export function cornerHeight(cx, cz, depthAt, seed = 7) {
+  const d = Math.min(depthAt(cx - 1, cz - 1), depthAt(cx, cz - 1), depthAt(cx - 1, cz), depthAt(cx, cz));
+  if (d <= 0) return 0;
+  const ridge = vnoise(cx * 0.23, cz * 0.23, seed) * 0.8 + vnoise(cx * 0.61, cz * 0.61, seed + 1) * 0.35;
+  // Capped low: the camera looks north, and taller ridges would hide the
+  // roads (and the player) just beyond them.
+  return Math.min(3, (0.45 * d + 0.12 * d * d) * (0.75 + ridge * 0.5));
+}
+
+// Road tile carrying the road across water → { axis: 'ns'|'ew', railN/S/E/W }.
+// A crossing has water on both sides of the road band along one line (a road
+// merely running along a river bank only has water on one side).
+export function bridgeAt(tx, ty, tileAt) {
+  if (tileAt(tx, ty) !== 1) return null;
+  const waterAcross = (dx, dy) => {
+    for (let k = 1; k <= 16; k++) {        // roads can be a ford-wide band
+      const t = tileAt(tx + dx * k, ty + dy * k);
+      if (t === 2) return true;
+      if (t !== 1) return false;
+    }
+    return false;
+  };
+  const ns = waterAcross(-1, 0) && waterAcross(1, 0);   // river runs E–W across a N–S road
+  const ew = waterAcross(0, -1) && waterAcross(0, 1);
+  if (!ns && !ew) return null;
+  const w = (dx, dy) => tileAt(tx + dx, ty + dy) === 2;
+  return { axis: ns ? 'ns' : 'ew', railN: w(0, -1), railS: w(0, 1), railE: w(1, 0), railW: w(-1, 0) };
+}
+
+const isCityTile = (t) => t === 3 || t === 4 || t === 5 || t === 9 || t === 12 || (t >= 6 && t <= 8) || (t >= 13 && t <= 16) || t === 19;
+const fieldPatch = (tx, ty, tileAt, env) => {
+  if (tileAt(tx, ty) !== 0) return null;
+  const d = env.cityDist(tx, ty);
+  if (d < 2 || d > 9) return null;
+  if (N4.some(([dx, dy]) => tileAt(tx + dx, ty + dy) === 1)) return null;
+  const px = Math.floor(tx / 4), py = Math.floor(ty / 3);
+  const h = env.hash(px * 31 + 7, py * 17 + 3);
+  return h < 0.55 ? Math.floor(env.hash(px + 11, py + 5) * 4) : null; // crop type 0..3
+};
+
+// Terrain paint category for a tile (city tiles keep their own 2D art).
+export function terrainCategory(tx, ty, tileAt, env) {
+  if (env.cityDist(tx, ty) === 0) return 'city';   // inside the walls: the city's own art
+  const t = tileAt(tx, ty);
+  switch (t) {
+    case 0: case 18: return fieldPatch(tx, ty, tileAt, env) !== null ? 'field' : 'grass';
+    case 1: return 'road';
+    case 2: return 'sand';
+    case 10: return 'forest';
+    case 11: return 'swamp';
+    case 17: { const d = env.depthAt(tx, ty); return d >= 5 ? 'snow' : d >= 3 ? 'rock' : 'hill'; }
+    case 8: case 13: return env.cityDist(tx, ty) > 0 ? 'road' : 'city';
+    // Lone floor/POI tiles out in the wilds (we are outside every city here)
+    // read as part of the road rather than as stray cobble squares.
+    default: return isCityTile(t) && t !== 3 ? 'road' : 'grass';
+  }
+}
+
+const TERRAIN_PAL = {
+  grass: ['#9fd585', '#b8e39c'], forest: ['#6aa85a', '#80bb69'], road: ['#d6b47a', '#e8cb92'],
+  sand: ['#e3d29e', '#f1e3b8'], swamp: ['#6e8a55', '#809b62'], hill: ['#86bb6c', '#9ac97e'],
+  rock: ['#958f84', '#b2ac9e'], snow: ['#e6ecf1', '#ffffff'], field: ['#a7804d', '#c49b63'], city: ['#ecdebc', '#f0e2c4'],
+};
+const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const PAL_RGB = Object.fromEntries(Object.entries(TERRAIN_PAL).map(([k, v]) => [k, v.map(rgbOf)]));
+// Colour for a category: n1 picks along the palette, n2 = secondary pattern
+// (swamp puddles, field rows), grain = fine per-pixel jitter. → [r,g,b]
+export function terrainColor(cat, n1, n2, grain) {
+  const [a, b] = PAL_RGB[cat] || PAL_RGB.grass;
+  let k = n1;
+  if (cat === 'field') k = n2;                       // crop rows
+  let c = [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)];
+  if (cat === 'swamp' && n2 > 0.62) c = [79, 110, 94]; // still pools
+  const g = 1 + (grain - 0.5) * 0.08;
+  return c.map(v => clamp(Math.round(v * g), 0, 255));
+}
+
+// Wilderness props for one tile: { kind, x, z, rot, s, v } in world units.
+// env = { hash, depthAt, cityDist }. Never on roads, water, walls or cities.
+export function wildDecorFor(tx, ty, tileAt, env) {
+  if (env.cityDist(tx, ty) === 0) return [];       // cities have their own decor
+  const t = tileAt(tx, ty), h = env.hash;
+  const out = [];
+  const at = (kind, k, extra = {}) => out.push({
+    kind, x: tx + 0.2 + h(tx * 3 + k, ty * 5 - k) * 0.6, z: ty + 0.2 + h(ty * 7 + k, tx * 11 + k) * 0.6,
+    rot: h(tx + 13 * k, ty + 29) * Math.PI * 2, s: 0.8 + h(tx + 5, ty + 11 * k) * 0.4, v: h(tx + 71, ty + 3 + k), ...extra,
+  });
+  const nb4 = (id) => N4.some(([dx, dy]) => tileAt(tx + dx, ty + dy) === id);
+  const nb8 = (id) => N8.some(([dx, dy]) => tileAt(tx + dx, ty + dy) === id);
+  const r = h(tx * 13 + 1, ty * 7 + 2);
+
+  if (t === 17) {
+    const d = env.depthAt(tx, ty);
+    // Windmills are landmarks: each 14×14 block nominates one tile, which
+    // gets a mill only if it is a foothill near a city.
+    const bx = Math.floor(tx / 14), by = Math.floor(ty / 14);
+    const pick = (ax, ay) => [bx * 14 + Math.floor(h(ax, ay) * 14), by * 14 + Math.floor(h(ay + 3, ax + 7) * 14)];
+    const [mx, my] = pick(bx * 7 + 1, by * 5 + 2);
+    if (tx === mx && ty === my && d === 1 && env.cityDist(tx, ty) <= 24) at('windmill', 1);
+    else if (d >= 1 && d <= 3 && r < 0.4) at('pine', 2);
+    else if (d >= 2 && r < 0.5) at('boulder', 3);
+    else if (d <= 2) at('mound', 14, { x: tx + 0.5, z: ty + 0.5 }); // grassy knoll keeps thin ranges hilly
+  } else if (t === 0) {
+    const crop = fieldPatch(tx, ty, tileAt, env);
+    if (crop !== null) { at('crop', 4, { v: crop, x: tx + 0.5, z: ty + 0.5, rot: 0 }); return out; }
+    if (nb4(2) && r < 0.6) at('reeds', 5);
+    else if (nb8(10) && r < 0.35) at('edgeTree', 6);
+    else if (nb8(10) && r < 0.45) at('mushrooms', 7);
+    else if (r < 0.03) at('flowers', 8);
+    else if (r < 0.045) at('rock', 9);
+    else if (r < 0.09) at('tuft', 10);
+  } else if (t === 11) {
+    if (r < 0.3) at('reeds', 11);
+    else if (r < 0.55) at('lily', 12);
+    else if (r < 0.6) at('snag', 13);
+  }
+  return out;
 }

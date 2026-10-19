@@ -32,7 +32,8 @@ const { groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
         sunForHour, buildingSpec, ndcToCanvas, rendererPreference,
         advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
         findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
-        characterParts, CHAR_HEIGHT, CHAR_PIVOTS } = core;
+        characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
+        vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor } = core;
 
 console.log('\n=== world3d_core: ground substitution ===');
 test('flat terrain keeps its own art', () => {
@@ -63,7 +64,7 @@ test('prop kinds per tile', () => {
   eq(propKindFor(3, { inCity: true }), 'wall');
   eq(propKindFor(5, { inCity: true }), 'gate');
   eq(propKindFor(10, { inCity: false }), 'tree');
-  eq(propKindFor(17, { inCity: false }), 'hill');
+  eq(propKindFor(17, { inCity: false }), null, 'hills are terrain (height field + wild decor), not a per-tile prop');
   eq(propKindFor(18, { inCity: false }), 'ore');
   eq(propKindFor(12, { inCity: true }), 'board');
   eq(propKindFor(8, { inCity: false }), 'camp');
@@ -405,6 +406,139 @@ test('2D fallback: player and NPC figures are drawn at one shared scale', () => 
 });
 test('characterParts is deterministic and pure', () => {
   eq(JSON.stringify(characterParts(PLAYER_LOOK)), JSON.stringify(characterParts(PLAYER_LOOK)));
+});
+
+console.log('\n=== world3d_core: world map — terrain, mountains, bridges, wilds ===');
+// Synthetic overworld 40×30: a hill range (17) in the NW, a river (2) across
+// row 15–16 crossed by a 2-wide N–S road (1) at x 20–21, a forest (10) patch,
+// a swamp (11) patch and a small walled city in the SE.
+const MW = 40, MH = 30;
+const wg = new Array(MW * MH).fill(0);
+const wset = (x, y, v) => { wg[y * MW + x] = v; };
+for (let y = 1; y < 10; y++) for (let x = 1; x < 14; x++) wset(x, y, 17);
+for (let x = 0; x < MW; x++) { wset(x, 15, 2); wset(x, 16, 2); }
+for (let y = 0; y < MH; y++) { wset(20, y, 1); wset(21, y, 1); }
+for (let y = 3; y < 8; y++) for (let x = 24; x < 30; x++) wset(x, y, 10);
+for (let y = 19; y < 23; y++) for (let x = 3; x < 8; x++) wset(x, y, 11);
+const WCITY = { x0: 28, y0: 20, x1: 37, y1: 28 };
+for (let y = WCITY.y0; y <= WCITY.y1; y++) for (let x = WCITY.x0; x <= WCITY.x1; x++)
+  wset(x, y, (x === WCITY.x0 || x === WCITY.x1 || y === WCITY.y0 || y === WCITY.y1) ? 3 : 4);
+const wAt = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 3 : wg[y * MW + x];
+const depth = hillDepthMap(wAt, MW, MH);
+const dAt = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 0 : depth[y * MW + x];
+
+test('vnoise is smooth, deterministic and in [0,1]', () => {
+  for (let i = 0; i < 200; i++) {
+    const x = i * 0.37, y = i * 0.11, v = vnoise(x, y, 3);
+    assert(v >= 0 && v <= 1, `out of range ${v}`);
+    eq(v, vnoise(x, y, 3));
+    assert(Math.abs(vnoise(x + 0.01, y, 3) - v) < 0.05, 'not smooth');
+  }
+  assert(vnoise(1.3, 2.7, 1) !== vnoise(1.3, 2.7, 2), 'seed ignored');
+});
+test('hill depth: 0 off the range, grows toward its middle', () => {
+  eq(dAt(0, 0), 0); eq(dAt(20, 5), 0);
+  eq(dAt(1, 1), 1, 'edge of range');
+  assert(dAt(7, 5) > dAt(2, 5), 'centre should be deeper than edge');
+});
+test('mountain corners: flat wherever a walkable tile touches, raised inside ranges', () => {
+  // corner (x,y) touches tiles (x-1..x, y-1..y)
+  eq(cornerHeight(1, 1, dAt, 7), 0, 'corner touching open ground must stay at 0');
+  eq(cornerHeight(14, 5, dAt, 7), 0);
+  assert(cornerHeight(7, 5, dAt, 7) > 1, 'range interior should be a real mountain');
+  eq(cornerHeight(7, 5, dAt, 7), cornerHeight(7, 5, dAt, 7));
+});
+test('bridges: road tiles crossing the river, with rails on the water sides', () => {
+  const b = bridgeAt(20, 15, wAt);
+  assert(b, 'no bridge on the river crossing');
+  eq(b.axis, 'ns');
+  assert(b.railW && !b.railE, `rails ${JSON.stringify(b)}`); // x=20 has water to the west, road (21) to the east
+  eq(bridgeAt(20, 10, wAt), null, 'road on dry land is not a bridge');
+  eq(bridgeAt(5, 15, wAt), null, 'water is not a bridge');
+});
+const near = (x, y) => {
+  let d = Infinity;
+  for (const r of [WCITY]) d = Math.min(d, Math.max(r.x0 - x, x - r.x1, r.y0 - y, y - r.y1, 0));
+  return d;
+};
+const env = { hash, depthAt: dAt, cityDist: near };
+const wild = [];
+for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) for (const it of wildDecorFor(x, y, wAt, env)) wild.push({ ...it, tx: x, ty: y });
+test('wild decor is deterministic', () => {
+  const again = [];
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) for (const it of wildDecorFor(x, y, wAt, env)) again.push({ ...it, tx: x, ty: y });
+  eq(JSON.stringify(again), JSON.stringify(wild));
+});
+test('nothing wild grows inside a city, even on a stray grass tile', () => {
+  const g2 = wg.slice(); g2[24 * MW + 32] = 0; // grass inside the city walls
+  const at2 = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 3 : g2[y * MW + x];
+  eq(wildDecorFor(32, 24, at2, env).length, 0);
+  // and a road cut through a city is painted as city, not wilderness road
+  g2[24 * MW + 33] = 1;
+  eq(terrainCategory(33, 24, at2, env), 'city');
+});
+test('stray city-floor tiles out in the wilds blend in as road, not cobble squares', () => {
+  const g3 = wg.slice(); g3[12 * MW + 22] = 4; g3[11 * MW + 22] = 12;
+  const at3 = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 3 : g3[y * MW + x];
+  eq(terrainCategory(22, 12, at3, env), 'road');
+  eq(terrainCategory(22, 11, at3, env), 'road');
+});
+test('mountains stay modest (≤ 3 units) so ridges never hide the roads behind them', () => {
+  const deepAt = () => 8;
+  for (let x = 0; x < 60; x++) assert(cornerHeight(x, x * 3, deepAt, 7) <= 3, `height ${cornerHeight(x, x * 3, deepAt, 7)}`);
+});
+test('wild decor never sits on roads, water, walls or city floor', () => {
+  for (const it of wild) {
+    const t = wAt(it.tx, it.ty);
+    assert(![1, 2, 3, 4, 5, 9].includes(t), `${it.kind} on tile ${t} at ${it.tx},${it.ty}`);
+    assert(it.x >= it.tx && it.x < it.tx + 1 && it.z >= it.ty && it.z < it.ty + 1, `${it.kind} leaves its tile`);
+  }
+});
+test('windmills are rare landmarks: at most one per 14×14 block of map', () => {
+  // A big all-foothill map near a city: without spacing every few tiles would get one.
+  const BW = 56, BH = 56;
+  const bAt = (x, y) => (x < 0 || y < 0 || x >= BW || y >= BH) ? 0 : ((x + y) % 2 ? 17 : 0);
+  const benv = { hash, depthAt: (x, y) => bAt(x, y) === 17 ? 1 : 0, cityDist: () => 5 };
+  const blocks = new Map();
+  for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) for (const it of wildDecorFor(x, y, bAt, benv)) {
+    if (it.kind !== 'windmill') continue;
+    const k = Math.floor(x / 14) + ',' + Math.floor(y / 14);
+    blocks.set(k, (blocks.get(k) || 0) + 1);
+  }
+  for (const [k, n] of blocks) assert(n <= 1, `${n} windmills in block ${k}`);
+});
+test('windmills only on the foothills (depth 1) near a city; fields only near cities, off the road', () => {
+  for (const it of wild.filter(i => i.kind === 'windmill')) {
+    eq(wAt(it.tx, it.ty), 17); eq(dAt(it.tx, it.ty), 1);
+    assert(near(it.tx, it.ty) <= 24, 'windmill too far from any city');
+  }
+  for (const it of wild.filter(i => i.kind === 'crop')) {
+    const d = near(it.tx, it.ty);
+    assert(d >= 2 && d <= 9, `crop at city distance ${d}`);
+    assert(![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => wAt(it.tx + dx, it.ty + dy) === 1), 'crop beside the road');
+  }
+});
+test('the wilds get variety: shore reeds, swamp life, forest-edge trees, rocks/flowers, mountain pines', () => {
+  const kinds = new Set(wild.map(i => i.kind));
+  for (const k of ['reeds', 'lily', 'edgeTree', 'pine', 'crop']) assert(kinds.has(k), `no ${k}`);
+  assert(['rock', 'flowers', 'tuft'].some(k => kinds.has(k)), 'no small meadow detail');
+  for (const it of wild.filter(i => i.kind === 'reeds')) {
+    assert([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => wAt(it.tx + dx, it.ty + dy) === 2) || wAt(it.tx, it.ty) === 11, 'reeds away from water/swamp');
+  }
+  for (const it of wild.filter(i => i.kind === 'pine')) eq(wAt(it.tx, it.ty), 17, 'pines grow on the mountains');
+});
+test('terrain categories + colours: grass, road, shore sand, swamp, field, rock and snow by depth', () => {
+  const c = (x, y) => terrainCategory(x, y, wAt, env);
+  eq(c(35, 2), 'grass'); eq(c(20, 2), 'road'); eq(c(5, 15), 'sand'); eq(c(4, 20), 'swamp');
+  eq(c(1, 1), 'hill'); eq(c(26, 5), 'forest');
+  const deep = [...Array(MW * MH).keys()].find(i => depth[i] >= 4);
+  assert(deep === undefined || ['rock', 'snow'].includes(c(deep % MW, Math.floor(deep / MW))), 'deep range should be rock/snow');
+  for (const cat of ['grass', 'road', 'sand', 'swamp', 'hill', 'rock', 'snow', 'forest', 'field']) {
+    const col = terrainColor(cat, 0.5, 0.5, 0.5);
+    assert(col.length === 3 && col.every(v => v >= 0 && v <= 255), `${cat} colour ${col}`);
+  }
+  const g = terrainColor('grass', 0.5, 0.5, 0.5), sn = terrainColor('snow', 0.5, 0.5, 0.5);
+  assert(sn[0] + sn[1] + sn[2] > g[0] + g[1] + g[2], 'snow should be brighter than grass');
 });
 
 console.log('\n=== world3d_core: projection + preference ===');

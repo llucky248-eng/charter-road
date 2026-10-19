@@ -19,6 +19,8 @@ const WALL_H = 1.25;
 
 const SLOT_ICONS = { 6: '🛒', 7: '🍺', 14: '🛏️', 8: '📦', 15: '⚒️', 12: '📜', 13: '💰', 4: '🛡️', 19: '⛏️' };
 
+const clampI = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
 function shade(hex, amt) {
   const c = new THREE.Color(hex);
   const hsl = {}; c.getHSL(hsl);
@@ -33,6 +35,7 @@ export function createWorld3D(host, core) {
     sunForHour, buildingSpec, ndcToCanvas, advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
     findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
     characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
+    vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor,
   } = core;
   const stage = host.canvas2d.parentElement;
   // Probe first: without WebGL2 three.js would log a console error; the
@@ -119,6 +122,7 @@ export function createWorld3D(host, core) {
     octa: new THREE.OctahedronGeometry(0.5, 0),
     wheel: new THREE.CylinderGeometry(0.5, 0.5, 1, 14),
     canopy: new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, false, 0, Math.PI),
+    windmillTower: new THREE.CylinderGeometry(0.34, 0.5, 1.8, 8),
   };
   const lam = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
   const M = {
@@ -135,6 +139,9 @@ export function createWorld3D(host, core) {
     tent: lam('#e9d6a6', { flatShading: true }),
     gold: lam('#d4a020'),
     fire: glowMat('#ff9a3c', 1.0, 2.2),
+    mill: lam('#f3e6cc', { flatShading: true }),
+    millRoof: lam('#a8485e', { flatShading: true }),
+    sail: lam('#fffaef', { side: THREE.DoubleSide }),
   };
 
   // ── Ground: lazily painted chunks using the game's own tile art ──────────
@@ -143,6 +150,42 @@ export function createWorld3D(host, core) {
   const cityRects = host.cities.map(c => ({ x0: c.x - 1, y0: c.y - 1, x1: c.x + c.w, y1: c.y + c.h }));
   const inCityAt = (tx, ty) => cityRects.some(r => tx >= r.x0 && tx <= r.x1 && ty >= r.y0 && ty <= r.y1);
   const texScale = IS_MOBILE ? 1.5 : 2;
+
+  // ── World map data (visual only; the tile map itself is unchanged) ───────
+  const hillDepth = hillDepthMap(tileAt, MAP_W, MAP_H);
+  const depthAt = (x, y) => (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) ? 0 : hillDepth[y * MAP_W + x];
+  // Chebyshev distance (tiles) from a tile to the nearest city wall ring.
+  const cityDist = (x, y) => {
+    let d = Infinity;
+    for (const c of host.cities) d = Math.min(d, Math.max(c.x - 1 - x, x - (c.x + c.w), c.y - 1 - y, y - (c.y + c.h), 0));
+    return d;
+  };
+  const wildEnv = { hash: hash2, depthAt, cityDist };
+  // Bridge decks sit a little above the river; people and wagons ride on top.
+  const BRIDGE_TOP = 0.08;
+  const bridgeTiles = new Set();
+  for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) if (bridgeAt(tx, ty, tileAt)) bridgeTiles.add(ty * MAP_W + tx);
+  const surfaceY = (x, z) => bridgeTiles.has(Math.floor(z) * MAP_W + Math.floor(x)) ? BRIDGE_TOP : 0;
+  // Terrain heights at tile corners: mountains rise only inside hill ranges.
+  const cornerH = new Float32Array((MAP_W + 1) * (MAP_H + 1));
+  for (let z = 0; z <= MAP_H; z++) for (let x = 0; x <= MAP_W; x++) cornerH[z * (MAP_W + 1) + x] = cornerHeight(x, z, depthAt);
+  const cornerAt = (x, z) => cornerH[clampI(z, 0, MAP_H) * (MAP_W + 1) + clampI(x, 0, MAP_W)];
+  function heightAt(x, z) {
+    const x0 = Math.floor(x), z0 = Math.floor(z), fx = x - x0, fz = z - z0;
+    const a = cornerAt(x0, z0), b = cornerAt(x0 + 1, z0), c = cornerAt(x0, z0 + 1), d = cornerAt(x0 + 1, z0 + 1);
+    return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+  }
+  // Fine grain overlay so the softly upscaled terrain still has texture.
+  const grainCanvas = (() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const g = cv.getContext('2d'), img = g.createImageData(128, 128);
+    for (let i = 0; i < 128 * 128; i++) {
+      const v = 128 + (hash2(i % 128, (i / 128) | 0) - 0.5) * 70;
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return cv;
+  })();
 
   // ── City life plans (pure, from world3d_core): rooms the map walls off that
   // aren't building slots (they get a real 3D building), street furniture,
@@ -175,15 +218,76 @@ export function createWorld3D(host, core) {
   const pickables = new Set();
   const oreNodes = [];      // { tx, ty, rocks:[], gems:[], spent }
 
+  // Ground texture for one chunk. The wilderness is painted per pixel from
+  // terrain categories with noise-warped borders (no tile grid), at a low
+  // resolution that is then smoothly upscaled and given a grain overlay;
+  // city tiles keep the game's own 2D tile art on top at full resolution.
+  const ORGANIC_PX = IS_MOBILE ? 6 : 10; // organic layer px per tile
+  const voteCat = new Array(4), voteW = new Float64Array(4); // painter scratch
+  const CAT_SEED = { grass: 0, road: 1, sand: 2, swamp: 3, forest: 4, field: 5, hill: 6, rock: 7, snow: 8, city: 9 };
   function paintChunk(cx, cy, w, h) {
     const cv = document.createElement('canvas');
     cv.width = Math.round(w * TILE * texScale);
     cv.height = Math.round(h * TILE * texScale);
     const g = cv.getContext('2d');
+
+    // 1) Organic wilderness layer.
+    const M2 = 2; // category margin so warped borders can reach past the chunk
+    const cw = w + M2 * 2, ch = h + M2 * 2;
+    const cats = new Array(cw * ch);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      const tx = cx + x - M2, ty = cy + y - M2;
+      cats[y * cw + x] = bridgeTiles.has(ty * MAP_W + tx) ? 'sand' : terrainCategory(tx, ty, tileAt, wildEnv);
+    }
+    const ow = w * ORGANIC_PX, oh = h * ORGANIC_PX;
+    const ocv = document.createElement('canvas'); ocv.width = ow; ocv.height = oh;
+    const og = ocv.getContext('2d'), img = og.createImageData(ow, oh), data = img.data;
+    for (let py = 0; py < oh; py++) {
+      for (let px = 0; px < ow; px++) {
+        const u = cx + (px + 0.5) / ORGANIC_PX, v = cy + (py + 0.5) / ORGANIC_PX;
+        // Blend the four nearest tile centres: each votes for its category
+        // with a smooth bilinear weight plus per-category noise, so borders
+        // (even around a single tile) come out as organic blobs, not squares.
+        const fu = u - 0.5, fv = v - 0.5, iu = Math.floor(fu), iv = Math.floor(fv);
+        const ax = fu - iu, ay = fv - iv;
+        const sx = ax * ax * (3 - 2 * ax), sy = ay * ay * (3 - 2 * ay);
+        let nv = 0;
+        for (let k = 0; k < 4; k++) {
+          const ox = k & 1, oy = k >> 1;
+          const gx = clampI(iu + ox - cx + M2, 0, cw - 1), gy = clampI(iv + oy - cy + M2, 0, ch - 1);
+          const c = cats[gy * cw + gx], wgt = (ox ? sx : 1 - sx) * (oy ? sy : 1 - sy);
+          let j = 0;
+          while (j < nv && voteCat[j] !== c) j++;
+          if (j === nv) { voteCat[nv] = c; voteW[nv++] = wgt; } else voteW[j] += wgt;
+        }
+        let cat = voteCat[0], best = -Infinity;
+        for (let j = 0; j < nv; j++) {
+          // A lone category needs no noise roll (the common case: open ground).
+          const score = nv === 1 ? 1 : voteW[j] + (vnoise(u * 1.3 + CAT_SEED[voteCat[j]] * 31, v * 1.3, 5) - 0.5) * 0.45;
+          if (score > best) { best = score; cat = voteCat[j]; }
+        }
+        if (cat === 'city') cat = 'grass'; // city art is drawn over this below
+        const n2 = cat === 'field' ? 0.5 + 0.5 * Math.sin(v * Math.PI * 3) : vnoise(u * 1.7, v * 1.7, 2);
+        const c = terrainColor(cat, vnoise(u * 0.35, v * 0.35, 1), n2, hash2(px + cx * 97, py + cy * 89));
+        const i = (py * ow + px) * 4;
+        data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; data[i + 3] = 255;
+      }
+    }
+    og.putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(ocv, 0, 0, cv.width, cv.height);
+    g.save();
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.35;
+    g.fillStyle = g.createPattern(grainCanvas, 'repeat');
+    g.fillRect(0, 0, cv.width, cv.height);
+    g.restore();
+
+    // 2) Cities keep their own tile art.
     g.setTransform(texScale, 0, 0, texScale, 0, 0);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const tx = cx + x, ty = cy + y;
+        if (cats[(y + M2) * cw + x + M2] !== 'city') continue;
         const id = groundTileFor(tileAt(tx, ty), { inCity: inCityAt(tx, ty) });
         host.drawTileInto(g, id, x * TILE, y * TILE, tx, ty);
       }
@@ -224,6 +328,113 @@ export function createWorld3D(host, core) {
     return { add, emit };
   }
 
+  // Wooden bridge deck (just above the water) with posts and rails on the water sides.
+  function addBridge(add, tx, ty, br) {
+    const X = tx + 0.5, Z = ty + 0.5;
+    const plankAlongX = br.axis === 'ew';
+    for (let k = -1; k <= 1; k++) {
+      add('bridgePlank', G.box, M.wood, plankAlongX ? [X, 0.05, Z + k * 0.32] : [X + k * 0.32, 0.05, Z],
+        plankAlongX ? [1.0, 0.06, 0.3] : [0.3, 0.06, 1.0], 0, shade('#8b6a44', k * 0.04));
+    }
+    const rail = (px, pz, alongX) => {
+      add('bridgePost', G.box, M.darkWood, [px, 0.3, pz], [0.08, 0.5, 0.08]);
+      add('bridgeRail', G.box, M.darkWood, [alongX ? X : px, 0.48, alongX ? pz : Z], alongX ? [1.0, 0.06, 0.06] : [0.06, 0.06, 1.0]);
+    };
+    if (br.railW) rail(tx + 0.06, Z, false);
+    if (br.railE) rail(tx + 0.94, Z, false);
+    if (br.railN) rail(X, ty + 0.06, true);
+    if (br.railS) rail(X, ty + 0.94, true);
+  }
+
+  const CROP_STYLE = [
+    { geo: 'cone7', color: '#e3c25a', s: [0.12, 0.34, 0.12] },  // wheat
+    { geo: 'ico', color: '#6fae5a', s: [0.2, 0.16, 0.2] },      // cabbages
+    { geo: 'cone7', color: '#9a7fd1', s: [0.1, 0.26, 0.1] },    // lavender
+    { geo: 'cone7', color: '#8fbf4a', s: [0.1, 0.5, 0.1] },     // young corn
+  ];
+  let windmills = []; // { sails, phase, group } — group = owning chunk
+  function addWild(add, group, it) {
+    const y = heightAt(it.x, it.z);
+    const C = (hex) => new THREE.Color(hex);
+    const s = it.s;
+    switch (it.kind) {
+      case 'pine':
+        add('wildTrunk', G.cyl6, M.trunk, [it.x, y + 0.35 * s, it.z], [0.18 * s, 0.7 * s, 0.18 * s]);
+        add('wildPine', G.cone7, M.flatWhite, [it.x, y + 1.25 * s, it.z], [1.1 * s, 1.8 * s, 1.1 * s], it.rot, shade('#2f6e45', (it.v - 0.5) * 0.12));
+        break;
+      case 'mound':
+        add('mound', G.dome, M.flatWhite, [it.x, y, it.z], [1.7 * s, 0.9 + it.v * 0.8, 1.7 * s], it.rot, shade('#86bb6c', (it.v - 0.5) * 0.12));
+        if (it.v > 0.6) add('moundRock', G.dodec, M.rock, [it.x + 0.2, y + 0.55, it.z - 0.1], [0.5, 0.35, 0.45], it.rot);
+        break;
+      case 'boulder':
+        add('boulder', G.dodec, M.rock, [it.x, y + 0.2 * s, it.z], [0.9 * s, 0.6 * s, 0.8 * s], it.rot);
+        break;
+      case 'edgeTree':
+        add('wildTrunk', G.cyl6, M.trunk, [it.x, 0.3 * s, it.z], [0.15 * s, 0.6 * s, 0.15 * s]);
+        add('crown', G.ico, M.flatWhite, [it.x, 0.9 * s, it.z], [1.0 * s, 0.9 * s, 1.0 * s], it.rot, shade('#5fae62', (it.v - 0.5) * 0.14));
+        break;
+      case 'rock':
+        add('rock', G.dodec, M.rock, [it.x, 0.08, it.z], [0.32 * s, 0.22 * s, 0.28 * s], it.rot);
+        break;
+      case 'tuft':
+        for (let k = 0; k < 3; k++) add('tuft', G.cone7, M.flatWhite, [it.x + (k - 1) * 0.08, 0.1, it.z + (k % 2) * 0.06], [0.07, 0.22, 0.07], 0, shade('#6faa66', k * 0.04), false);
+        break;
+      case 'flowers':
+        for (let k = 0; k < 5; k++) add('wildFlower', G.ico, M.flatWhite, [it.x + Math.cos(k * 1.3) * 0.15, 0.08, it.z + Math.sin(k * 1.3) * 0.15], [0.09, 0.09, 0.09], 0,
+          C(['#f6d365', '#ffffff', '#e57389', '#b07ec3', '#6fa8dc'][(k + Math.floor(it.v * 5)) % 5]), false);
+        break;
+      case 'mushrooms':
+        for (let k = 0; k < 3; k++) {
+          const mx = it.x + (k - 1) * 0.12, mz = it.z + (k % 2) * 0.1;
+          add('mushStem', G.cyl6, M.white, [mx, 0.05, mz], [0.04, 0.1, 0.04], 0, C('#f3ead8'), false);
+          add('mushCap', G.dome, M.flatWhite, [mx, 0.09, mz], [0.12, 0.08, 0.12], 0, C(k ? '#d9534f' : '#c98a4a'), false);
+        }
+        break;
+      case 'reeds':
+        for (let k = 0; k < 4; k++) {
+          const rx = it.x + (k - 1.5) * 0.08, rz = it.z + (k % 2) * 0.07;
+          add('reedStem', G.cyl6, M.white, [rx, 0.25, rz], [0.03, 0.5, 0.03], 0, C('#6f9a4a'), false);
+          if (k % 2 === 0) add('reedHead', G.cyl6, M.white, [rx, 0.48, rz], [0.05, 0.12, 0.05], 0, C('#7a5230'), false);
+        }
+        break;
+      case 'lily':
+        add('lilyPad', G.cyl, M.white, [it.x, 0.045, it.z], [0.32, 0.015, 0.32], it.rot, C('#5f9a50'), false);
+        if (it.v > 0.5) add('lilyFlower', G.ico, M.flatWhite, [it.x + 0.05, 0.08, it.z], [0.09, 0.07, 0.09], 0, C('#f4b6c8'), false);
+        break;
+      case 'snag':
+        add('snag', G.cyl6, M.trunk, [it.x, 0.45, it.z], [0.12, 0.9, 0.12], 0, C('#5a4632'));
+        add('snagBranch', G.box, M.trunk, [it.x + 0.15, 0.7, it.z], [0.32, 0.05, 0.05], it.rot, C('#5a4632'));
+        break;
+      case 'crop': {
+        const st = CROP_STYLE[it.v % CROP_STYLE.length];
+        for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) {
+          const px = it.x - 0.3 + k * 0.3, pz = it.z - 0.3 + r * 0.3;
+          add('crop' + (it.v % CROP_STYLE.length), G[st.geo], M.flatWhite, [px, st.s[1] / 2, pz], st.s, 0, shade(st.color, ((r + k) % 2) * 0.05), false);
+        }
+        break;
+      }
+      case 'windmill': {
+        const wm = new THREE.Group();
+        wm.position.set(it.x, y, it.z);
+        wm.add(mesh(G.windmillTower, M.mill, 0, 0.9, 0, 1, 1, 1));
+        wm.add(mesh(G.cone7, M.millRoof, 0, 2.05, 0, 0.95, 0.6, 0.95));
+        wm.add(mesh(G.box, M.door, 0.36, 0.3, 0, 0.06, 0.45, 0.28, false));
+        const sails = new THREE.Group();
+        sails.position.set(0, 1.7, 0.42);
+        for (let k = 0; k < 4; k++) {
+          const arm = new THREE.Group(); arm.rotation.z = k * Math.PI / 2;
+          arm.add(mesh(G.box, M.darkWood, 0, 0.7, 0, 0.06, 1.4, 0.04));
+          arm.add(mesh(G.box, M.sail, 0.12, 0.8, 0, 0.22, 1.1, 0.02));
+          sails.add(arm);
+        }
+        wm.add(sails);
+        group.add(wm);
+        windmills.push({ sails, phase: it.v * 6, group });
+        break;
+      }
+    }
+  }
+
   function buildChunkProps(group, cx, cy, w, h) {
     const { add, emit } = makeInstancer();
     const gateNear = (tx, ty) => tileAt(tx - 1, ty) === 5 || tileAt(tx + 1, ty) === 5 || tileAt(tx, ty - 1) === 5 || tileAt(tx, ty + 1) === 5;
@@ -262,9 +473,6 @@ export function createWorld3D(host, core) {
             if (pine) add('pine', G.cone7, M.flatWhite, [X + ox, 1.15 * s, Z + oz], [0.9 * s, 1.5 * s, 0.9 * s], a * 6, leaf);
             else add('crown', G.ico, M.flatWhite, [X + ox, 0.9 * s, Z + oz], [1.0 * s, 0.9 * s, 1.0 * s], a * 6, leaf);
           }
-        } else if (kind === 'hill') {
-          const s = 1.5 + n * 0.5;
-          add('hill', G.dome, M.flatWhite, [X, 0, Z], [s, (0.9 + n2 * 0.7), s], n * 6, shade('#8fca78', (n2 - 0.5) * 0.1));
         } else if (kind === 'board') {
           add('post', G.box, M.darkWood, [X - 0.3, 0.45, Z], [0.08, 0.9, 0.08]);
           add('post', G.box, M.darkWood, [X + 0.3, 0.45, Z], [0.08, 0.9, 0.08]);
@@ -279,9 +487,11 @@ export function createWorld3D(host, core) {
           add('chestBand', G.box, M.gold, [X, 0.3, Z], [0.57, 0.06, 0.4], 0, null, false);
         } else if (id === 0 && n < 0.06) {
           add('bush', G.ico, M.flatWhite, [X + (n2 - 0.5) * 0.4, 0.14, Z], [0.5, 0.36, 0.5], n2 * 6, shade('#6faa66', (n2 - 0.5) * 0.12));
-        } else if (id === 11 && n < 0.25) {
-          add('reed', G.cyl6, M.white, [X + (n2 - 0.5) * 0.5, 0.2, Z], [0.04, 0.4, 0.04], 0, new THREE.Color('#5f8a4a'), false);
         }
+
+        const br = bridgeTiles.has(ty * MAP_W + tx) && bridgeAt(tx, ty, tileAt);
+        if (br) addBridge(add, tx, ty, br);
+        for (const it of wildDecorFor(tx, ty, tileAt, wildEnv)) addWild(add, group, it);
 
         if (kind === 'ore') buildOre(group, tx, ty);
       }
@@ -321,9 +531,25 @@ export function createWorld3D(host, core) {
     const w = Math.min(CHUNK, MAP_W - x0), h = Math.min(CHUNK, MAP_H - y0);
     const group = new THREE.Group();
     const tex = paintChunk(x0, y0, w, h);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex }));
-    ground.rotation.x = -Math.PI / 2;
+    // One vertex per tile corner; hill ranges rise into mountains.
+    const geo = new THREE.PlaneGeometry(w, h, w, h);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position, nor = geo.attributes.normal;
+    let raised = false;
+    for (let i = 0; i < pos.count; i++) {
+      const gx = Math.round(pos.getX(i) + x0 + w / 2), gz = Math.round(pos.getZ(i) + y0 + h / 2);
+      const y = cornerAt(gx, gz);
+      if (y > 0) raised = true;
+      pos.setY(i, y);
+      // Normals from the global height field (central differences), so a
+      // mountain spanning two chunks has no lighting seam at the border.
+      const nx = cornerAt(gx - 1, gz) - cornerAt(gx + 1, gz), nz = cornerAt(gx, gz - 1) - cornerAt(gx, gz + 1);
+      const len = Math.hypot(nx, 2, nz);
+      nor.setXYZ(i, nx / len, 2 / len, nz / len);
+    }
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
     ground.position.set(x0 + w / 2, 0, y0 + h / 2);
+    ground.castShadow = raised; // only chunks with mountains shade anything
     ground.receiveShadow = true;
     group.add(ground);
     buildChunkProps(group, x0, y0, w, h);
@@ -342,6 +568,7 @@ export function createWorld3D(host, core) {
       if (o.userData.pick) pickables.delete(o);
     });
     c.tex.dispose();
+    windmills = windmills.filter(w => w.group !== c.group);
     for (let i = oreNodes.length - 1; i >= 0; i--) {
       const n = oreNodes[i];
       if (Math.floor(n.tx / CHUNK) === c.cx && Math.floor(n.ty / CHUNK) === c.cy) oreNodes.splice(i, 1);
@@ -353,7 +580,7 @@ export function createWorld3D(host, core) {
   const waterMask = new Uint8Array(MAP_W * MAP_H * 4);
   for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
     const i = (ty * MAP_W + tx) * 4;
-    const v = tileAt(tx, ty) === 2 ? 255 : 0;
+    const v = tileAt(tx, ty) === 2 || bridgeTiles.has(ty * MAP_W + tx) ? 255 : 0; // water runs under bridges
     waterMask[i] = v; waterMask[i + 3] = 255;
   }
   const maskTex = new THREE.DataTexture(waterMask, MAP_W, MAP_H, THREE.RGBAFormat);
@@ -674,7 +901,7 @@ export function createWorld3D(host, core) {
     u.lastX = x; u.lastZ = z;
     const want = facingToYaw(facing.x, facing.y);
     u.yaw = lerpAngle(u.yaw, want, 1 - Math.exp(-12 * dt)); // frame-rate independent turn
-    o.position.set(x, 0, z);
+    o.position.set(x, surfaceY(x, z), z);
     o.rotation.y = u.yaw;
     for (const wh of u.wheels) wh.rotation.y = -u.dist / 0.28;
     const ph = t * 0.012;
@@ -804,7 +1031,7 @@ export function createWorld3D(host, core) {
     if (moving === undefined) moving = u.spd > 0.25;
     if (!facing && step > 1e-4) facing = { x: dx, y: dz };
     if (facing && (facing.x || facing.y)) u.yaw = lerpAngle(u.yaw, facingToYaw(facing.x, facing.y), 1 - Math.exp(-14 * dt));
-    c.position.set(x, 0, z);
+    c.position.set(x, surfaceY(x, z), z);
     c.rotation.y = u.yaw;
     // Walk cycle driven by distance travelled (feet don't skate); idle sway otherwise.
     const ph = u.dist * 7.5;
@@ -941,6 +1168,8 @@ export function createWorld3D(host, core) {
         if (!(frame.traders || []).some(tr => tr.id === id) && id !== '__player') { dropCarriage(c); carriages.delete(id); }
       }
     }
+
+    for (const w of windmills) w.sails.rotation.z = t * 0.0009 + w.phase;
 
     // Fountain spray: droplets arc out of the top basin and fall back in.
     for (const f of fountains) {

@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.48'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.49'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -6812,8 +6812,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.48',
+    version: 'v0.5.49',
     whatsNew: [
+      'The world between the cities has been repainted in 3D: soft, natural grass instead of a checkerboard, worn dirt roads with grassy edges, sandy riverbanks, murky swamp pools with reeds and lily pads, farm fields of wheat, cabbages, lavender and corn around each city, wildflowers, rocks and mushrooms, forests with ragged natural edges, pine-clad highlands with grassy knolls, boulders and rocky peaks, windmills turning on the foothills near towns, and wooden bridges where the roads cross the rivers. Purely visual — every road, path and city is exactly where it was.',
       'New look for every character: your trader, the townsfolk and every NPC now share one polished 3D body — same size, same storybook style — with soft cel shading, an ink outline, real shadows, faces with eyes and rosy cheeks, and a proper walk cycle (swinging arms and legs, a little bounce) and idle sway. Roles still read at a glance by their hats (guard helm, baker cap, sailor cap, hoods, straw and travel hats), and you stand out by your merchant kit — vest, belt, coin pouch and satchel — whose hat and colours still follow your gear. In the 2D view (?r=2d) you and the NPCs are now drawn at the same size too.',
       'Cities feel alive in 3D: townsfolk stroll the streets, lanterns line the roads (and glow at dusk), the plaza has a fountain, benches and striped market stalls, and the open squares have trees in planters and flower beds, with crates and barrels by the buildings and pennants on the walls. The bank and other walled rooms are proper buildings now, and construction sites show a rising timber frame, cut stone and a crane. All decoration — nothing blocks your path or changes the game.',
       'The world is now rendered in real 3D with three.js: walled cities with gabled-roof buildings (chimney smoke, glowing windows, columns on the bank, crates at the market, scaffolding on construction sites), forests of low-poly trees, rolling hills, animated water with shoreline foam, 3D wagons with trotting horses, and soft sun shadows that sweep across the day into a warm dusk. Characters stay in their painterly style as standing billboards, and the HUD and menus are unchanged. Prefer the old look or on a weak device? Add ?r=2d to the URL (remembered); ?r=3d switches back.',
@@ -8502,7 +8503,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.48',
+      buildVersion: 'v0.5.49',
       savedAt: Date.now(),
       player: {
         x: player.x,
