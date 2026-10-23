@@ -148,8 +148,12 @@ test('building palette mirrors the 2D roofs in src/main.js', () => {
 
 console.log('\n=== world3d_core: palette parity with src/main.js ===');
 test('ore gem colours match the 2D vein colours in drawTile', () => {
+  // drawTile (and the mining FX) read main.js's MINE_SITE_COLORS table.
+  assert(/MINE_SITE_COLORS\[metalId\]/.test(mainSrc), 'drawTile no longer reads MINE_SITE_COLORS');
+  const table = /const MINE_SITE_COLORS = \{([^}]*)\}/.exec(mainSrc);
+  assert(table, 'MINE_SITE_COLORS not found in main.js');
   for (const metal of ['copper', 'silver', 'gold']) {
-    const m = new RegExp(`metalId === '${metal}'\\s*\\?\\s*'(#[0-9a-f]{6})'`, 'i').exec(mainSrc);
+    const m = new RegExp(`${metal}:\\s*'(#[0-9a-f]{6})'`, 'i').exec(table[1]);
     assert(m, `no 2D colour for ${metal}`);
     eq(ORE_COLORS[metal].toLowerCase(), m[1].toLowerCase(), metal);
   }

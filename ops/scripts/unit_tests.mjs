@@ -2139,6 +2139,65 @@ asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is 
   });
 }
 
+// ─── Mining animations (extracted live from src/main.js) ─────────────────────
+// A landed swing plays a pickaxe strike over the vein (wind-up → impact →
+// recoil), rock chips fly out under gravity, and a spent vein shows a
+// recovery ring. Pure curves only; the canvas pass just reads them.
+{
+  const pickaxeSwingAngle = extractFromMain('pickaxeSwingAngle');
+  const mineChips = extractFromMain('mineChips');
+  const mineChipAt = extractFromMain('mineChipAt');
+  const veinRecoveryFrac = extractFromMain('veinRecoveryFrac');
+
+  console.log('\n=== Mining animations ===');
+  test('mining animation helpers exist in src/main.js', () => {
+    for (const [n, f] of Object.entries({ pickaxeSwingAngle, mineChips, mineChipAt, veinRecoveryFrac })) {
+      assert(typeof f === 'function', `${n} not found`);
+    }
+  });
+  test('pickaxe winds up back, strikes forward at impact, then settles', () => {
+    const start = pickaxeSwingAngle(0);
+    let minA = Infinity, minT = 0;
+    for (let i = 0; i <= 100; i++) { const a = pickaxeSwingAngle(i / 100); if (a < minA) { minA = a; minT = i / 100; } }
+    assert(minA < start - 0.2, `wind-up should pull back past the start (start ${start}, min ${minA})`);
+    assert(minT < 0.3, `wind-up should come early (at ${minT})`);
+    const impact = pickaxeSwingAngle(0.35);
+    assert(impact > start + 0.5, `impact angle ${impact} should be well forward of start ${start}`);
+    for (let i = 0; i <= 100; i++) assert(Number.isFinite(pickaxeSwingAngle(i / 100)), 'finite');
+    assertClose(pickaxeSwingAngle(-1), pickaxeSwingAngle(0));
+    assertClose(pickaxeSwingAngle(9), pickaxeSwingAngle(1));
+  });
+  test('rock chips are deterministic, bounded and mostly fly upward', () => {
+    const a = mineChips(10, 3), b = mineChips(10, 3);
+    assertEqual(a.length, 10);
+    assertEqual(JSON.stringify(a), JSON.stringify(b));
+    assert(JSON.stringify(mineChips(10, 4)) !== JSON.stringify(a), 'seed changes the spray');
+    assert(a.every(c => c.vy < 0), 'every chip launches upward (canvas y grows down)');
+    assert(a.some(c => c.vx < 0) && a.some(c => c.vx > 0), 'chips spray both ways');
+    assertEqual(mineChips(-2, 1).length, 0);
+    assert(mineChips(500, 1).length <= 24, 'chip count is capped');
+  });
+  test('a chip rises, then falls under gravity, and fades out', () => {
+    const c = { vx: 20, vy: -60, size: 2 };
+    const p0 = mineChipAt(c, 0), pm = mineChipAt(c, 0.3), p1 = mineChipAt(c, 1);
+    assertClose(p0.dx, 0); assertClose(p0.dy, 0);
+    assert(pm.dy < 0, 'above the vein early on');
+    assert(p1.dy > pm.dy, 'falls back down later');
+    assert(p1.dx > pm.dx && pm.dx > 0, 'keeps drifting sideways');
+    assert(p0.alpha > 0.9, 'visible at launch');
+    assertClose(p1.alpha, 0);
+  });
+  test('vein recovery fraction runs 0 → 1 over the cooldown and clamps', () => {
+    // cooldown ends at 30000, lasts 30000 ms
+    assertClose(veinRecoveryFrac(30000, 0, 30000), 0);
+    assertClose(veinRecoveryFrac(30000, 15000, 30000), 0.5);
+    assertClose(veinRecoveryFrac(30000, 30000, 30000), 1);
+    assertClose(veinRecoveryFrac(30000, 99999, 30000), 1);
+    assertClose(veinRecoveryFrac(30000, -5000, 30000), 0);
+    assertClose(veinRecoveryFrac(undefined, 10, 30000), 1);
+  });
+}
+
 // ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
 // Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
 // figures; bankQuickAmounts scales the three buttons to the player's wealth.
