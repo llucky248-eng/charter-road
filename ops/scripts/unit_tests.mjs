@@ -16,9 +16,10 @@ import { readFileSync as _readFileSync } from 'node:fs';
 import { fileURLToPath as _fileURLToPath } from 'node:url';
 import { join as _join, dirname as _dirname } from 'node:path';
 const _mainJsSrc = _readFileSync(_join(_dirname(_fileURLToPath(import.meta.url)), '../../src/main.js'), 'utf8');
-function extractFromMain(name) {
+// deps: other extracted functions the target calls, injected by name.
+function extractFromMain(name, deps = {}) {
   const m = _mainJsSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
-  return m ? new Function(`return (${m[0]})`)() : null;
+  return m ? new Function(...Object.keys(deps), `return (${m[0]})`)(...Object.values(deps)) : null;
 }
 
 let passed = 0;
@@ -655,13 +656,16 @@ test('vein cooldown: only the queried key matters', () => {
 // never cancel out a loss popup visually. The same itemId outside the
 // window, an opposite sign, or a different itemId queues a new popup.
 function stackPopup(queue, popup, stackWindowMs, nowMs) {
-  const last = queue[queue.length - 1];
-  if (last && last.itemId === popup.itemId &&
-      Math.sign(last.qty) === Math.sign(popup.qty) &&
-      (nowMs - last.startMs) < stackWindowMs) {
-    last.qty += popup.qty;
-    last.startMs = nowMs;
-    return queue;
+  // Looks back through every popup still inside the window, so interleaved
+  // gold popups (a sale's "-1 food / +12g / -1 food") don't break stacking.
+  for (let i = queue.length - 1; i >= 0; i--) {
+    const prev = queue[i];
+    if ((nowMs - prev.startMs) >= stackWindowMs) break;
+    if (prev.itemId === popup.itemId && Math.sign(prev.qty) === Math.sign(popup.qty)) {
+      prev.qty += popup.qty;
+      prev.startMs = nowMs;
+      return queue;
+    }
   }
   return [...queue, { ...popup, startMs: nowMs }];
 }
@@ -688,14 +692,22 @@ test('loot popup: different items queue separately even within window', () => {
   assert(q.length === 3, `expected 3 popups (distinct items), got ${q.length}`);
   assert(q[0].itemId === 'copper' && q[1].itemId === 'coal' && q[2].itemId === 'gem');
 });
-test('loot popup: stacking only checks the LAST entry, not earlier ones', () => {
-  // If a different item interrupts, the next same-item entry starts fresh.
+test('loot popup: stacking looks past interleaved popups inside the window', () => {
+  // Selling item-by-item interleaves "-1 food" and "+Ng": both must still stack.
+  let q = [];
+  q = stackPopup(q, { itemId: 'food',   qty: -1 }, 300, 0);
+  q = stackPopup(q, { itemId: '__gold', qty: 12 }, 300, 0);
+  q = stackPopup(q, { itemId: 'food',   qty: -1 }, 300, 100);
+  q = stackPopup(q, { itemId: '__gold', qty: 12 }, 300, 100);
+  assert(q.length === 2, `expected 2 popups (food + gold), got ${q.length}`);
+  assert(q[0].qty === -2 && q[1].qty === 24, `got ${JSON.stringify(q)}`);
+});
+test('loot popup: look-back stops at popups older than the window', () => {
   let q = [];
   q = stackPopup(q, { itemId: 'copper', qty: 3 }, 300, 0);
-  q = stackPopup(q, { itemId: 'coal',   qty: 1 }, 300, 50);
-  q = stackPopup(q, { itemId: 'copper', qty: 1 }, 300, 100);
-  assert(q.length === 3, `expected 3 popups (copper not stacked through coal), got ${q.length}`);
-  assert(q[0].qty === 3 && q[2].qty === 1);
+  q = stackPopup(q, { itemId: 'coal',   qty: 1 }, 300, 400);
+  q = stackPopup(q, { itemId: 'copper', qty: 1 }, 300, 450);
+  assert(q.length === 3, `expected 3 popups (old copper is stale), got ${q.length}`);
 });
 test('loot popup: losses stack with losses of the same item within window', () => {
   let q = [];
@@ -2047,11 +2059,83 @@ asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is 
     assertEqual(q[0].msg, 'long');
     assertClose(q[0].t, 2);
   });
+  test('toasts track their age so the HUD can slide them in', () => {
+    let q = toastQueuePush([], 'x', 2, 3);
+    assertClose(q[0].age, 0);
+    q = toastQueueTick(q, 0.1);
+    assertClose(q[0].age, 0.1);
+    const toastEnter = extractFromMain('toastEnter');
+    assert(typeof toastEnter === 'function', 'toastEnter not found');
+    assertClose(toastEnter(0), 0);
+    assert(toastEnter(0.1) > 0 && toastEnter(0.1) < 1, 'mid-entrance is partial');
+    assertClose(toastEnter(5), 1);
+    assertClose(toastEnter(undefined), 0);
+  });
   test('tick with no elapsed time changes nothing', () => {
     let q = toastQueuePush([], 'x', 2, 3);
     q = toastQueueTick(q, 0);
     assertEqual(q.length, 1);
     assertClose(q[0].t, 2);
+  });
+}
+
+// ─── Reward animations (extracted live from src/main.js) ─────────────────────
+// Rewards (item gains, gold, rep, gear upgrades, contracts) pop in with a
+// bouncy scale and, for big ones, a sparkle burst. These pure curves drive
+// the canvas FX; keep them deterministic (no Math.random) and bounded.
+{
+  const rewardPopScale = extractFromMain('rewardPopScale');
+  const rewardBurstParticles = extractFromMain('rewardBurstParticles');
+  const rewardFxFrame = extractFromMain('rewardFxFrame', { rewardPopScale });
+
+  console.log('\n=== Reward animations ===');
+  test('reward animation helpers exist in src/main.js', () => {
+    assert(typeof rewardPopScale === 'function', 'rewardPopScale not found');
+    assert(typeof rewardBurstParticles === 'function', 'rewardBurstParticles not found');
+    assert(typeof rewardFxFrame === 'function', 'rewardFxFrame not found');
+  });
+  test('pop scale starts small, overshoots, then settles at exactly 1', () => {
+    assert(rewardPopScale(0) < 0.6, `start scale ${rewardPopScale(0)} should be small`);
+    let peak = 0;
+    for (let i = 0; i <= 100; i++) peak = Math.max(peak, rewardPopScale(i / 100));
+    assert(peak > 1.08 && peak < 1.5, `overshoot peak ${peak} should be a visible but sane bounce`);
+    assertClose(rewardPopScale(0.5), 1);
+    assertClose(rewardPopScale(1), 1);
+  });
+  test('pop scale clamps out-of-range input', () => {
+    assertClose(rewardPopScale(-1), rewardPopScale(0));
+    assertClose(rewardPopScale(5), 1);
+    assert(Number.isFinite(rewardPopScale(NaN)), 'NaN input must not produce NaN');
+  });
+  test('burst particles are deterministic per seed and spread all round', () => {
+    const a = rewardBurstParticles(12, 7);
+    const b = rewardBurstParticles(12, 7);
+    assertEqual(a.length, 12);
+    assertEqual(JSON.stringify(a), JSON.stringify(b));
+    assert(JSON.stringify(rewardBurstParticles(12, 8)) !== JSON.stringify(a), 'different seeds should differ');
+    // every quadrant gets at least one spark
+    const quads = new Set(a.map(p => Math.floor((((p.a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 2))));
+    assertEqual(quads.size, 4);
+    for (const p of a) {
+      assert(p.v > 0 && p.v <= 1, `speed ${p.v} out of (0,1]`);
+      assert(p.size > 0, 'size must be positive');
+    }
+  });
+  test('burst particle count is bounded', () => {
+    assertEqual(rewardBurstParticles(0, 1).length, 0);
+    assertEqual(rewardBurstParticles(-3, 1).length, 0);
+    assert(rewardBurstParticles(9999, 1).length <= 48, 'count must be capped');
+  });
+  test('fx frame: visible at spawn, gone at the end, ring keeps growing', () => {
+    const f0 = rewardFxFrame(0), fm = rewardFxFrame(0.5), f1 = rewardFxFrame(1);
+    assert(f0.alpha > 0.9, 'fully visible at spawn');
+    assertClose(f1.alpha, 0);
+    assert(f0.ring < fm.ring && fm.ring < f1.ring, 'ring radius grows monotonically');
+    assert(f0.rise <= fm.rise && fm.rise <= f1.rise, 'title rises monotonically');
+    for (let i = 0; i <= 20; i++) {
+      const f = rewardFxFrame(i / 20);
+      assert(f.alpha >= 0 && f.alpha <= 1, `alpha ${f.alpha} out of range`);
+    }
   });
 }
 

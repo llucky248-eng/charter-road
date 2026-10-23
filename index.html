@@ -557,6 +557,47 @@
       line-height: 1.3;
       color: var(--ink-soft);
     }
+    .cr-banner.cr-has-icon { display: flex; align-items: center; gap: 10px; }
+    .cr-banner-icon { font-size: 24px; line-height: 1; flex: 0 0 auto; }
+    .cr-banner-body { flex: 1 1 auto; min-width: 0; }
+    /* Award banners (gear upgrades, contracts): gold frame, bouncy entrance,
+       a light sweep across the card and a bouncing icon badge. */
+    .cr-banner.cr-reward {
+      position: relative; overflow: hidden;
+      background: linear-gradient(135deg, #fff6d6 0%, #ffe9a8 100%);
+      border-color: #b7791f;
+      box-shadow: 0 4px 0 #8a5a12, 0 0 0 3px rgba(253,224,71,.45);
+      animation: crRewardIn 520ms cubic-bezier(.2,1.5,.4,1) forwards;
+    }
+    .cr-banner.cr-reward::after {
+      content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%;
+      background: linear-gradient(100deg, transparent, rgba(255,255,255,.75), transparent);
+      transform: skewX(-18deg);
+      animation: crRewardShine 900ms ease-out 260ms both;
+      pointer-events: none;
+    }
+    .cr-banner.cr-reward .cr-banner-title { color: #7a4a06; }
+    .cr-banner.cr-reward .cr-banner-icon {
+      animation: crRewardIcon 700ms cubic-bezier(.2,1.8,.4,1) 120ms both;
+      filter: drop-shadow(0 2px 0 rgba(0,0,0,.18));
+    }
+    .cr-banner.cr-reward.out { animation: crBannerOut 260ms ease-in forwards; }
+    @keyframes crRewardIn {
+      0%   { transform: translateY(-14px) scale(.85); opacity: 0; }
+      60%  { transform: translateY(2px) scale(1.04); opacity: 1; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes crRewardShine { from { left: -60%; } to { left: 130%; } }
+    @keyframes crRewardIcon {
+      0%   { transform: scale(.2) rotate(-25deg); opacity: 0; }
+      55%  { transform: scale(1.3) rotate(10deg); opacity: 1; }
+      80%  { transform: scale(.95) rotate(-4deg); }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cr-banner.cr-reward, .cr-banner.cr-reward .cr-banner-icon { animation: crBannerIn 160ms ease-out forwards; }
+      .cr-banner.cr-reward::after { display: none; }
+    }
     @keyframes crBannerIn {
       from { transform: translateY(-10px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
@@ -865,7 +906,7 @@
     <div id="devlog" class="devlog" aria-label="Iteration notes">
       <div class="devlog-title">Patch Notes</div>
       <div class="devlog-body" id="devlog-body">Loading…</div>
-      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.49</div>
+      <div class="devlog-body" id="html-build" style="opacity:0.55; font-size:11px; margin-top:6px; letter-spacing:0.04em;">HTML build: v0.5.50</div>
     </div>
   </div>
 
@@ -1013,7 +1054,7 @@
         var s = document.createElement('script');
         // Allow QA harness to run against the working tree without requiring a version bump.
         // Normal deploy uses explicit cache-bust (?v=X). QA uses ?qa=1.
-        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.49&t=' + Date.now())));
+        s.src = './src/main.js' + (v ? ('?v=' + encodeURIComponent(v)) : (qa ? ('?qa=1&t=' + Date.now()) : ('?v=0.5.50&t=' + Date.now())));
         s.async = false;
         s.onerror = function(){ showFatal('Failed to load ./src/main.js (network/cache issue)'); };
         document.body.appendChild(s);

@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.49'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.50'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -407,7 +407,8 @@ ${line4}`;
             const it = ITEMS.find(x => x.id === want);
             const title = `Contract completed`;
             const text = `Delivered ${qty}× ${it ? it.name : want} → ${nowId} (${contractRewardLabel(reward, repGain)})`;
-            showBanner(title, text);
+            showBanner(title, text, { icon: '📜', reward: true });
+            celebrateContract(reward, repGain);
 
             contracts.active = null;
             scheduleAutoSave();
@@ -531,7 +532,8 @@ ${line4}`;
                 const it = ITEMS.find(x => x.id === want);
                 const title = `Contract completed`;
                 const text = `Delivered ${qty}× ${it ? it.name : want} → ${nowId} (${contractRewardLabel(reward, repGain)})`;
-                showBanner(title, text);
+                showBanner(title, text, { icon: '📜', reward: true });
+                celebrateContract(reward, repGain);
 
                 contracts.active = null;
                 checkGuildMilestone();
@@ -830,6 +832,10 @@ ${line4}`;
       })),
       /** Clear the loot popup queue (used to isolate per-test assertions). */
       qaClearLootPopups: () => { _lootPopups.length = 0; return true; },
+      /** Snapshot / clear / draw the reward celebration queue (gear, contract). */
+      qaRewardFx: () => _rewardFx.map(f => ({ kind: f.kind, icon: f.icon, title: f.title, startMs: f.startMs })),
+      qaClearRewardFx: () => { _rewardFx.length = 0; return true; },
+      qaDrawRewardFx: () => { drawRewardFx(); return _rewardFx.length; },
       /** Invoke the renderer's drawLootPopups pass so age-out semantics are
        *  exercised in QA (the main render loop doesn't run during api.step). */
       qaDrawLootPopups: () => { drawLootPopups(); return _lootPopups.length; },
@@ -3922,6 +3928,7 @@ const NPC_INTERACT_RADIUS = 18;
       if (dep) {
         const payout = Math.min(v.reserve, owed);
         player.gold += payout;
+        spawnGoldPopup(payout);
         v.reserve = Math.max(0, v.reserve - payout);
         delete playerBank.deposits[cid];
         // Loans are forgiven in a bankruptcy
@@ -5769,6 +5776,7 @@ function sellIntel(cardId, buyerCityId) {
   }
   card.sold = true;
   player.gold += INTEL_SELL_PRICE;
+  spawnGoldPopup(INTEL_SELL_PRICE);
   player.intelSells = (player.intelSells || 0) + 1;
   saveGame();
   toast(`Sold intel for ${INTEL_SELL_PRICE}g.`, 2);
@@ -5787,6 +5795,7 @@ function verifyExpiredIntel() {
       if (pct < 0.12) { // within 12% - intel was good
         card.verified = true;
         player.gold += 4;
+        spawnGoldPopup(4);
         toast(`Intel verified: ${card.itemName} was ~correct! +4g bonus.`, 3);
       }
     }
@@ -6812,8 +6821,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.49',
+    version: 'v0.5.50',
     whatsNew: [
+      'Rewards now feel like rewards: item pickups pop in with a bounce and a twinkle, every sale and gold find rises a golden "+Ng" coin popup, reputation gains float a "+N rep" star, gear upgrades burst a golden ring of sparkles and light rays over your trader with a shiny award banner, contract hand-ins celebrate the same way with your gold and rep popping up, and notices slide in instead of just appearing. (Calmer if your device asks for reduced motion.)',
       'The world between the cities has been repainted in 3D: soft, natural grass instead of a checkerboard, worn dirt roads with grassy edges, sandy riverbanks, murky swamp pools with reeds and lily pads, farm fields of wheat, cabbages, lavender and corn around each city, wildflowers, rocks and mushrooms, forests with ragged natural edges, pine-clad highlands with grassy knolls, boulders and rocky peaks, windmills turning on the foothills near towns, and wooden bridges where the roads cross the rivers. Purely visual — every road, path and city is exactly where it was.',
       'New look for every character: your trader, the townsfolk and every NPC now share one polished 3D body — same size, same storybook style — with soft cel shading, an ink outline, real shadows, faces with eyes and rosy cheeks, and a proper walk cycle (swinging arms and legs, a little bounce) and idle sway. Roles still read at a glance by their hats (guard helm, baker cap, sailor cap, hoods, straw and travel hats), and you stand out by your merchant kit — vest, belt, coin pouch and satchel — whose hat and colours still follow your gear. In the 2D view (?r=2d) you and the NPCs are now drawn at the same size too.',
       'Cities feel alive in 3D: townsfolk stroll the streets, lanterns line the roads (and glow at dusk), the plaza has a fountain, benches and striped market stalls, and the open squares have trees in planters and flower beds, with crates and barrels by the buildings and pennants on the walls. The bank and other walled rooms are proper buildings now, and construction sites show a rising timber frame, cut stone and a crane. All decoration — nothing blocks your path or changes the game.',
@@ -7076,6 +7086,7 @@ function drawNpcBubble() {
 
     loseItem(it.id, sellN);
     player.gold += gain;
+    spawnGoldPopup(gain);
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
     syncWorldStateOnAction();
@@ -7196,9 +7207,12 @@ function drawNpcBubble() {
     const bannerHtml = banner.q.length ? `
       <div class="cr-banner-stack" aria-label="Notifications">
         ${banner.q.map(it => `
-          <div class="cr-banner${it.state === 'out' ? ' out' : ''}" data-bid="${it.id}" role="status" aria-live="polite">
-            <div class="cr-banner-title">${htmlEscape(it.title)}</div>
-            <div class="cr-banner-text">${htmlEscape(it.text)}</div>
+          <div class="cr-banner${it.reward ? ' cr-reward' : ''}${it.icon ? ' cr-has-icon' : ''}${it.state === 'out' ? ' out' : ''}" data-bid="${it.id}" role="status" aria-live="polite">
+            ${it.icon ? `<div class="cr-banner-icon" aria-hidden="true">${htmlEscape(it.icon)}</div>` : ''}
+            <div class="cr-banner-body">
+              <div class="cr-banner-title">${htmlEscape(it.title)}</div>
+              <div class="cr-banner-text">${htmlEscape(it.text)}</div>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -7565,8 +7579,8 @@ function drawNpcBubble() {
         applyGearStats();
         checkGuildMilestone();
         scheduleAutoSave();
-        showBanner(`Gear Upgraded!`, `${g.icon} ${g.name} equipped - ${g.desc}`);
-        toast(`${g.icon} ${g.name} equipped!`, 2.5);
+        showBanner(`Gear Upgraded!`, `${g.name} equipped - ${g.desc}`, { icon: g.icon, reward: true });
+        spawnRewardBurst('gear', g.icon);
         dom.key = ''; // force re-render
       }));
 
@@ -8322,11 +8336,15 @@ function drawNpcBubble() {
   const BANNER_TTL = 2.6; // seconds visible
   const BANNER_EXIT = 0.28; // seconds for exit animation
 
-  function showBanner(title, text) {
+  // opts.reward styles the banner as an award (gold frame, shine sweep,
+  // bouncing icon); opts.icon shows an emoji badge on the left.
+  function showBanner(title, text, opts = {}) {
     const item = {
       id: bannerNextId++,
       title: String(title || ''),
       text: String(text || ''),
+      icon: opts && opts.icon ? String(opts.icon) : '',
+      reward: !!(opts && opts.reward),
       t: BANNER_TTL,
       state: 'in',
     };
@@ -8503,7 +8521,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.49',
+      buildVersion: 'v0.5.50',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9444,7 +9462,7 @@ function drawNpcBubble() {
   // ops/scripts/unit_tests.mjs extract these two helpers from source — keep
   // them self-contained.
   function toastQueuePush(q, msg, seconds, max) {
-    const out = (q || []).concat([{ msg: String(msg), t: Math.max(0.1, Number(seconds) || 3) }]);
+    const out = (q || []).concat([{ msg: String(msg), t: Math.max(0.1, Number(seconds) || 3), age: 0 }]);
     while (out.length > (max || 3)) out.shift();
     return out;
   }
@@ -9452,10 +9470,17 @@ function drawNpcBubble() {
   // Age the queue by dt seconds; each entry expires on its own timer.
   // Empty queues return as-is: this runs every frame, so the common idle case
   // must not allocate.
+  // Entrance curve for a toast by age (s): 0 → 1 over 0.22s, ease-out. The
+  // HUD slides each new toast in from the left and fades it up with this.
+  function toastEnter(age) {
+    const k = Math.min(1, Math.max(0, (Number(age) || 0) / 0.22));
+    return 1 - (1 - k) * (1 - k) * (1 - k);
+  }
+
   function toastQueueTick(q, dt) {
     if (!q || !q.length) return q || [];
     const d = Math.max(0, Number(dt) || 0);
-    return q.map(it => ({ msg: it.msg, t: it.t - d })).filter(it => it.t > 0);
+    return q.map(it => ({ msg: it.msg, t: it.t - d, age: (it.age || 0) + d })).filter(it => it.t > 0);
   }
 
   const TOAST_MAX_STACK = 3;
@@ -9483,6 +9508,8 @@ function drawNpcBubble() {
     silver: '⚪',
     gold:   '🟡',
     __alert: '❗', // road-event ambush marker, not an item
+    __gold:  '🪙', // gold reward popup ("+Ng"), not an item
+    __rep:   '⭐', // reputation reward popup ("+N rep"), not an item
   };
   const LOOT_POPUP_LIFETIME_MS = 1500;
   const LOOT_POPUP_RISE_PX    = 36;
@@ -9497,13 +9524,17 @@ function drawNpcBubble() {
     // single swing (or a multi-day trip's rations) doesn't paint a spam of
     // overlapping sprites. Gains never merge into losses. The pure decision
     // is mirrored in ops/scripts/unit_tests.mjs#stackPopup.
-    const last = _lootPopups[_lootPopups.length - 1];
-    if (last && last.itemId === itemId &&
-        Math.sign(last.qty) === Math.sign(qty) &&
-        (stateTime - last.startMs) < LOOT_POPUP_STACK_MS) {
-      last.qty += qty;
-      last.startMs = stateTime;
-      return;
+    // Looks back through every popup still inside the window (not just the
+    // last) so a sale's interleaved "-1 food / +12g / -1 food / +12g" still
+    // collapses into one food popup and one gold popup.
+    for (let i = _lootPopups.length - 1; i >= 0; i--) {
+      const prev = _lootPopups[i];
+      if ((stateTime - prev.startMs) >= LOOT_POPUP_STACK_MS) break;
+      if (prev.itemId === itemId && Math.sign(prev.qty) === Math.sign(qty)) {
+        prev.qty += qty;
+        prev.startMs = stateTime;
+        return;
+      }
     }
     _lootPopups.push({
       itemId,
@@ -9547,6 +9578,9 @@ function drawNpcBubble() {
 
   function drawLootPopups() {
     if (_lootPopups.length === 0) return;
+    // Popups ride the player's head (re-projected each frame) so they don't
+    // drift off when the camera follows a moving player.
+    const anchor = playerPopupAnchor();
     const fontPx = Math.round(13 * UI_SCALE);
     ctx.save();
     ctx.font = `800 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
@@ -9568,15 +9602,237 @@ function drawNpcBubble() {
         : -LOOT_POPUP_RISE_PX * eased;
       ctx.globalAlpha = 1 - t * t;
       const icon = ITEM_ICONS[p.itemId] || '✨';
-      const text = p.qty > 0 ? `${icon} +${p.qty}` : p.qty < 0 ? `${icon} -${-p.qty}` : icon;
+      const n = p.qty > 0 ? `+${p.qty}` : p.qty < 0 ? `-${-p.qty}` : '';
+      const text = !n ? icon
+        : p.itemId === '__gold' ? `${icon} ${n}g`
+        : p.itemId === '__rep' ? `${icon} ${n} rep`
+        : `${icon} ${n}`;
+      // Gold/rep popups ride their own lanes (gold up-right, rep up-left,
+      // item centred) so a sale's "-2 food" and "+24g" — or a contract's
+      // "+40g" and "+3 rep" — never print on top of each other.
+      const lane = p.itemId === '__gold' ? 1 : p.itemId === '__rep' ? -1 : 0;
+      const tw = ctx.measureText(text).width;
+      const x = anchor.sx + lane * (8 * UI_SCALE + tw / 2);
+      const y = anchor.sy + yOff - (lane ? 14 * UI_SCALE : 0);
+      // Bouncy pop-in (gains and alerts; losses just slide away).
+      const sc = REDUCED_MOTION || p.qty < 0 ? 1 : rewardPopScale(t);
+      ctx.save();
+      ctx.translate(x, y);
+      if (sc !== 1) ctx.scale(sc, sc);
       // dark shadow first for legibility against grass/road
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.fillText(text, p.sx + 1, p.sy + yOff + 1);
-      ctx.fillStyle = p.qty < 0 ? '#f87171' : '#fde047';
-      ctx.fillText(text, p.sx, p.sy + yOff);
+      ctx.fillText(text, 1, 1);
+      ctx.fillStyle = p.qty < 0 ? '#f87171'
+        : p.itemId === '__gold' ? '#fcd34d'
+        : p.itemId === '__rep' ? '#a5f3fc'
+        : '#fde047';
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+      // A few twinkles around fresh gains.
+      if (p.qty > 0 && t < 0.55 && !REDUCED_MOTION) {
+        const fade = 1 - t / 0.55;
+        const half = tw / 2;
+        ctx.fillStyle = '#fff7c2';
+        for (let k = 0; k < 3; k++) {
+          const ang = k * 2.1 + t * 5;
+          drawSparkle(x + Math.cos(ang) * (half + 6 * UI_SCALE), y + Math.sin(ang) * 9 * UI_SCALE,
+            (1.5 + fade * 2) * UI_SCALE);
+        }
+      }
       _lootPopups[writeIdx++] = p;
     }
     _lootPopups.length = writeIdx;
+    ctx.restore();
+  }
+
+
+  // ── Reward animations ────────────────────────────────────────────────────
+  // Every award (item gains, gold, rep, gear upgrades, contract hand-ins)
+  // pops in with a bouncy scale; the big ones also burst a sparkle ring and a
+  // title over the player. The curves are pure (unit-tested in
+  // ops/scripts/unit_tests.mjs) — the draw passes only read them.
+  const REDUCED_MOTION = (() => {
+    try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+  })();
+
+  // Scale over a popup's life (t in 0..1): grows from 0.35 with an
+  // ease-out-back overshoot during the first 22%, then holds at exactly 1.
+  function rewardPopScale(t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    const k = Math.min(1, x / 0.22);
+    if (k >= 1) return 1;
+    const c1 = 2.4, c3 = c1 + 1, u = k - 1;
+    return 0.35 + 0.65 * (1 + c3 * u * u * u + c1 * u * u);
+  }
+
+  // Deterministic spark layout for a burst: evenly spread angles with a
+  // little jitter, per-spark speed (0..1] and size. Capped at 48 sparks.
+  function rewardBurstParticles(count, seed) {
+    const n = Math.max(0, Math.min(48, Math.floor(Number(count) || 0)));
+    let h = ((Math.floor(Number(seed) || 0) * 2654435761) + 0x9e3779b9) >>> 0 || 1;
+    const rnd = () => {
+      h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
+      return h / 4294967296;
+    };
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * (Math.PI / n);
+      out.push({ a, v: 0.55 + rnd() * 0.45, size: 1.5 + rnd() * 2.5, star: rnd() < 0.4 });
+    }
+    return out;
+  }
+
+  // One frame of a celebration (t in 0..1): pop scale for the icon/title,
+  // ring radius fraction and title rise (both ease-out, monotonic), and an
+  // alpha that holds then fades to 0 over the last 35%.
+  function rewardFxFrame(t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    const out = 1 - (1 - x) * (1 - x) * (1 - x);
+    return {
+      scale: rewardPopScale(x),
+      ring: 0.15 + 0.85 * out,
+      rise: out,
+      alpha: x < 0.65 ? 1 : Math.max(0, 1 - (x - 0.65) / 0.35),
+    };
+  }
+
+  // Four-point sparkle at (x, y), radius r, in the current fillStyle.
+  function drawSparkle(x, y, r) {
+    const w = r * 0.32;
+    ctx.beginPath();
+    ctx.moveTo(x, y - r); ctx.lineTo(x + w, y - w); ctx.lineTo(x + r, y);
+    ctx.lineTo(x + w, y + w); ctx.lineTo(x, y + r); ctx.lineTo(x - w, y + w);
+    ctx.lineTo(x - r, y); ctx.lineTo(x - w, y - w);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const REWARD_FX_LIFETIME_MS = 1700;
+  const REWARD_FX_MAX = 4;
+  const REWARD_FX_STYLE = {
+    gear:     { color: '#fde047', glow: '253,224,71',  sparks: 18, title: 'Gear Upgraded!' },
+    contract: { color: '#86efac', glow: '134,239,172', sparks: 14, title: 'Contract Complete!' },
+  };
+  const _rewardFx = [];
+  let _rewardFxSeed = 1;
+
+  // True while a DOM dialog (market, bank, event, …) covers the world.
+  function anyDialogOpen() {
+    return !!(ui.eventOpen || ui.marketOpen || ui.contractsOpen || ui.bankOpen ||
+      ui.innOpen || ui.guildOpen || ui.warehouseOpen || ui.buildingDonateOpen);
+  }
+
+  // Bursts queue (startMs null) and play one at a time, never behind a
+  // dialog: gear bought in the market celebrates once the market closes, and
+  // back-to-back rewards don't print their titles on top of each other.
+  function spawnRewardBurst(kind, icon, title) {
+    const style = REWARD_FX_STYLE[kind] || REWARD_FX_STYLE.gear;
+    _rewardFx.push({
+      kind,
+      icon: icon || '✨',
+      title: title || style.title,
+      startMs: null,
+      parts: rewardBurstParticles(style.sparks, _rewardFxSeed++),
+    });
+    while (_rewardFx.length > REWARD_FX_MAX) _rewardFx.shift();
+  }
+
+  function spawnGoldPopup(amount) {
+    const g = Math.round(Number(amount) || 0);
+    if (g > 0) spawnLootPopup('__gold', g);
+  }
+
+  // Contract hand-in: burst + "+Ng" + "+N rep" over the player.
+  function celebrateContract(reward, repGain) {
+    spawnRewardBurst('contract', '📜');
+    spawnGoldPopup(reward);
+    if (repGain > 0) spawnLootPopup('__rep', repGain);
+  }
+
+  function drawRewardFx() {
+    if (_rewardFx.length === 0) return;
+    const U = UI_SCALE;
+    const dialog = anyDialogOpen();
+    const anchor = playerPopupAnchor();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let writeIdx = 0;
+    let playing = false;
+    for (let i = 0; i < _rewardFx.length; i++) {
+      const fx = _rewardFx[i];
+      if (fx.startMs == null) {
+        if (dialog || playing) { _rewardFx[writeIdx++] = fx; continue; }
+        fx.startMs = stateTime;
+      }
+      const age = stateTime - fx.startMs;
+      if (!(age >= 0 && age < REWARD_FX_LIFETIME_MS)) continue;
+      playing = true;
+      const t = age / REWARD_FX_LIFETIME_MS;
+      const f = rewardFxFrame(t);
+      const style = REWARD_FX_STYLE[fx.kind] || REWARD_FX_STYLE.gear;
+      const cx = anchor.sx, cy = anchor.sy - 14 * U;
+      const R = 52 * U;
+      if (!REDUCED_MOTION) {
+        // Soft glow behind the icon.
+        const glowR = R * (0.5 + 0.5 * f.ring);
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+        grad.addColorStop(0, `rgba(${style.glow},${0.45 * f.alpha})`);
+        grad.addColorStop(1, `rgba(${style.glow},0)`);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
+        // Turning light rays.
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(t * 1.6);
+        ctx.globalAlpha = 0.35 * f.alpha * (1 - t);
+        ctx.fillStyle = style.color;
+        for (let k = 0; k < 8; k++) {
+          ctx.rotate(Math.PI / 4);
+          ctx.beginPath();
+          ctx.moveTo(-3 * U, 0); ctx.lineTo(3 * U, 0); ctx.lineTo(0, -R * f.ring);
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+        // Expanding shock ring.
+        ctx.globalAlpha = f.alpha * (1 - t);
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = Math.max(1, 4 * U * (1 - t));
+        ctx.beginPath(); ctx.arc(cx, cy, R * f.ring, 0, Math.PI * 2); ctx.stroke();
+        // Sparks fly out and drift down a little.
+        ctx.globalAlpha = f.alpha;
+        for (const sp of fx.parts) {
+          const d = R * 1.15 * f.ring * sp.v;
+          const px = cx + Math.cos(sp.a) * d;
+          const py = cy + Math.sin(sp.a) * d + t * t * 14 * U;
+          ctx.fillStyle = sp.star ? '#ffffff' : style.color;
+          drawSparkle(px, py, sp.size * U * (sp.star ? 1.6 : 1.1) * (1 - 0.5 * t));
+        }
+      }
+      // Icon pops in the middle, title rises above it.
+      ctx.globalAlpha = f.alpha;
+      ctx.save();
+      const sc = REDUCED_MOTION ? 1 : f.scale;
+      ctx.translate(cx, cy - f.rise * 10 * U);
+      ctx.scale(sc, sc);
+      ctx.font = `${Math.round(26 * U)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText(fx.icon, 0, 0);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(cx, cy - R * 0.62 - f.rise * 16 * U);
+      ctx.scale(sc, sc);
+      ctx.font = `800 ${Math.round(15 * U)}px 'Fredoka', system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4 * U;
+      ctx.strokeStyle = 'rgba(40,24,10,0.9)';
+      ctx.strokeText(fx.title, 0, 0);
+      ctx.fillStyle = style.color;
+      ctx.fillText(fx.title, 0, 0);
+      ctx.restore();
+      _rewardFx[writeIdx++] = fx;
+    }
+    _rewardFx.length = writeIdx;
     ctx.restore();
   }
 
@@ -9793,6 +10049,7 @@ function drawNpcBubble() {
                 if (_r < 0.55) {
                   const g = 6 + Math.floor(rand01() * 15);
                   player.gold += g;
+                  spawnGoldPopup(g);
                   toast(`Cache: +${g}g`, 2.2);
                 } else if (_r < 0.85) {
                   const pool = ['food','ore','herbs'];
@@ -9863,7 +10120,7 @@ function drawNpcBubble() {
           { label: 'Offer 1g (chance of blessing)', run: () => {
               if (player.gold <= 0) { toast('No coin to offer.', 2); closeEvent(); return; }
               player.gold -= 1;
-              if (rand01() < 0.6) { player.gold += 4; toast('Blessing! +4g', 2); }
+              if (rand01() < 0.6) { player.gold += 4; spawnGoldPopup(4); toast('Blessing! +4g', 2); }
               else toast('The wind answers in silence.', 2);
               closeEvent();
             }
@@ -9902,7 +10159,7 @@ function drawNpcBubble() {
         choices: [
           { label: 'Search', run: () => {
               const r = rand01();
-              if (r < 0.45) { const g = 2 + (rand01()*6|0); player.gold += g; toast(`Found ${g}g`, 2); }
+              if (r < 0.45) { const g = 2 + (rand01()*6|0); player.gold += g; spawnGoldPopup(g); toast(`Found ${g}g`, 2); }
               else if (r < 0.75) { gainItem('herbs', 1); toast('Found 1 Moon Herbs', 2); }
               else toast('Nothing but dust.', 2);
               closeEvent();
@@ -9953,6 +10210,7 @@ function drawNpcBubble() {
               if (rand01() < 0.58) {
                 const loot = stakes.fightLoot + Math.floor(rand01() * stakes.fightLoot);
                 player.gold += loot;
+                spawnGoldPopup(loot);
                 toast(`You won! Looted ${loot}g.`, 2.8);
               } else {
                 const d = dropRandomCargo(stakes.dropCount);
@@ -10019,6 +10277,7 @@ function drawNpcBubble() {
               } else {
                 const g = stakes.omenFind + Math.floor(rand01() * 8);
                 player.gold += g;
+                spawnGoldPopup(g);
                 toast(`Good omen! Found ${g}g.`, 2.4);
               }
               closeEvent();
@@ -10044,6 +10303,7 @@ function drawNpcBubble() {
                 toast(`Ambush! You drove them off but took a hit. Lost ${loss}g.`, 3.2);
               } else {
                 player.gold += pay;
+                spawnGoldPopup(pay);
                 toast(`You escort the merchant safely. +${pay}g.`, 2.4);
               }
               closeEvent();
@@ -10096,6 +10356,7 @@ function drawNpcBubble() {
               if ((player.inv['food'] || 0) < 1) { toast('No rations to spare.', 2); closeEvent(); return; }
               loseItem('food', 1);
               player.rep[destCity.id] = (player.rep[destCity.id] || 0) + 2;
+              spawnLootPopup('__rep', 2);
               toast(`You helped the soldier. +2 rep in ${destCity.name}.`, 3);
               closeEvent();
             }
@@ -10179,6 +10440,7 @@ function drawNpcBubble() {
               if (rand01() < 0.52) {
                 const g = Math.round(stakes.fightLoot * 0.5) + Math.floor(rand01() * 8);
                 player.gold += g;
+                spawnGoldPopup(g);
                 toast(`You drove them off! Sold the pelt for ${g}g.`, 2.8);
               } else {
                 const hurt = Math.round(8 + stakes.heat * 15) + Math.floor(rand01() * 10);
@@ -10291,6 +10553,7 @@ function drawNpcBubble() {
           choices: [
             { label: 'Show permit', run: () => {
                 player.rep[cid] = (player.rep[cid] || 0) + 1;
+                spawnLootPopup('__rep', 1);
                 toast(`Permit accepted. Rep +1 in ${nearestCity.name}.`, 2.4);
                 closeEvent();
               }
@@ -12482,10 +12745,13 @@ if (IS_MOBILE) {
       const ty = baseY + k * stepY;
       const label = ellipsizeText(ui.toasts[j].msg, VIEW_W - padX * 2 - Math.round(12 * UI_SCALE));
       const tw = ctx.measureText(label).width;
-      ctx.fillStyle = `rgba(10, 14, 20, ${0.62 * (alphas[k] ?? 0.5)})`;
-      ctx.fillRect(padX - 4, ty - Math.round(10 * UI_SCALE), tw + 12, Math.round(14 * UI_SCALE));
-      ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
-      ctx.fillText(label, padX, ty);
+      const enter = REDUCED_MOTION ? 1 : toastEnter(ui.toasts[j].age);
+      const tx = padX - Math.round(14 * UI_SCALE * (1 - enter));
+      const a = (alphas[k] ?? 0.5) * enter;
+      ctx.fillStyle = `rgba(10, 14, 20, ${0.62 * a})`;
+      ctx.fillRect(tx - 4, ty - Math.round(10 * UI_SCALE), tw + 12, Math.round(14 * UI_SCALE));
+      ctx.fillStyle = `rgba(200, 230, 255, ${a})`;
+      ctx.fillText(label, tx, ty);
     }
   }
 
@@ -12906,8 +13172,9 @@ if (ui.npcDiag && ui.npcDiag.enabled) {
       ctx.textAlign = 'left';
       // Newest entry (last in queue) draws on top; iterate backwards in place.
       for (let j = ui.toasts.length - 1, k = 0; j >= 0; j--, k++) {
-        ctx.fillStyle = `rgba(200, 230, 255, ${alphas[k] ?? 0.5})`;
-        ctx.fillText(ellipsizeText(ui.toasts[j].msg, maxTextW), titleX, baseY + k * stepY);
+        const enter = REDUCED_MOTION ? 1 : toastEnter(ui.toasts[j].age);
+        ctx.fillStyle = `rgba(200, 230, 255, ${(alphas[k] ?? 0.5) * enter})`;
+        ctx.fillText(ellipsizeText(ui.toasts[j].msg, maxTextW), titleX - Math.round(14 * UI_SCALE * (1 - enter)), baseY + k * stepY);
       }
     }
   }
@@ -13681,6 +13948,7 @@ function drawEvent() {
               toast(`Inspection! Contraband confiscated (${removed}). Fine: ${paid}g (Rep -${2 + removed})`, 3.2);
             } else {
               player.rep[nowId] = (player.rep[nowId] || 0) + 1;
+              spawnLootPopup('__rep', 1);
               toast('Gate inspection: cleared. (Rep +1)', 2.2);
             }
           } else {
@@ -13705,6 +13973,13 @@ function drawEvent() {
           player.rep[nowId] = (player.rep[nowId] || 0) + repGain;
 
           toast(`Contract complete! +${contracts.active.reward}g (Rep +${repGain})`, 3.2);
+          {
+            const it = ITEMS.find(x => x.id === want);
+            showBanner('Contract completed',
+              `Delivered ${qty}× ${it ? it.name : want} → ${nowId} (${contractRewardLabel(contracts.active.reward, repGain)})`,
+              { icon: '📜', reward: true });
+          }
+          celebrateContract(contracts.active.reward, repGain);
           contracts.active = null;
           scheduleAutoSave();
         } else {
@@ -13907,6 +14182,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       drawOtherPlayers();
     }
     drawNpcBubble();
+    drawRewardFx();
     drawLootPopups();
     drawMobileOverlay();
     drawHUD();
@@ -15073,6 +15349,55 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(!!sellLoss,
           `loss popup: selling 2 food should spawn a food qty=-2 popup, got ${JSON.stringify(sellQ)}`);
         api.qaClearLootPopups();
+      }
+
+      // ── Reward animations: gold/rep popups, gear + contract celebrations ──
+      // Rewards must be felt: a sale rises a "+Ng" coin popup, a gear purchase
+      // bursts a celebration over the player and shows a shiny reward banner,
+      // and a contract hand-in celebrates with gold + rep popups.
+      {
+        const api = __QA.api;
+        api.qaClearLootPopups();
+        api.qaClearRewardFx();
+        api.setPlayer({ gold: 50, inv: { food: 3 }, capacity: 999 });
+        const goldSell = api.marketSell('food', 2, 'valdenmere');
+        api.flushAutosave();
+        const goldPop = api.qaLootPopups().find(p => p.itemId === '__gold');
+        assert(goldSell.ok && goldPop && goldPop.qty === goldSell.revenue,
+          `reward fx: selling should rise a +${goldSell.revenue}g popup, got ${JSON.stringify(api.qaLootPopups())}`);
+
+        // Gear purchase through the real button.
+        api.qaClearRewardFx();
+        api.setPlayer({ gold: 100000, gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
+        api.openMarketUI('ashport', 'gear');
+        const buyBtn = document.querySelector('[data-action="buy-gear"][data-slot="pack"][data-tier="1"]');
+        assert(!!buyBtn, 'reward fx: pack tier-1 buy button should render in the gear tab');
+        buyBtn.click();
+        domRender();
+        const gearFx = api.qaRewardFx();
+        assert(gearFx.some(f => f.kind === 'gear'),
+          `reward fx: gear purchase should spawn a gear celebration, got ${JSON.stringify(gearFx)}`);
+        assert(!!document.querySelector('.cr-banner.cr-reward'),
+          'reward fx: gear purchase should show a reward-styled banner');
+        ui.marketOpen = false; domRender();
+
+        // Contract hand-in celebrates with a burst + gold and rep popups.
+        api.qaClearLootPopups();
+        api.qaClearRewardFx();
+        api.setPlayer({ inv: { grain: 3 }, capacity: 999 });
+        api.setActiveContract({ fromId: 'ashport', toId: 'valdenmere', want: 'grain', qty: 3, reward: 40 });
+        api.forceCityEntry('valdenmere');
+        const cFx = api.qaRewardFx();
+        const cPops = api.qaLootPopups();
+        assert(cFx.some(f => f.kind === 'contract'),
+          `reward fx: contract completion should celebrate, got ${JSON.stringify(cFx)}`);
+        assert(cPops.some(p => p.itemId === '__gold' && p.qty === 40),
+          `reward fx: contract should rise a +40g popup, got ${JSON.stringify(cPops)}`);
+        assert(cPops.some(p => p.itemId === '__rep' && p.qty >= 2),
+          `reward fx: contract should rise a rep popup, got ${JSON.stringify(cPops)}`);
+        assert(api.qaDrawRewardFx() >= 1, 'reward fx: draw pass keeps a fresh celebration alive');
+        api.qaClearLootPopups();
+        api.qaClearRewardFx();
       }
 
       // ── Road event dialog: theming, input lock, dismissal integrity ──────
