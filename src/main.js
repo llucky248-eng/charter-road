@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.53'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.54'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -490,6 +490,7 @@ ${line4}`;
           updateAutoNav(d);
           moveWithCollision(d);
           updateRoadFx(d);
+          updateTerrainFx(d);
           if (ui.npcBubble && stateTime > ui.npcBubble.untilMs) ui.npcBubble = null;
           // Run DOM render so any UI state updates don't throw.
           domRender();
@@ -844,7 +845,12 @@ ${line4}`;
       qaRoadFx: () => ({ dust: _roadDust.length, boost: player.roadBoost || 0, moving: _roadMoving }),
       qaClearRoadFx: () => { _roadDust.length = 0; _roadDustAcc = 0; _roadCueReadyAt = 0; _roadMoving = false; return true; },
       /** First straight run of n road tiles (east or south) outside every city. */
-      qaFindOpenRoad: (n = 12) => {
+      qaFindOpenRoad: (n = 12) => __QA.api.qaFindTileRun(1, n, false),
+      /** First straight run of n `tileId` tiles (east or south) outside every city.
+       *  clearSides: also need walkable tiles on both sides (the player's
+       *  collision box overlaps the neighbouring rows, so a strip hugging
+       *  water can't be driven with the keys). */
+      qaFindTileRun: (tileId, n = 8, clearSides = true) => {
         const inCity = (x, y) => world.cities.some(c => x >= c.x - 1 && x < c.x + c.w + 1 && y >= c.y - 1 && y < c.y + c.h + 1);
         for (const [dx, dy] of [[1, 0], [0, 1]]) {
           for (let ty = 0; ty < MAP_H; ty++) {
@@ -852,7 +858,8 @@ ${line4}`;
               let ok = true;
               for (let i = 0; i < n && ok; i++) {
                 const x = tx + dx * i, y = ty + dy * i;
-                if (tileAt(x, y) !== 1 || inCity(x, y)) ok = false;
+                if (tileAt(x, y) !== tileId || inCity(x, y) ||
+                    (clearSides && (SOLID.has(tileAt(x + dy, y + dx)) || SOLID.has(tileAt(x - dy, y - dx))))) ok = false;
               }
               if (ok) return { tx, ty, dx, dy };
             }
@@ -860,6 +867,9 @@ ${line4}`;
         }
         return null;
       },
+      /** Slow-terrain FX snapshot / reset. */
+      qaTerrainFx: () => ({ kind: _terrainKind, count: _terrainFx.length }),
+      qaClearTerrainFx: () => { _terrainFx.length = 0; _terrainCuedKind = null; _terrainLastOnMs = -Infinity; for (const k in _terrainCueReadyAt) delete _terrainCueReadyAt[k]; return true; },
       qaDrawMineFx: () => { drawMineFx(); return _mineFx.length; },
       qaDrawRewardFx: () => { drawRewardFx(); return _rewardFx.length; },
       /** Invoke the renderer's drawLootPopups pass so age-out semantics are
@@ -1993,13 +2003,44 @@ function handleGlobalHudTap(clientX, clientY, e) {
   const SOLID = new Set([2, 3, 17]);
 
   // Terrain speed multiplier — forest slows, swamp slows more, road is full speed
+  const TERRAIN_SPEED_MUL = { 10: 0.45, 11: 0.28 }; // forest 45%, swamp 28% (slowest)
   function terrainSpeedMul(px, py) {
-    const tx = Math.floor(px / TILE);
-    const ty = Math.floor(py / TILE);
-    const t = tileAt(tx, ty);
-    if (t === 10) return 0.45;  // forest: 45% speed
-    if (t === 11) return 0.28;  // swamp: 28% speed (slowest terrain)
-    return 1.0;
+    const t = tileAt(Math.floor(px / TILE), Math.floor(py / TILE));
+    return TERRAIN_SPEED_MUL[t] ?? 1.0;
+  }
+
+  // Slow terrain the carriage visibly struggles through (pure; unit-tested).
+  function terrainSlowKind(tileId) {
+    return tileId === 11 ? 'swamp' : tileId === 10 ? 'forest' : null;
+  }
+  // Speed multiplier → "slowed by N%" for the struggle cue (pure).
+  function slowdownPct(mul) {
+    const m = Number(mul);
+    if (!Number.isFinite(m)) return 0;
+    return Math.round(Math.min(1, Math.max(0, 1 - m)) * 100);
+  }
+  // A mud splash / twig at t (0..1 of its life): a hop of peak height |vy|
+  // (vy < 0 is up) landing back where it started, drifting vx sideways, and
+  // fading over the last 30%. Units are world px (scaled by zoom at draw).
+  function splashAt(p, t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    return {
+      dx: p.vx * x,
+      dy: 4 * p.vy * x * (1 - x),
+      alpha: x < 0.7 ? 1 : Math.max(0, 1 - (x - 0.7) / 0.3),
+    };
+  }
+
+  // A falling leaf at t (0..1 of its life): height (tiles) eases from h0 to
+  // the ground, sways side to side within ±sway px, spins, fades on landing.
+  function leafFall(leaf, t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    return {
+      h: leaf.h0 * (1 - x * (0.6 + 0.4 * x)),
+      dx: Math.sin(x * Math.PI * 2 + leaf.phase) * leaf.sway,
+      rot: leaf.phase + x * leaf.spin * Math.PI * 2,
+      alpha: x < 0.85 ? 1 : Math.max(0, 1 - (x - 0.85) / 0.15),
+    };
   }
 
   // Road speed boost: travelling a road between cities (tile 1 outside any
@@ -6881,8 +6922,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.53',
+    version: 'v0.5.54',
     whatsNew: [
+      'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
       'Roads are faster now: keep your carriage on the road between cities and it picks up speed, up to 35% faster than cross-country (it eases in over a moment and fades when you leave the road or stop). You will see it too: a "💨 Road boost +35%" cue as you get going, dust kicked up behind the wheels, and speed streaks trailing the carriage. City streets, grass, forest and swamp are unchanged, and the trip times in the travel picker now count the road boost.',
       'Mining comes alive: every swing now shows your pickaxe winding up and striking the vein, with a flash, a dust puff and rock chips flying in the metal\'s colour (copper, silver, gold). A spent vein shows a little timer ring filling up while it recovers and sparkles green the moment it is ready to mine again, and finding a gem sets off a purple "Gem found!" celebration.',
       'Rewards now feel like rewards: item pickups pop in with a bounce and a twinkle, every sale and gold find rises a golden "+Ng" coin popup, reputation gains float a "+N rep" star, gear upgrades burst a golden ring of sparkles and light rays over your trader with a shiny award banner, contract hand-ins celebrate the same way with your gold and rep popping up, and notices slide in instead of just appearing. (Calmer if your device asks for reduced motion.)',
@@ -8502,7 +8544,6 @@ function drawNpcBubble() {
     // Last-seen market quotes per visited city: { cityId: { day, quotes: { itemId: {buy,sell} } } }.
     // Populated when the player opens a market; surfaced by the market PRICES tab.
     priceLedger: {},
-    _lastTile: -1,      // transient: last tile id for terrain-entry toasts
   };
 
   // --- Save/Load (localStorage)
@@ -8598,7 +8639,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.53',
+      buildVersion: 'v0.5.54',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9588,6 +9629,8 @@ function drawNpcBubble() {
     __gold:  '🪙', // gold reward popup ("+Ng"), not an item
     __rep:   '⭐', // reputation reward popup ("+N rep"), not an item
     __road:  '💨', // road speed-boost cue, not an item
+    __swamp: '🌀', // stuck-in-swamp cue, not an item
+    __forest:'🌲', // thick-forest cue, not an item
   };
   const LOOT_POPUP_LIFETIME_MS = 1500;
   const LOOT_POPUP_RISE_PX    = 36;
@@ -9682,6 +9725,8 @@ function drawNpcBubble() {
       const icon = ITEM_ICONS[p.itemId] || '✨';
       const n = p.qty > 0 ? `+${p.qty}` : p.qty < 0 ? `-${-p.qty}` : '';
       const text = p.itemId === '__road' ? `${icon} Road boost +${Math.round(ROAD_SPEED_BONUS * 100)}%`
+        : p.itemId === '__swamp' ? `${icon} Stuck in swamp −${slowdownPct(TERRAIN_SPEED_MUL[11])}%`
+        : p.itemId === '__forest' ? `${icon} Thick forest −${slowdownPct(TERRAIN_SPEED_MUL[10])}%`
         : !n ? icon
         : p.itemId === '__gold' ? `${icon} ${n}g`
         : p.itemId === '__rep' ? `${icon} ${n} rep`
@@ -9705,6 +9750,8 @@ function drawNpcBubble() {
         : p.itemId === '__gold' ? '#fcd34d'
         : p.itemId === '__rep' ? '#a5f3fc'
         : p.itemId === '__road' ? '#bae6fd'
+        : p.itemId === '__swamp' ? '#bef264'
+        : p.itemId === '__forest' ? '#86efac'
         : '#fde047';
       ctx.fillText(text, 0, 0);
       ctx.restore();
@@ -10114,7 +10161,18 @@ function drawNpcBubble() {
   let _roadDustN = 0;
   let _roadPrevX = NaN, _roadPrevY = NaN;
   let _roadMoving = false;
+  let _roadStepped = false;   // actually covered ground this frame (not a jump)
   let _roadCueReadyAt = 0;
+
+  // World point at one of the carriage's wheels: `back` px behind the
+  // carriage centre, `spread` px to the left (side -1) or right (side 1).
+  // Shared by the road dust and the swamp/forest particles.
+  function wheelPoint(side, back, spread) {
+    const f = player.facing || { x: 0, y: 1 };
+    const fl = Math.hypot(f.x, f.y) || 1;
+    const bx = -f.x / fl, by = -f.y / fl;
+    return { x: player.x + bx * back + -by * side * spread, y: player.y + by * back + bx * side * spread, bx, by };
+  }
 
   // Before movement: build/bleed the boost (only while actually moving on a road).
   function updateRoadBoost(dt) {
@@ -10136,20 +10194,20 @@ function drawNpcBubble() {
     const jumped = moved > (player.speed || 90) * (1 + ROAD_SPEED_BONUS) * dt * 2 + 2;
     const stepped = dt > 0 && moved / dt > 5;
     _roadMoving = !jumped && (stepped || autoNav.active || clickMove.active);
+    _roadStepped = !jumped && stepped;
     const b = player.roadBoost || 0;
     if (jumped || !stepped || b <= 0.05 || REDUCED_MOTION) { _roadDustAcc = 0; return; }
     _roadDustAcc += dt * 22 * b;
-    const f = player.facing || { x: 0, y: 1 };
-    const fl = Math.hypot(f.x, f.y) || 1;
-    const bx = -f.x / fl, by = -f.y / fl;   // behind the carriage
     while (_roadDustAcc >= 1) {
       _roadDustAcc -= 1;
       const n = _roadDustN++;
       const side = (n & 1) ? 1 : -1;        // alternate left / right wheel
       const jitter = ((n * 37) % 7) - 3;
+      const w = wheelPoint(side, 10 + jitter * 0.5, 5);
+      const bx = w.bx, by = w.by;
       _roadDust.push({
-        wx: player.x + bx * 10 + -by * side * 5 + bx * jitter * 0.5,
-        wy: player.y + by * 10 + bx * side * 5 + by * jitter * 0.5,
+        wx: w.x,
+        wy: w.y,
         vx: bx * (12 + (n % 5) * 3) + -by * side * 4,
         vy: by * (12 + (n % 5) * 3) + bx * side * 4,
         size: 2 + (n % 3),
@@ -10210,6 +10268,178 @@ function drawNpcBubble() {
           ctx.lineTo(ox - dx * len, oy - dy * len);
           ctx.stroke();
         }
+      }
+    }
+    ctx.restore();
+  }
+
+  // ── Slow-terrain struggle FX ─────────────────────────────────────────────
+  // Swamp: mud splashes and ripples at the wheels, bubbles popping. Forest:
+  // leaves shaken loose and twigs snapping. Both: sweat drops over the
+  // trader and a one-time "−N%" cue per stretch (at most every 8s per kind).
+  // Particles are world-anchored; the 3D wagon also sinks/lurches
+  // (carriageStruggle in world3d_core, fed by build3DFrame().player.struggle).
+  const TERRAIN_FX_MAX = 90;
+  const TERRAIN_CUE_COOLDOWN_MS = 8000;
+  const TERRAIN_FX_SPAWN = {
+    swamp:  { mud: 16, ripple: 4, bubble: 2 },
+    forest: { leaf: 11, twig: 3 },
+  };
+  const TERRAIN_FX_LIFE = { mud: 550, ripple: 900, bubble: 1000, leaf: 1300, twig: 500 };
+  const LEAF_COLORS = ['#4d7c0f', '#65a30d', '#a3a316', '#ca8a04'];
+  const _terrainFx = [];
+  const _terrainAcc = {};
+  let _terrainN = 0;
+  let _terrainKind = null;       // slow terrain under the carriage now
+  let _terrainCuedKind = null;   // stretch we've already announced
+  let _terrainLastOnMs = -Infinity;
+  const TERRAIN_CUE_GRACE_MS = 1000; // brief exits (ragged edges) don't end a stretch
+  const _terrainCueReadyAt = {};
+
+  function terrainKindUnderPlayer() {
+    if (currentCity()) return null;
+    return terrainSlowKind(tileAt(Math.floor(player.x / TILE), Math.floor(player.y / TILE)));
+  }
+
+  function spawnTerrainParticle(k) {
+    const n = _terrainN++;
+    const side = (n & 1) ? 1 : -1;                  // left / right wheel
+    const w = wheelPoint(side, 6, 5);
+    const p = { k, n, startMs: stateTime, life: TERRAIN_FX_LIFE[k], wx: w.x, wy: w.y };
+    if (k === 'mud' || k === 'twig') {
+      p.vx = side * (3 + (n % 5) * 2);              // world px sideways over its life
+      p.vy = -(6 + (n % 4) * 3);                    // hop height (world px)
+    } else if (k === 'bubble') {
+      p.wx = player.x + ((n * 37) % 13) - 6;
+      p.wy = player.y + ((n * 23) % 11) - 5;
+    } else if (k === 'leaf') {
+      p.wx = player.x + ((n * 53) % 33) - 16;
+      p.wy = player.y + ((n * 29) % 21) - 10;
+      p.leaf = { h0: 1.4 + (n % 5) * 0.15, sway: 5 + (n % 4), spin: 1 + (n % 3), phase: n * 0.7 };
+    }
+    _terrainFx.push(p);
+  }
+
+  // After movement (needs _roadMoving/_roadStepped from updateRoadFx).
+  function updateTerrainFx(dt) {
+    const kind = terrainKindUnderPlayer();
+    _terrainKind = kind;
+    if (!kind) {
+      if (stateTime - _terrainLastOnMs > TERRAIN_CUE_GRACE_MS) _terrainCuedKind = null;
+      return;
+    }
+    _terrainLastOnMs = stateTime;
+    // Announce a stretch once, on entry: inside the cooldown the entry is
+    // still marked as seen, so the cue never pops up later mid-stretch.
+    if (_roadMoving && _terrainCuedKind !== kind) {
+      _terrainCuedKind = kind;
+      if (stateTime >= (_terrainCueReadyAt[kind] || 0)) {
+        _terrainCueReadyAt[kind] = stateTime + TERRAIN_CUE_COOLDOWN_MS;
+        _lootPopups.push({ itemId: '__' + kind, qty: 0, ...playerPopupAnchor(), startMs: stateTime });
+      }
+    }
+    if (!_roadStepped || REDUCED_MOTION) return;
+    const rates = TERRAIN_FX_SPAWN[kind];
+    for (const k in rates) {
+      _terrainAcc[k] = (_terrainAcc[k] || 0) + dt * rates[k];
+      while (_terrainAcc[k] >= 1) { _terrainAcc[k] -= 1; spawnTerrainParticle(k); }
+    }
+    while (_terrainFx.length > TERRAIN_FX_MAX) _terrainFx.shift();
+  }
+
+  // Teardrop at (x, y), radius r, in the current fillStyle.
+  function drawSweatDrop(x, y, r) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - r * 2.2);
+    ctx.quadraticCurveTo(x + r * 1.1, y - r * 0.6, x + r, y);
+    ctx.arc(x, y, r, 0, Math.PI);
+    ctx.quadraticCurveTo(x - r * 1.1, y - r * 0.6, x, y - r * 2.2);
+    ctx.fill();
+  }
+
+  function drawTerrainFx() {
+    const sweating = _terrainKind && _roadMoving && !REDUCED_MOTION;
+    if (_terrainFx.length === 0 && !sweating) return;
+    const U = UI_SCALE;
+    ctx.save();
+    let w = 0;
+    for (let i = 0; i < _terrainFx.length; i++) {
+      const p = _terrainFx[i];
+      const age = stateTime - p.startMs;
+      if (!(age >= 0 && age < p.life)) continue;
+      _terrainFx[w++] = p;
+      const t = age / p.life;
+      if (p.k === 'leaf') {
+        const lf = leafFall(p.leaf, t);
+        const q = w2sLift(p.wx + lf.dx, p.wy, lf.h * TILE, { hTiles: lf.h });
+        if (q.behind) continue;
+        ctx.save();
+        ctx.translate(q.x, q.y);
+        ctx.rotate(lf.rot);
+        ctx.globalAlpha = lf.alpha;
+        ctx.fillStyle = LEAF_COLORS[p.n % LEAF_COLORS.length];
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 4.6 * U, 2.2 * U, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(40,50,10,0.55)';
+        ctx.lineWidth = Math.max(1, 0.8 * U);
+        ctx.beginPath(); ctx.moveTo(-4 * U, 0); ctx.lineTo(4 * U, 0); ctx.stroke(); // midrib
+        ctx.restore();
+        continue;
+      }
+      const b = w2s(p.wx, p.wy);
+      if (b.behind) continue;
+      const k = b.k || 1;
+      if (p.k === 'mud' || p.k === 'twig') {
+        const c = splashAt(p, t);
+        const x = b.x + c.dx * k, y = b.y - 2 * k + c.dy * k;
+        ctx.globalAlpha = c.alpha;
+        if (p.k === 'mud') {
+          ctx.fillStyle = (p.n % 3) ? '#5b4a2a' : '#6b7a3a';
+          ctx.beginPath(); ctx.arc(x, y, (2.2 + (p.n % 2) * 1.2) * U, 0, Math.PI * 2); ctx.fill();
+        } else {
+          const a = p.n * 1.3 + t * 9;
+          ctx.strokeStyle = '#7c5a36';
+          ctx.lineWidth = Math.max(1, 1.8 * U);
+          ctx.beginPath();
+          ctx.moveTo(x - Math.cos(a) * 4.5 * U, y - Math.sin(a) * 4.5 * U);
+          ctx.lineTo(x + Math.cos(a) * 4.5 * U, y + Math.sin(a) * 4.5 * U);
+          ctx.stroke();
+        }
+      } else if (p.k === 'ripple') {
+        ctx.globalAlpha = 0.8 * (1 - t);
+        ctx.strokeStyle = '#e2efc6';
+        ctx.lineWidth = Math.max(1, 2.2 * U * (1 - t));
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y, (4 + 16 * t) * k, (2 + 6.5 * t) * k, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.k === 'bubble') {
+        const y = b.y - t * 7 * U;
+        ctx.strokeStyle = '#d9ecb8';
+        ctx.lineWidth = Math.max(1, 1.2 * U);
+        if (t < 0.85) {
+          ctx.globalAlpha = 0.8;
+          ctx.beginPath(); ctx.arc(b.x, y, (2.2 + 2.5 * t) * U, 0, Math.PI * 2); ctx.stroke();
+        } else {
+          const f = (t - 0.85) / 0.15;     // pop
+          ctx.globalAlpha = 0.8 * (1 - f);
+          ctx.beginPath(); ctx.arc(b.x, y, (5 + 4 * f) * U, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+    }
+    _terrainFx.length = w;
+    // Sweat drops slide off the trader while they struggle.
+    if (sweating) {
+      const a = playerPopupAnchor();
+      ctx.lineWidth = Math.max(1, 1.2 * U);
+      ctx.strokeStyle = 'rgba(12,74,110,0.9)';
+      ctx.fillStyle = '#7dd3fc';
+      for (let j = 0; j < 2; j++) {
+        const cyc = ((stateTime / 900) + j * 0.5) % 1;
+        const side = j ? -1 : 1;
+        ctx.globalAlpha = 0.95 * (1 - cyc * cyc);
+        drawSweatDrop(a.sx + side * (14 + 4 * cyc) * U, a.sy + (6 + 12 * cyc) * U, 3 * U);
+        ctx.stroke();
       }
     }
     ctx.restore();
@@ -14149,6 +14379,7 @@ function drawEvent() {
       hour: 7 + ((((time.frac || 0) % 1) + 1) % 1) * 11.5,
       player: {
         x: player.x, y: player.y, onRoad, facing: player.facing,
+        struggle: onRoad ? _terrainKind : null,
         moving: autoNav.active || clickMove.active || Math.hypot(player.vx || 0, player.vy || 0) > 0.01,
         packTier: player.gear?.pack ?? 0, bootsTier: player.gear?.boots ?? 0,
       },
@@ -14373,15 +14604,8 @@ function drawEvent() {
       // Trigger server aggregation (hourly, no-op if too soon)
       maybeAggregateEconomy();
     }
-    // Biome entry notification — once per tile-type transition
-    {
-      const _nt = tileAt(Math.floor(player.x / TILE), Math.floor(player.y / TILE));
-      if (_nt !== player._lastTile) {
-        player._lastTile = _nt;
-        if (_nt === 10) toast('Entering forest — slower going', 2);
-        else if (_nt === 11) toast('Entering swamp — treacherous ground', 2.5);
-      }
-    }
+    // (Forest/swamp entry is announced by the struggle cue in updateTerrainFx,
+    // with a cooldown, instead of a toast on every ragged-edge tile change.)
 
     // Push own presence + fetch other players every frame (rate-limited internally)
     pushPlayerPresence();
@@ -14496,6 +14720,7 @@ function drawEvent() {
     npcDiagTick(dt);
     moveWithCollision(dt);
     updateRoadFx(dt);
+    updateTerrainFx(dt);
     npcDiagPostMove();
 
 if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp') || isDown('ArrowDown'))) {
@@ -14546,6 +14771,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawNavPath();
     drawClickMarker();
     drawRoadFx();
+    drawTerrainFx();
     if (!drew3D) {
       drawPlayer();
       drawOtherPlayers();
@@ -15785,6 +16011,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         api.qaClearRoadFx();
         api.qaClearLootPopups();
         player.roadBoost = 0;
+        autoNav.active = false; // a leftover auto-nav trip would override the click-move
         api.teleportToTile(run.tx, run.ty);
         api.setClickMove((run.tx + 23 * run.dx + 0.5) * TILE, (run.ty + 23 * run.dy + 0.5) * TILE);
         const along = () => player.x * run.dx + player.y * run.dy;
@@ -15815,6 +16042,47 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         player.x = savedPos.x; player.y = savedPos.y;
         player.roadBoost = 0;
         api.qaClearRoadFx();
+        api.qaClearLootPopups();
+      }
+
+      // ── Slow-terrain struggle: swamp + forest ───────────────────────────
+      // Driving through swamp splashes mud and sinks the 3D wagon; forest
+      // drops leaves and lurches it. Each pops a one-time "-N%" cue.
+      {
+        const api = __QA.api;
+        const savedPos = { x: player.x, y: player.y };
+        for (const [tileId, kind] of [[11, 'swamp'], [10, 'forest']]) {
+          // Swamp/forest are random patches; a short straight run always exists.
+          // Start on its 2nd tile: the player's collision box (r=8) spans the
+          // neighbouring tiles (more so on mobile, where TILE is smaller), so
+          // the tiles behind and beside the start must be walkable too.
+          const run = api.qaFindTileRun(tileId, 4);
+          assert(!!run, `struggle: need a straight 4-tile ${kind} run outside any city`);
+          api.qaClearTerrainFx();
+          api.qaClearLootPopups();
+          api.teleportToTile(run.tx + run.dx, run.ty + run.dy);
+          const start = { x: player.x, y: player.y };
+          // Steer straight along the run with the arrow keys: click-move's
+          // pathing ignores terrain and can veer off a thin swamp strip. An
+          // auto-nav trip left over from earlier tests would override steering.
+          clickMove.active = false;
+          autoNav.active = false;
+          const code = run.dx ? 'ArrowRight' : 'ArrowDown';
+          window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code }));
+          try { for (let i = 0; i < 30; i++) api.step(1 / 60); }
+          finally { window.dispatchEvent(new KeyboardEvent('keyup', { code, key: code })); }
+          const fx = api.qaTerrainFx();
+          assert(fx.kind === kind, `struggle: should detect ${kind} under the carriage (got ${fx.kind})`);
+          assert(fx.count > 0, `struggle: ${kind} should spawn particles (got ${JSON.stringify(fx)}; ` +
+            `moved ${JSON.stringify(start)}→${Math.round(player.x)},${Math.round(player.y)} ` +
+            `nav=${autoNav.active} click=${clickMove.active} moving=${_roadMoving} stepped=${_roadStepped} ` +
+            `vx=${player.vx} rm=${REDUCED_MOTION} ui=${['eventOpen','marketOpen','contractsOpen','bankOpen','innOpen'].filter(k => ui[k]).join(',')})`);
+          assert(api.qaLootPopups().some(p => p.itemId === '__' + kind), `struggle: entering ${kind} pops its cue`);
+          assert(build3DFrame().player.struggle === kind, `struggle: 3D frame should carry struggle=${kind}`);
+        }
+        clickMove.active = false;
+        player.x = savedPos.x; player.y = savedPos.y;
+        api.qaClearTerrainFx();
         api.qaClearLootPopups();
       }
 

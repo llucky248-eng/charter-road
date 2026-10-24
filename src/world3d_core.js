@@ -625,3 +625,21 @@ export function wildDecorFor(tx, ty, tileAt, env) {
   }
   return out;
 }
+
+// ── Carriage struggle (visual only) ──────────────────────────────────────
+// How the 3D carriage moves over slow terrain at time t (seconds):
+//   sink    — wagon pushed down into the ground (world units)
+//   roll    — side-to-side rock of the wagon (radians, |roll| ≤ 0.1)
+//   bobAmp  — trot bounce height; legAmp / legRate — horse leg swing size / speed
+// Swamp: wheels sink and the wagon rocks slowly while the horse high-steps.
+// Forest: no sink, a jerky lurch over roots and a bouncier ride.
+export function carriageStruggle(kind, t) {
+  const s = Number.isFinite(t) ? t : 0;
+  if (kind === 'swamp') {
+    return { sink: 0.12, roll: Math.sin(s * 1.7) * 0.07, bobAmp: 0.02, legAmp: 0.8, legRate: 0.5 };
+  }
+  if (kind === 'forest') {
+    return { sink: 0, roll: Math.sin(s * 5.3) * 0.035 + Math.sin(s * 2.1) * 0.02, bobAmp: 0.08, legAmp: 0.6, legRate: 0.7 };
+  }
+  return { sink: 0, roll: 0, bobAmp: 0.04, legAmp: 0.5, legRate: 1 };
+}

@@ -36,6 +36,7 @@ export function createWorld3D(host, core) {
     findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
     characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
     vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor,
+    carriageStruggle,
   } = core;
   const stage = host.canvas2d.parentElement;
   // Probe first: without WebGL2 three.js would log a console error; the
@@ -886,7 +887,7 @@ export function createWorld3D(host, core) {
     scene.remove(c.obj);
     for (const m of c.obj.userData.own) m.dispose();
   }
-  function syncCarriage(id, sig, pal, x, z, facing, moving, parked, t, dt) {
+  function syncCarriage(id, sig, pal, x, z, facing, moving, parked, t, dt, struggle = null) {
     let c = carriages.get(id);
     if (!c || c.sig !== sig) {
       if (c) dropCarriage(c);
@@ -901,12 +902,21 @@ export function createWorld3D(host, core) {
     u.lastX = x; u.lastZ = z;
     const want = facingToYaw(facing.x, facing.y);
     u.yaw = lerpAngle(u.yaw, want, 1 - Math.exp(-12 * dt)); // frame-rate independent turn
-    o.position.set(x, surfaceY(x, z), z);
+    // Swamp sinks the whole rig and rocks the wagon; forest lurches it. The
+    // struggle eases in/out (ragged terrain edges flip it tile by tile) and
+    // the leg phase is accumulated, so a change of pace never snaps the legs.
+    const goal = carriageStruggle(struggle, t / 1000);
+    const ease = 1 - Math.exp(-6 * dt);
+    const st = u.st || (u.st = { ...goal });
+    for (const k of ['sink', 'roll', 'bobAmp', 'legAmp', 'legRate']) st[k] += (goal[k] - st[k]) * ease;
+    u.ph = (u.ph || 0) + dt * 12 * st.legRate;   // 12 rad/s = the old t*0.012 trot
+    o.position.set(x, surfaceY(x, z) - st.sink, z);
     o.rotation.y = u.yaw;
     for (const wh of u.wheels) wh.rotation.y = -u.dist / 0.28;
-    const ph = t * 0.012;
-    u.wagon.position.y = moving ? Math.abs(Math.sin(ph * 2)) * 0.04 : 0;
-    u.legs.forEach((l, i) => { l.rotation.z = moving ? Math.sin(ph * 2 + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI / 2 : 0)) * 0.5 : 0; });
+    const ph = u.ph;
+    u.wagon.position.y = moving ? Math.abs(Math.sin(ph * 2)) * st.bobAmp : 0;
+    u.wagon.rotation.x = moving ? st.roll : 0;   // the rig faces +x: roll is about x
+    u.legs.forEach((l, i) => { l.rotation.z = moving ? Math.sin(ph * 2 + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI / 2 : 0)) * st.legAmp : 0; });
     u.horse.visible = !parked;
   }
 
@@ -1155,7 +1165,7 @@ export function createWorld3D(host, core) {
     if (p && p.onRoad) {
       const hp = HORSE_PAL[Math.min(p.bootsTier | 0, 4)], wp = WAGON_PAL[Math.min(p.packTier | 0, 4)];
       syncCarriage('__player', `${p.packTier}|${p.bootsTier}`, { ...wp, horse: hp.body, mane: hp.mane, glow: hp.glow },
-        p.x / TILE, p.y / TILE, p.facing || { x: 0, y: 1 }, p.moving, false, t, frameDt);
+        p.x / TILE, p.y / TILE, p.facing || { x: 0, y: 1 }, p.moving, false, t, frameDt, p.struggle || null);
     }
     for (const tr of frame.traders || []) {
       const col = tr.color || '#8b5e2a';
