@@ -2198,6 +2198,74 @@ asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is 
   });
 }
 
+// ─── Road speed boost (extracted live from src/main.js) ──────────────────────
+// Roads between cities give a speed bonus that ramps up smoothly while you
+// stay on them (no instant jerk) and bleeds off quickly when you leave.
+{
+  // The pure fns read named constants; inject the values parsed from main.js.
+  const constFromMain = (n) => Number((_mainJsSrc.match(new RegExp(`const ${n} = ([\\d.]+);`)) || [])[1]);
+  const ROAD = {
+    ROAD_SPEED_BONUS: constFromMain('ROAD_SPEED_BONUS'),
+    ROAD_BOOST_RAMP_UP_S: constFromMain('ROAD_BOOST_RAMP_UP_S'),
+    ROAD_BOOST_RAMP_DOWN_S: constFromMain('ROAD_BOOST_RAMP_DOWN_S'),
+  };
+  const roadBoostStep = extractFromMain('roadBoostStep', ROAD);
+  const roadSpeedMul = extractFromMain('roadSpeedMul', ROAD);
+  const pathEtaSeconds = extractFromMain('pathEtaSeconds');
+
+  console.log('\n=== Road speed boost ===');
+  test('road boost helpers exist in src/main.js', () => {
+    assert(typeof roadBoostStep === 'function', 'roadBoostStep not found');
+    assert(typeof roadSpeedMul === 'function', 'roadSpeedMul not found');
+  });
+  test('road tuning constants are the advertised ones (+35%, 0.6s up, 0.25s down)', () => {
+    assertClose(ROAD.ROAD_SPEED_BONUS, 0.35);
+    assertClose(ROAD.ROAD_BOOST_RAMP_UP_S, 0.6);
+    assertClose(ROAD.ROAD_BOOST_RAMP_DOWN_S, 0.25);
+  });
+  test('route ETA counts the road boost per segment', () => {
+    assert(typeof pathEtaSeconds === 'function', 'pathEtaSeconds not found');
+    const path = [{ x: 0, y: 0 }, { x: 90, y: 0 }, { x: 180, y: 0 }];
+    assertClose(pathEtaSeconds(path, 90, () => 1), 2);
+    // second segment on a road (x > 90): 1s + 1/1.35s
+    assertClose(pathEtaSeconds(path, 90, (x) => (x > 90 ? 1.35 : 1)), 1 + 1 / 1.35);
+    assertClose(pathEtaSeconds(path, 0, () => 1), 0);
+    assertClose(pathEtaSeconds(null, 90, () => 1), 0);
+    assertClose(pathEtaSeconds(path, 90, () => NaN), 2);
+  });
+  test('speed multiplier: none off-road, +35% at full boost', () => {
+    assertClose(roadSpeedMul(0), 1);
+    assertClose(roadSpeedMul(1), 1.35);
+    assert(roadSpeedMul(0.5) > 1 && roadSpeedMul(0.5) < 1.35, 'partial boost is partial');
+    assertClose(roadSpeedMul(7), 1.35);
+    assertClose(roadSpeedMul(-1), 1);
+    assertClose(roadSpeedMul(NaN), 1);
+  });
+  test('boost ramps up over ~0.6s on the road, not instantly', () => {
+    let b = 0;
+    b = roadBoostStep(b, true, 1 / 60);
+    assert(b > 0 && b < 0.1, `one frame should only nudge the boost (got ${b})`);
+    b = 0;
+    for (let i = 0; i < 18; i++) b = roadBoostStep(b, true, 1 / 60); // 0.3s
+    assert(b > 0.3 && b < 0.7, `half-way after 0.3s (got ${b})`);
+    for (let i = 0; i < 30; i++) b = roadBoostStep(b, true, 1 / 60);
+    assertClose(b, 1);
+  });
+  test('boost bleeds off faster than it builds when leaving the road', () => {
+    let b = 1;
+    for (let i = 0; i < 9; i++) b = roadBoostStep(b, false, 1 / 60); // 0.15s
+    assert(b < 0.5, `should drop below half within 0.15s (got ${b})`);
+    for (let i = 0; i < 30; i++) b = roadBoostStep(b, false, 1 / 60);
+    assertClose(b, 0);
+  });
+  test('boost step clamps bad input', () => {
+    assertClose(roadBoostStep(5, true, 1), 1);
+    assertClose(roadBoostStep(-3, false, 1), 0);
+    assertClose(roadBoostStep(0.4, true, NaN), 0.4);
+    assertClose(roadBoostStep(NaN, true, 0), 0);
+  });
+}
+
 // ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
 // Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
 // figures; bankQuickAmounts scales the three buttons to the player's wealth.

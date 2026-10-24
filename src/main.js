@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.51'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.52'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -486,8 +486,10 @@ ${line4}`;
           tickBanners(d);
           updateEntities(d);
           updateAiTraders(d);
+          updateRoadBoost(d);
           updateAutoNav(d);
           moveWithCollision(d);
+          updateRoadFx(d);
           if (ui.npcBubble && stateTime > ui.npcBubble.untilMs) ui.npcBubble = null;
           // Run DOM render so any UI state updates don't throw.
           domRender();
@@ -838,6 +840,26 @@ ${line4}`;
       /** Snapshot / clear / draw the mining strike FX queue. */
       qaMineFx: () => _mineFx.map(f => ({ tx: f.tx, ty: f.ty, metalId: f.metalId, startMs: f.startMs })),
       qaClearMineFx: () => { _mineFx.length = 0; return true; },
+      /** Road boost FX snapshot / reset. */
+      qaRoadFx: () => ({ dust: _roadDust.length, boost: player.roadBoost || 0, moving: _roadMoving }),
+      qaClearRoadFx: () => { _roadDust.length = 0; _roadDustAcc = 0; _roadCueReadyAt = 0; _roadMoving = false; return true; },
+      /** First straight run of n road tiles (east or south) outside every city. */
+      qaFindOpenRoad: (n = 12) => {
+        const inCity = (x, y) => world.cities.some(c => x >= c.x - 1 && x < c.x + c.w + 1 && y >= c.y - 1 && y < c.y + c.h + 1);
+        for (const [dx, dy] of [[1, 0], [0, 1]]) {
+          for (let ty = 0; ty < MAP_H; ty++) {
+            for (let tx = 0; tx < MAP_W; tx++) {
+              let ok = true;
+              for (let i = 0; i < n && ok; i++) {
+                const x = tx + dx * i, y = ty + dy * i;
+                if (tileAt(x, y) !== 1 || inCity(x, y)) ok = false;
+              }
+              if (ok) return { tx, ty, dx, dy };
+            }
+          }
+        }
+        return null;
+      },
       qaDrawMineFx: () => { drawMineFx(); return _mineFx.length; },
       qaDrawRewardFx: () => { drawRewardFx(); return _rewardFx.length; },
       /** Invoke the renderer's drawLootPopups pass so age-out semantics are
@@ -1193,7 +1215,8 @@ ${line4}`;
         const _path    = navFromId && navFromId !== c2.id ? buildTraderPath(navFromId, c2.id) : null;
         const _len     = pathLengthPx(_path);
         const tripLine = _len > 0
-          ? `🚶 ~${Math.round(_len / TILE)} tiles · ~${fmtEta(etaSeconds(_len, player.speed))} at ${currentGear('boots').icon}`
+          ? `🚶 ~${Math.round(_len / TILE)} tiles · ~${fmtEta(pathEtaSeconds(_path, player.speed,
+              (x, y) => terrainSpeedMul(x, y) * (isOpenRoadAt(x, y) ? 1 + ROAD_SPEED_BONUS : 1)))} at ${currentGear('boots').icon}`
           : '';
         return `
           <button data-city="${c2.id}" style="
@@ -1355,7 +1378,7 @@ ${line4}`;
     }
 
     const nx = dx / dist, ny = dy / dist;
-    const tMul = terrainSpeedMul(player.x, player.y);
+    const tMul = terrainSpeedMul(player.x, player.y) * roadSpeedMul(player.roadBoost);
     const stepX = nx * player.speed * tMul * dt;
     const stepY = ny * player.speed * tMul * dt;
     player.facing = { x: nx, y: ny };
@@ -1977,6 +2000,35 @@ function handleGlobalHudTap(clientX, clientY, e) {
     if (t === 10) return 0.45;  // forest: 45% speed
     if (t === 11) return 0.28;  // swamp: 28% speed (slowest terrain)
     return 1.0;
+  }
+
+  // Road speed boost: travelling a road between cities (tile 1 outside any
+  // city) ramps a +35% bonus up over 0.6s and bleeds it off in 0.25s when
+  // you leave or stop. The pure fns below read these constants (unit tests
+  // inject the same values parsed from this file).
+  const ROAD_SPEED_BONUS = 0.35;
+  const ROAD_BOOST_RAMP_UP_S = 0.6;
+  const ROAD_BOOST_RAMP_DOWN_S = 0.25;
+  function roadSpeedMul(boost) {
+    const b = Number.isFinite(boost) ? Math.min(1, Math.max(0, boost)) : 0;
+    return 1 + ROAD_SPEED_BONUS * b;
+  }
+  function roadBoostStep(boost, onRoad, dt) {
+    const b = Number.isFinite(boost) ? Math.min(1, Math.max(0, boost)) : 0;
+    const d = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    return onRoad ? Math.min(1, b + d / ROAD_BOOST_RAMP_UP_S) : Math.max(0, b - d / ROAD_BOOST_RAMP_DOWN_S);
+  }
+  // True on a road tile between cities — the one predicate for the boost,
+  // road travel/day tracking and road encounters.
+  function isOpenRoadAt(px, py) {
+    return tileAt(Math.floor(px / TILE), Math.floor(py / TILE)) === 1 && !cityAtPx(px, py);
+  }
+  function cityAtPx(px, py) {
+    const x = px / TILE, y = py / TILE;
+    for (const c of world.cities) {
+      if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) return c;
+    }
+    return null;
   }
 
   // Live reference to the map array - set by makeMap(), used by buildSlotOnMap()
@@ -6829,8 +6881,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.51',
+    version: 'v0.5.52',
     whatsNew: [
+      'Roads are faster now: keep your carriage on the road between cities and it picks up speed, up to 35% faster than cross-country (it eases in over a moment and fades when you leave the road or stop). You will see it too: a "💨 Road boost +35%" cue as you get going, dust kicked up behind the wheels, and speed streaks trailing the carriage. City streets, grass, forest and swamp are unchanged, and the trip times in the travel picker now count the road boost.',
       'Mining comes alive: every swing now shows your pickaxe winding up and striking the vein, with a flash, a dust puff and rock chips flying in the metal\'s colour (copper, silver, gold). A spent vein shows a little timer ring filling up while it recovers and sparkles green the moment it is ready to mine again, and finding a gem sets off a purple "Gem found!" celebration.',
       'Rewards now feel like rewards: item pickups pop in with a bounce and a twinkle, every sale and gold find rises a golden "+Ng" coin popup, reputation gains float a "+N rep" star, gear upgrades burst a golden ring of sparkles and light rays over your trader with a shiny award banner, contract hand-ins celebrate the same way with your gold and rep popping up, and notices slide in instead of just appearing. (Calmer if your device asks for reduced motion.)',
       'The world between the cities has been repainted in 3D: soft, natural grass instead of a checkerboard, worn dirt roads with grassy edges, sandy riverbanks, murky swamp pools with reeds and lily pads, farm fields of wheat, cabbages, lavender and corn around each city, wildflowers, rocks and mushrooms, forests with ragged natural edges, pine-clad highlands with grassy knolls, boulders and rocky peaks, windmills turning on the foothills near towns, and wooden bridges where the roads cross the rivers. Purely visual — every road, path and city is exactly where it was.',
@@ -6972,6 +7025,21 @@ function drawNpcBubble() {
       total += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
     }
     return total;
+  }
+
+  // Seconds to travel a waypoint path at `speed`, where speedMulAt(x, y) gives
+  // the speed multiplier at a segment's midpoint (road boost). Pure.
+  function pathEtaSeconds(path, speed, speedMulAt) {
+    const s = Number(speed) || 0;
+    if (!path || path.length < 2 || s <= 0) return 0;
+    let t = 0;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      const m = Math.max(0.01, Number(speedMulAt((a.x + b.x) / 2, (a.y + b.y) / 2)) || 1);
+      t += len / (s * m);
+    }
+    return t;
   }
 
   // Estimated seconds to walk `lengthPx` at `speed` px/sec. Zero (not Infinity)
@@ -8530,7 +8598,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.51',
+      buildVersion: 'v0.5.52',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9265,7 +9333,7 @@ function drawNpcBubble() {
     const nx = mag > 0 ? ax / mag : 0;
     const ny = mag > 0 ? ay / mag : 0;
 
-    const tMul = terrainSpeedMul(player.x, player.y);
+    const tMul = terrainSpeedMul(player.x, player.y) * roadSpeedMul(player.roadBoost);
     player.vx = nx * player.speed * tMul;
     player.vy = ny * player.speed * tMul;
 
@@ -9367,12 +9435,7 @@ function drawNpcBubble() {
     return lines.slice(0, 2);
   }
   function currentCity() {
-    const px = player.x / TILE;
-    const py = player.y / TILE;
-    for (const c of world.cities) {
-      if (px >= c.x && px < c.x + c.w && py >= c.y && py < c.y + c.h) return c;
-    }
-    return null;
+    return cityAtPx(player.x, player.y);
   }
 
   // Like currentCity() but also returns the nearest city within 3 tiles - useful
@@ -9524,6 +9587,7 @@ function drawNpcBubble() {
     __alert: '❗', // road-event ambush marker, not an item
     __gold:  '🪙', // gold reward popup ("+Ng"), not an item
     __rep:   '⭐', // reputation reward popup ("+N rep"), not an item
+    __road:  '💨', // road speed-boost cue, not an item
   };
   const LOOT_POPUP_LIFETIME_MS = 1500;
   const LOOT_POPUP_RISE_PX    = 36;
@@ -9617,7 +9681,8 @@ function drawNpcBubble() {
       ctx.globalAlpha = 1 - t * t;
       const icon = ITEM_ICONS[p.itemId] || '✨';
       const n = p.qty > 0 ? `+${p.qty}` : p.qty < 0 ? `-${-p.qty}` : '';
-      const text = !n ? icon
+      const text = p.itemId === '__road' ? `${icon} Road boost +${Math.round(ROAD_SPEED_BONUS * 100)}%`
+        : !n ? icon
         : p.itemId === '__gold' ? `${icon} ${n}g`
         : p.itemId === '__rep' ? `${icon} ${n} rep`
         : `${icon} ${n}`;
@@ -9639,6 +9704,7 @@ function drawNpcBubble() {
       ctx.fillStyle = p.qty < 0 ? '#f87171'
         : p.itemId === '__gold' ? '#fcd34d'
         : p.itemId === '__rep' ? '#a5f3fc'
+        : p.itemId === '__road' ? '#bae6fd'
         : '#fde047';
       ctx.fillText(text, 0, 0);
       ctx.restore();
@@ -10035,6 +10101,120 @@ function drawNpcBubble() {
     ctx.restore();
   }
 
+  // ── Road travel FX ───────────────────────────────────────────────────────
+  // While the road boost is up and the carriage is moving: dust kicks up
+  // behind the wheels (world-anchored, so it stays on the road as the camera
+  // follows), speed streaks trail the carriage, and a "Road boost" cue pops
+  // once when the boost builds (at most every 8s).
+  const ROAD_DUST_LIFE_MS = 650;
+  const ROAD_DUST_MAX = 48;
+  const ROAD_CUE_COOLDOWN_MS = 8000;
+  const _roadDust = [];
+  let _roadDustAcc = 0;
+  let _roadDustN = 0;
+  let _roadPrevX = NaN, _roadPrevY = NaN;
+  let _roadMoving = false;
+  let _roadCueReadyAt = 0;
+
+  // Before movement: build/bleed the boost (only while actually moving on a road).
+  function updateRoadBoost(dt) {
+    const was = player.roadBoost || 0;
+    player.roadBoost = roadBoostStep(was, _roadMoving && isOpenRoadAt(player.x, player.y), dt);
+    if (was < 0.5 && player.roadBoost >= 0.5 && stateTime >= _roadCueReadyAt) {
+      _roadCueReadyAt = stateTime + ROAD_CUE_COOLDOWN_MS;
+      _lootPopups.push({ itemId: '__road', qty: 0, ...playerPopupAnchor(), startMs: stateTime });
+    }
+    _roadPrevX = player.x; _roadPrevY = player.y;
+  }
+
+  // After movement: note whether we're travelling, and kick up dust if boosted.
+  // A route in progress counts as travelling even on the frame auto-nav spends
+  // advancing a waypoint; a jump far beyond top speed (arrival snap, teleport)
+  // is not travel and kicks up no dust.
+  function updateRoadFx(dt) {
+    const moved = Number.isFinite(_roadPrevX) ? Math.hypot(player.x - _roadPrevX, player.y - _roadPrevY) : 0;
+    const jumped = moved > (player.speed || 90) * (1 + ROAD_SPEED_BONUS) * dt * 2 + 2;
+    const stepped = dt > 0 && moved / dt > 5;
+    _roadMoving = !jumped && (stepped || autoNav.active || clickMove.active);
+    const b = player.roadBoost || 0;
+    if (jumped || !stepped || b <= 0.05 || REDUCED_MOTION) { _roadDustAcc = 0; return; }
+    _roadDustAcc += dt * 22 * b;
+    const f = player.facing || { x: 0, y: 1 };
+    const fl = Math.hypot(f.x, f.y) || 1;
+    const bx = -f.x / fl, by = -f.y / fl;   // behind the carriage
+    while (_roadDustAcc >= 1) {
+      _roadDustAcc -= 1;
+      const n = _roadDustN++;
+      const side = (n & 1) ? 1 : -1;        // alternate left / right wheel
+      const jitter = ((n * 37) % 7) - 3;
+      _roadDust.push({
+        wx: player.x + bx * 10 + -by * side * 5 + bx * jitter * 0.5,
+        wy: player.y + by * 10 + bx * side * 5 + by * jitter * 0.5,
+        vx: bx * (12 + (n % 5) * 3) + -by * side * 4,
+        vy: by * (12 + (n % 5) * 3) + bx * side * 4,
+        size: 2 + (n % 3),
+        startMs: stateTime,
+      });
+    }
+    while (_roadDust.length > ROAD_DUST_MAX) _roadDust.shift();
+  }
+
+  function drawRoadFx() {
+    const boosted = (player.roadBoost || 0) > 0.3 && _roadMoving;
+    if (_roadDust.length === 0 && !boosted) return;
+    const U = UI_SCALE;
+    ctx.save();
+    // Dust puffs: grow and fade as they drift back.
+    let w = 0;
+    for (let i = 0; i < _roadDust.length; i++) {
+      const d = _roadDust[i];
+      const age = stateTime - d.startMs;
+      if (!(age >= 0 && age < ROAD_DUST_LIFE_MS)) continue;
+      _roadDust[w++] = d;
+      const t = age / ROAD_DUST_LIFE_MS;
+      const s = age / 1000;
+      const p = w2s(d.wx + d.vx * s, d.wy + d.vy * s);
+      if (p.behind) continue;
+      const k = p.k || 1;
+      // Light puff (reads against the dirt road) that billows as it fades.
+      ctx.globalAlpha = 0.75 * (1 - t) * (1 - t);
+      ctx.fillStyle = '#f3ead6';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - (2 + 4 * t) * k, (d.size + 1 + 8 * t) * k, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    _roadDust.length = w;
+    // Speed streaks behind the carriage while boosted and moving.
+    const b = player.roadBoost || 0;
+    if (boosted && !REDUCED_MOTION) {
+      const f = player.facing || { x: 0, y: 1 };
+      const a = w2sLift(player.x, player.y, 8, { hTiles: 0.6 });
+      const q = w2sLift(player.x + f.x * TILE, player.y + f.y * TILE, 8, { hTiles: 0.6 });
+      let dx = q.x - a.x, dy = q.y - a.y;
+      const L = Math.hypot(dx, dy);
+      if (L > 0.01 && !a.behind) {
+        dx /= L; dy /= L;
+        const px = -dy, py = dx;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1, 1.6 * U);
+        for (let j = -1; j <= 1; j++) {
+          const flick = 0.6 + 0.4 * Math.sin(stateTime / 70 + j * 2.1);
+          const back = (20 + 6 * Math.abs(j)) * U;
+          const len = (10 + 14 * b) * flick * U;
+          const ox = a.x - dx * back + px * j * 9 * U;
+          const oy = a.y - dy * back + py * j * 9 * U;
+          ctx.globalAlpha = 0.55 * b * flick;
+          ctx.beginPath();
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(ox - dx * len, oy - dy * len);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   function activeContractProgressLabel() {
     if (!contracts.active) return '';
     try {
@@ -10371,12 +10551,7 @@ function drawNpcBubble() {
     }
   }
   function maybeTriggerRoadEvent() {
-    const c = currentCity();
-    if (c) return; // only on the road
-
-    const tx = Math.floor(player.x / TILE);
-    const ty = Math.floor(player.y / TILE);
-    if (tileAt(tx, ty) !== 1) return; // encounters only while on road tiles
+    if (!isOpenRoadAt(player.x, player.y)) return; // encounters only on roads between cities
     if (road.cooldown > 0) return;
     if (road.travel < 640) return; // threshold; rarer than before so each event carries weight
 
@@ -14245,12 +14420,8 @@ function drawEvent() {
     }
 
     // Road travel tracking + encounters + day consumption
-    const cityNow = currentCity();
-    if (!cityNow && !ui.eventOpen) {
-      const tx = Math.floor(player.x / TILE);
-      const ty = Math.floor(player.y / TILE);
-      const onRoad = tileAt(tx, ty) === 1;
-      if (onRoad) {
+    if (!ui.eventOpen) {
+      if (isOpenRoadAt(player.x, player.y)) {
         const dx = player.x - (player._px ?? player.x);
         const dy = player.y - (player._py ?? player.y);
         const dist = Math.hypot(dx, dy);
@@ -14320,9 +14491,11 @@ function drawEvent() {
     }
     updateEntities(dt);
     updateAiTraders(dt);
+    updateRoadBoost(dt);
     updateAutoNav(dt);
     npcDiagTick(dt);
     moveWithCollision(dt);
+    updateRoadFx(dt);
     npcDiagPostMove();
 
 if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp') || isDown('ArrowDown'))) {
@@ -14372,6 +14545,7 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
     drawTraderBubbles();
     drawNavPath();
     drawClickMarker();
+    drawRoadFx();
     if (!drew3D) {
       drawPlayer();
       drawOtherPlayers();
@@ -15595,6 +15769,45 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(api.qaDrawRewardFx() >= 1, 'reward fx: draw pass keeps a fresh celebration alive');
         api.qaClearLootPopups();
         api.qaClearRewardFx();
+      }
+
+      // ── Road speed boost + road FX ──────────────────────────────────────
+      // Travelling a road between cities ramps up a +35% speed boost, kicks
+      // up dust behind the carriage and pops a "Road boost!" cue; city
+      // streets and open grass give no boost.
+      {
+        const api = __QA.api;
+        const savedPos = { x: player.x, y: player.y };
+        // Long enough that the click-move never reaches its target (no
+        // arrival slow-down) during the 1.5s measured below.
+        const run = api.qaFindOpenRoad(24);
+        assert(!!run, 'road boost: need a straight 24-tile road outside any city');
+        api.qaClearRoadFx();
+        api.qaClearLootPopups();
+        player.roadBoost = 0;
+        api.teleportToTile(run.tx, run.ty);
+        api.setClickMove((run.tx + 23 * run.dx + 0.5) * TILE, (run.ty + 23 * run.dy + 0.5) * TILE);
+        const along = () => player.x * run.dx + player.y * run.dy;
+        const p0 = along();
+        for (let i = 0; i < 60; i++) api.step(1 / 60); // 1s
+        assert(player.roadBoost > 0.95, `road boost: should be at full boost after 1s on the road (got ${player.roadBoost})`);
+        const pa = along();
+        for (let i = 0; i < 30; i++) api.step(1 / 60); // 0.5s at full boost
+        const v = (along() - pa) * 2;
+        assert(v > player.speed * 1.25 && v < player.speed * 1.45,
+          `road boost: road speed ${v.toFixed(1)}px/s should be ~1.35x base ${player.speed}`);
+        assert(along() > p0, 'road boost: player should have travelled along the road');
+        assert(api.qaRoadFx().dust > 0, 'road boost: dust should kick up behind a boosted carriage');
+        assert(api.qaLootPopups().some(p => p.itemId === '__road'), 'road boost: entering the road pops a boost cue');
+        // Inside a city there is no boost.
+        api.teleportToCity('valdenmere');
+        for (let i = 0; i < 40; i++) api.step(1 / 60);
+        assert(player.roadBoost < 0.01, `road boost: none inside a city (got ${player.roadBoost})`);
+        clickMove.active = false;
+        player.x = savedPos.x; player.y = savedPos.y;
+        player.roadBoost = 0;
+        api.qaClearRoadFx();
+        api.qaClearLootPopups();
       }
 
       // ── Mining animation: a landed swing strikes the vein ────────────────
