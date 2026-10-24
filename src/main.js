@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.50'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.51'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -835,6 +835,10 @@ ${line4}`;
       /** Snapshot / clear / draw the reward celebration queue (gear, contract). */
       qaRewardFx: () => _rewardFx.map(f => ({ kind: f.kind, icon: f.icon, title: f.title, startMs: f.startMs })),
       qaClearRewardFx: () => { _rewardFx.length = 0; return true; },
+      /** Snapshot / clear / draw the mining strike FX queue. */
+      qaMineFx: () => _mineFx.map(f => ({ tx: f.tx, ty: f.ty, metalId: f.metalId, startMs: f.startMs })),
+      qaClearMineFx: () => { _mineFx.length = 0; return true; },
+      qaDrawMineFx: () => { drawMineFx(); return _mineFx.length; },
       qaDrawRewardFx: () => { drawRewardFx(); return _rewardFx.length; },
       /** Invoke the renderer's drawLootPopups pass so age-out semantics are
        *  exercised in QA (the main render loop doesn't run during api.step). */
@@ -1990,6 +1994,10 @@ function handleGlobalHudTap(clientX, clientY, e) {
   // Minimap marker tint per metal (hoisted to module scope so the per-frame
   // render doesn't re-allocate it). Unknown metals fall back to purple.
   const MINE_SITE_COLORS = { copper: '#c47a3a', silver: '#cfcfd6', gold: '#fde047' };
+  // Legacy (untagged Ironholt) ore vein colour; vein tiles and mining FX share these.
+  const ORE_FALLBACK_COLOR = '#c0a060';
+  // How long a mined vein takes to recover (ms of stateTime).
+  const MINE_COOLDOWN_MS = 30000;
   // tileIndex -> metalId, populated by makeMap() so playerMineNode drops the
   // variant that belongs to the site the vein sits in (legacy Ironholt = ore).
   const MINE_SITE_NODES = {};
@@ -6821,8 +6829,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.50',
+    version: 'v0.5.51',
     whatsNew: [
+      'Mining comes alive: every swing now shows your pickaxe winding up and striking the vein, with a flash, a dust puff and rock chips flying in the metal\'s colour (copper, silver, gold). A spent vein shows a little timer ring filling up while it recovers and sparkles green the moment it is ready to mine again, and finding a gem sets off a purple "Gem found!" celebration.',
       'Rewards now feel like rewards: item pickups pop in with a bounce and a twinkle, every sale and gold find rises a golden "+Ng" coin popup, reputation gains float a "+N rep" star, gear upgrades burst a golden ring of sparkles and light rays over your trader with a shiny award banner, contract hand-ins celebrate the same way with your gold and rep popping up, and notices slide in instead of just appearing. (Calmer if your device asks for reduced motion.)',
       'The world between the cities has been repainted in 3D: soft, natural grass instead of a checkerboard, worn dirt roads with grassy edges, sandy riverbanks, murky swamp pools with reeds and lily pads, farm fields of wheat, cabbages, lavender and corn around each city, wildflowers, rocks and mushrooms, forests with ragged natural edges, pine-clad highlands with grassy knolls, boulders and rocky peaks, windmills turning on the foothills near towns, and wooden bridges where the roads cross the rivers. Purely visual — every road, path and city is exactly where it was.',
       'New look for every character: your trader, the townsfolk and every NPC now share one polished 3D body — same size, same storybook style — with soft cel shading, an ink outline, real shadows, faces with eyes and rosy cheeks, and a proper walk cycle (swinging arms and legs, a little bounce) and idle sway. Roles still read at a glance by their hats (guard helm, baker cap, sailor cap, hoods, straw and travel hats), and you stand out by your merchant kit — vest, belt, coin pouch and satchel — whose hat and colours still follow your gear. In the 2D view (?r=2d) you and the NPCs are now drawn at the same size too.',
@@ -8521,7 +8530,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.50',
+      buildVersion: 'v0.5.51',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -9032,7 +9041,8 @@ function drawNpcBubble() {
       return false;
     }
     // Optimistic local cooldown so the player can't tap twice before RPC responds
-    player.mineCooldown[key] = stateTime + 30000;
+    player.mineCooldown[key] = stateTime + MINE_COOLDOWN_MS;
+    _veinCdTotal[key] = MINE_COOLDOWN_MS;
     player.mineStamina = Math.max(0, (player.mineStamina || 0) - staminaCost);
 
     function _doMineYield() {
@@ -9040,12 +9050,15 @@ function drawNpcBubble() {
       // legacy Ironholt veins still drop iron ore.
       const metalId = MINE_SITE_NODES[key] || 'ore';
       const metal = ITEMS.find(it => it.id === metalId);
+      // Strike FX only once the swing is confirmed (a contested swing the
+      // server rejects must not look like a hit).
+      spawnMineFx(tx, ty, metalId);
       const yieldMult = player.miningYieldMult ?? 1;
       const qty = Math.max(1, Math.round((2 + (Math.random() * 3 | 0)) * yieldMult)); // (2..4) × pickaxe mult
       gainItem(metalId, qty);
       let bonus = '';
       if (Math.random() < 0.10) { gainItem('coal', 1); bonus += ' +1 coal'; }
-      if (Math.random() < 0.05) { gainItem('gem',  1); bonus += ' +1 GEM!'; }
+      if (Math.random() < 0.05) { gainItem('gem',  1); bonus += ' +1 GEM!'; spawnRewardBurst('gem', '💎'); }
       toast(`Mined ${qty} ${metal?.name || metalId}${bonus}`, 2.5);
       saveGame(true);
     }
@@ -9075,8 +9088,9 @@ function drawNpcBubble() {
             // flat 15 — so upgraded pickaxes (lower stamina/swing) don't net
             // free stamina every time they lose a contested swing.
             player.mineStamina = Math.min(100, (player.mineStamina || 0) + staminaCost);
-            const msLeft = result?.cooldown_remaining_ms || 30000;
+            const msLeft = result?.cooldown_remaining_ms || MINE_COOLDOWN_MS;
             player.mineCooldown[key] = stateTime + msLeft;
+            _veinCdTotal[key] = msLeft;
             toast(`Another miner just worked this vein — try again in ${Math.ceil(msLeft / 1000)}s.`, 2.5);
           }
         })
@@ -9669,7 +9683,7 @@ function drawNpcBubble() {
   // little jitter, per-spark speed (0..1] and size. Capped at 48 sparks.
   function rewardBurstParticles(count, seed) {
     const n = Math.max(0, Math.min(48, Math.floor(Number(count) || 0)));
-    let h = ((Math.floor(Number(seed) || 0) * 2654435761) + 0x9e3779b9) >>> 0 || 1;
+    let h = (Math.imul(Math.floor(Number(seed) || 0), 0x9e3779b1) + 0x9e3779b9) >>> 0 || 1;
     const rnd = () => {
       h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
       return h / 4294967296;
@@ -9712,6 +9726,7 @@ function drawNpcBubble() {
   const REWARD_FX_STYLE = {
     gear:     { color: '#fde047', glow: '253,224,71',  sparks: 18, title: 'Gear Upgraded!' },
     contract: { color: '#86efac', glow: '134,239,172', sparks: 14, title: 'Contract Complete!' },
+    gem:      { color: '#c4b5fd', glow: '196,181,253', sparks: 16, title: 'Gem found!' },
   };
   const _rewardFx = [];
   let _rewardFxSeed = 1;
@@ -9833,6 +9848,190 @@ function drawNpcBubble() {
       _rewardFx[writeIdx++] = fx;
     }
     _rewardFx.length = writeIdx;
+    ctx.restore();
+  }
+
+  // ── Mining animations ────────────────────────────────────────────────────
+  // A landed swing plays at the vein: a pickaxe winds up, strikes, recoils;
+  // at impact a flash + ring, rock chips in the vein's metal colour and a
+  // dust puff. Spent veins show a recovery ring that sparkles when ready.
+  // Curves are pure (unit-tested in ops/scripts/unit_tests.mjs).
+
+  // Pickaxe angle (rad) over the swing (t 0..1): wind back to -0.7 by 0.2,
+  // snap forward to +0.9 at impact (0.35), recoil to 0.6 and hold.
+  function pickaxeSwingAngle(t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    if (x < 0.2) { const k = x / 0.2; return -0.7 * (1 - (1 - k) * (1 - k)); }
+    if (x < 0.35) { const k = (x - 0.2) / 0.15; return -0.7 + 1.6 * k * k; }
+    if (x < 0.5) { const k = (x - 0.35) / 0.15; return 0.9 - 0.3 * k; }
+    return 0.6;
+  }
+
+  // Deterministic rock-chip spray: launch velocities (px over the chip's
+  // life) in an upward cone, both sides, plus size and shade. Capped at 24.
+  function mineChips(count, seed) {
+    const n = Math.max(0, Math.min(24, Math.floor(Number(count) || 0)));
+    let h = (Math.imul(Math.floor(Number(seed) || 0), 0x85ebca6b) + 0x27d4eb2f) >>> 0 || 1;
+    const rnd = () => {
+      h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
+      return h / 4294967296;
+    };
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      // Spread across the cone [-150°, -30°] with jitter.
+      const a = -Math.PI * (5 / 6) + (Math.PI * (2 / 3)) * ((i + 0.2 + rnd() * 0.6) / n);
+      const sp = 40 + rnd() * 50;
+      out.push({ vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: 1.5 + rnd() * 2, shade: rnd() });
+    }
+    return out;
+  }
+
+  // A chip's offset from the vein at t (0..1 of its flight): ballistic with
+  // gravity, fading out over the last 40%.
+  function mineChipAt(chip, t) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    return {
+      dx: chip.vx * x,
+      dy: chip.vy * x + 120 * x * x,
+      alpha: x < 0.6 ? 1 : Math.max(0, 1 - (x - 0.6) / 0.4),
+    };
+  }
+
+  // How far a spent vein has recovered (0 just mined → 1 ready).
+  function veinRecoveryFrac(cdUntil, now, total) {
+    if (!Number.isFinite(cdUntil)) return 1;
+    const dur = Math.max(1, Number(total) || 30000);
+    return Math.min(1, Math.max(0, 1 - (cdUntil - now) / dur));
+  }
+
+  const MINE_FX_LIFETIME_MS = 900;
+  const MINE_FX_IMPACT = 0.35;
+  const MINE_FX_MAX = 3;
+  const VEIN_READY_FX_MS = 700;
+  const _mineFx = [];
+  // Cooldown length per vein key (not saved): contested swings get the
+  // server's remaining time, so the recovery ring needs each vein's own total.
+  const _veinCdTotal = {};
+  let _mineFxSeed = 1;
+
+  function spawnMineFx(tx, ty, metalId) {
+    _mineFx.push({ tx, ty, metalId: metalId || 'ore', startMs: stateTime, chips: mineChips(14, _mineFxSeed++) });
+    while (_mineFx.length > MINE_FX_MAX) _mineFx.shift();
+  }
+
+  // Screen point just above a vein's centre (both renderers).
+  function veinAnchor(tx, ty, px2d, hTiles) {
+    return w2sLift((tx + 0.5) * TILE, (ty + 0.5) * TILE, px2d, { hTiles });
+  }
+
+  function drawMineFx() {
+    if (_mineFx.length === 0) return;
+    const U = UI_SCALE;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let writeIdx = 0;
+    for (let i = 0; i < _mineFx.length; i++) {
+      const fx = _mineFx[i];
+      const age = stateTime - fx.startMs;
+      if (!(age >= 0 && age < MINE_FX_LIFETIME_MS)) continue;
+      _mineFx[writeIdx++] = fx;
+      const t = age / MINE_FX_LIFETIME_MS;
+      const a = veinAnchor(fx.tx, fx.ty, 4, 0.35);
+      if (a.behind) continue;
+      const col = MINE_SITE_COLORS[fx.metalId] || ORE_FALLBACK_COLOR;
+      // Pickaxe: pivots at the handle end, up-right of the vein, so the head
+      // comes down onto it. Fades after the recoil.
+      ctx.globalAlpha = t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.4);
+      // Swing from the side the miner stands on (mirrored when on the left).
+      const side = player.x >= (fx.tx + 0.5) * TILE ? 1 : -1;
+      ctx.save();
+      ctx.translate(a.x + side * 20 * U, a.y - 16 * U);
+      ctx.scale(side, 1);
+      ctx.rotate(REDUCED_MOTION ? 0.6 : pickaxeSwingAngle(t));
+      ctx.font = `${Math.round(30 * U)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+      ctx.fillText('⛏️', -12 * U, -12 * U);
+      ctx.restore();
+      if (t < MINE_FX_IMPACT || REDUCED_MOTION) continue;
+      const k = (t - MINE_FX_IMPACT) / (1 - MINE_FX_IMPACT);
+      // Impact flash + shock ring.
+      if (k < 0.35) {
+        const f = 1 - k / 0.35;
+        ctx.globalAlpha = 0.85 * f;
+        ctx.fillStyle = '#fffbe6';
+        drawSparkle(a.x, a.y, (14 + 10 * (1 - f)) * U);
+      }
+      ctx.globalAlpha = Math.max(0, 0.7 * (1 - k));
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(1, 3 * U * (1 - k));
+      ctx.beginPath();
+      ctx.ellipse(a.x, a.y + 4 * U, (8 + 30 * k) * U, (4 + 12 * k) * U, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Dust puffs drift out low and fade.
+      ctx.fillStyle = 'rgba(190,175,150,1)';
+      for (let d = -1; d <= 1; d += 2) {
+        ctx.globalAlpha = Math.max(0, 0.45 * (1 - k));
+        ctx.beginPath();
+        ctx.arc(a.x + d * (6 + 16 * k) * U, a.y + 3 * U - 4 * k * U, (3 + 6 * k) * U, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Rock chips: metal colour, some darker rock.
+      for (const c of fx.chips) {
+        const p = mineChipAt(c, k);
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = c.shade < 0.55 ? col : '#6b5a48';
+        const sz = c.size * 1.6 * U;
+        ctx.fillRect(a.x + p.dx * U - sz / 2, a.y + p.dy * U - sz / 2, sz, sz);
+      }
+    }
+    _mineFx.length = writeIdx;
+    ctx.restore();
+  }
+
+  // Recovery ring over spent veins near the player; a sparkle as each refills.
+  function drawVeinRecovery() {
+    const cd = player.mineCooldown;
+    if (!cd) return;
+    const U = UI_SCALE;
+    const ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+    ctx.save();
+    for (const key in cd) {
+      const until = cd[key];
+      const since = stateTime - until;
+      // Long since ready: drop the entry (an expired cooldown is the same as
+      // none to playerMineNode) so this loop stays small in long sessions.
+      if (since >= VEIN_READY_FX_MS) { delete cd[key]; delete _veinCdTotal[key]; continue; }
+      const k = Number(key);
+      const tx = k % MAP_W, ty = (k - tx) / MAP_W;
+      if (Math.max(Math.abs(tx - ptx), Math.abs(ty - pty)) > 12) continue;
+      const a = veinAnchor(tx, ty, 20, 1.1);
+      if (a.behind || a.x < -20 || a.y < -20 || a.x > VIEW_W + 20 || a.y > VIEW_H + 20) continue;
+      if (since < 0) {
+        const frac = veinRecoveryFrac(until, stateTime, _veinCdTotal[key] || MINE_COOLDOWN_MS);
+        const r = 7 * U;
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = 'rgba(20,16,12,0.6)';
+        ctx.beginPath(); ctx.arc(a.x, a.y, r + 2 * U, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = 2.5 * U;
+        ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = '#fbbf24';
+        ctx.beginPath(); ctx.arc(a.x, a.y, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); ctx.stroke();
+        ctx.font = `${Math.round(8 * U)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('⛏', a.x, a.y + 0.5 * U);
+      } else if (!REDUCED_MOTION) {
+        // Just refilled: green ring bursts outward with a sparkle.
+        const f = since / VEIN_READY_FX_MS;
+        ctx.globalAlpha = 1 - f;
+        ctx.strokeStyle = '#4ade80';
+        ctx.lineWidth = Math.max(1, 3 * U * (1 - f));
+        ctx.beginPath(); ctx.arc(a.x, a.y, (7 + 12 * f) * U, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#eafff0';
+        drawSparkle(a.x, a.y, (4 + 6 * (1 - f)) * U);
+      }
+    }
     ctx.restore();
   }
 
@@ -11104,11 +11303,7 @@ function drawNpcBubble() {
       // Metal-tinted ore color: site veins carry their metal's color so the
       // outcrop reads at a glance. Untagged (legacy ironholt) stays gold.
       const metalId = MINE_SITE_NODES[ty * MAP_W + tx];
-      const oreColor =
-        metalId === 'copper' ? '#c47a3a' :
-        metalId === 'silver' ? '#cfcfd6' :
-        metalId === 'gold'   ? '#fde047' :
-        '#c0a060';
+      const oreColor = MINE_SITE_COLORS[metalId] || ORE_FALLBACK_COLOR;
 
       if (inCooldown) {
         // Spent vein: muted gray base, dark empty pits where ore was, and a
@@ -14182,6 +14377,8 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
       drawOtherPlayers();
     }
     drawNpcBubble();
+    drawVeinRecovery();
+    drawMineFx();
     drawRewardFx();
     drawLootPopups();
     drawMobileOverlay();
@@ -15398,6 +15595,39 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         assert(api.qaDrawRewardFx() >= 1, 'reward fx: draw pass keeps a fresh celebration alive');
         api.qaClearLootPopups();
         api.qaClearRewardFx();
+      }
+
+      // ── Mining animation: a landed swing strikes the vein ────────────────
+      // The pickaxe strike + rock chips play at the vein (not the player),
+      // tinted by the vein's metal; refused swings play nothing.
+      {
+        const api = __QA.api;
+        const saved = { gear: { ...player.gear }, capacity: player.capacity, x: player.x, y: player.y,
+          stamina: player.mineStamina };
+        api.qaClearMineFx();
+        api.qaSetStamina(100);
+        // gear first: applyGearStats resets capacity, so set capacity after it.
+        api.setPlayer({ gear: { pack: 0, boots: 0, tool: 0, pickaxe: 0 } });
+        api.setPlayer({ capacity: 999 });
+        player.mineCooldown = {};
+        const node = api.qaMineSiteNodeAt('copper');
+        api.teleportToTile(node.tx, node.ty);
+        assert(api.qaPlayerMine(node.tx, node.ty) === true, 'mine fx: copper swing should land');
+        const fx = api.qaMineFx();
+        assert(fx.length === 1 && fx[0].tx === node.tx && fx[0].ty === node.ty && fx[0].metalId === 'copper',
+          `mine fx: swing should strike the copper vein, got ${JSON.stringify(fx)}`);
+        assert(api.qaDrawMineFx() === 1, 'mine fx: draw pass keeps a fresh strike alive');
+        // A refused swing (vein recovering) plays no strike.
+        api.qaClearMineFx();
+        assert(api.qaPlayerMine(node.tx, node.ty) === false, 'mine fx: second swing is refused (cooldown)');
+        assert(api.qaMineFx().length === 0, 'mine fx: refused swing must not animate');
+        player.mineCooldown = {};
+        api.qaClearMineFx();
+        api.qaClearLootPopups();
+        api.setPlayer({ gear: saved.gear });
+        api.setPlayer({ capacity: saved.capacity });
+        player.x = saved.x; player.y = saved.y;
+        player.mineStamina = saved.stamina;
       }
 
       // ── Road event dialog: theming, input lock, dismissal integrity ──────
