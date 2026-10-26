@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.54'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.55'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -841,6 +841,9 @@ ${line4}`;
       /** Snapshot / clear / draw the mining strike FX queue. */
       qaMineFx: () => _mineFx.map(f => ({ tx: f.tx, ty: f.ty, metalId: f.metalId, startMs: f.startMs })),
       qaClearMineFx: () => { _mineFx.length = 0; return true; },
+      /** Market trade FX: sprites launched since the last clear. */
+      qaMarketFx: () => ({ ..._marketFxStats }),
+      qaClearMarketFx: () => { _marketFxStats.coins = 0; _marketFxStats.goods = 0; ui.tradeFx = null; return true; },
       /** Road boost FX snapshot / reset. */
       qaRoadFx: () => ({ dust: _roadDust.length, boost: player.roadBoost || 0, moving: _roadMoving }),
       qaClearRoadFx: () => { _roadDust.length = 0; _roadDustAcc = 0; _roadCueReadyAt = 0; _roadMoving = false; return true; },
@@ -6922,8 +6925,9 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.54',
+    version: 'v0.5.55',
     whatsNew: [
+      'Trading feels alive: when you buy, coins fly from your gold into the goods and the goods fly into your pack; when you sell, your goods go to the merchant and a shower of coins flies into your purse. The row you traded flashes (blue for buying, gold for selling), your gold total bounces with a floating "+24g" or "−12g", and the trade buttons press in when tapped. (Calmer if your device asks for reduced motion.)',
       'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
       'Roads are faster now: keep your carriage on the road between cities and it picks up speed, up to 35% faster than cross-country (it eases in over a moment and fades when you leave the road or stop). You will see it too: a "💨 Road boost +35%" cue as you get going, dust kicked up behind the wheels, and speed streaks trailing the carriage. City streets, grass, forest and swamp are unchanged, and the trip times in the travel picker now count the road boost.',
       'Mining comes alive: every swing now shows your pickaxe winding up and striking the vein, with a flash, a dust puff and rock chips flying in the metal\'s colour (copper, silver, gold). A spent vein shows a little timer ring filling up while it recovers and sparkles green the moment it is ready to mine again, and finding a gem sets off a purple "Gem found!" celebration.',
@@ -7145,6 +7149,7 @@ function drawNpcBubble() {
       if (player.gold < PERMIT_PRICE) { toast(`Not enough gold (need ${PERMIT_PRICE}g).`, 2); return; }
       player.gold -= PERMIT_PRICE;
       if (player.gold < 0) { player.gold = 0; toast('Trade blocked (gold would go negative).', 2); return; }
+      noteTradeFx('buy', index, '__permit', 1, -PERMIT_PRICE);
       player.permits[c.id] = true;
       toast('Purchased city permit.', 2.2);
 
@@ -7181,6 +7186,7 @@ function drawNpcBubble() {
       player.gold -= cost;
       if (player.gold < 0) { player.gold += cost; toast('Trade blocked (gold would go negative).', 2); return; }
       gainItem(it.id, buyN);
+      noteTradeFx('buy', index, it.id, buyN, -cost);
       toast(`Bought ${buyN} ${it.name} (-${cost}g)`, 2);
       economyPostTrade(c.id, it.id, 'buy', buyN);
       syncWorldStateOnAction();
@@ -7205,7 +7211,10 @@ function drawNpcBubble() {
 
     loseItem(it.id, sellN);
     player.gold += gain;
-    spawnGoldPopup(gain);
+    // In the market dialog the gold total itself pops with +Ng; the canvas
+    // popup is for sales made elsewhere (it'd sit hidden behind the dialog).
+    if (!(USE_DOM_MODALS && ui.marketOpen)) spawnGoldPopup(gain);
+    noteTradeFx('sell', index, it.id, sellN, gain);
     toast(`Sold ${sellN} ${it.name} (+${gain}g after tax)`, 2);
     economyPostTrade(c.id, it.id, 'sell', sellN);
     syncWorldStateOnAction();
@@ -7628,7 +7637,7 @@ function drawNpcBubble() {
               </div>
             </div>
             <div class="cr-foot">
-              <div><strong>Gold:</strong> ${player.gold}g &nbsp; <strong>Pack:</strong> ${w}/${player.capacity} &nbsp; ${currentGear('boots').icon} ${currentGear('boots').name} &nbsp; ${currentGear('tool').icon} ${currentGear('tool').name}</div>
+              <div><strong>Gold:</strong> <span class="cr-gold">${player.gold}g</span> &nbsp; <strong>Pack:</strong> <span class="cr-pack">${w}/${player.capacity}</span> &nbsp; ${currentGear('boots').icon} ${currentGear('boots').name} &nbsp; ${currentGear('tool').icon} ${currentGear('tool').name}</div>
               ${(() => {
                 // What the pack would fetch at this city's sell quotes (before tax).
                 const pv = packSellValue(player.inv, ITEMS, it => quoteFor(c.id, it).sell);
@@ -7654,6 +7663,7 @@ function drawNpcBubble() {
         newList.scrollTop = prevListScroll + drift;
       }
       dom.marketListMode = ui.mode;
+      playMarketTradeFx();
 
       // Bind events (re-bound on re-render)
       uiRoot.querySelectorAll('[data-action="close"]').forEach(el => el.addEventListener('click', () => { ui.marketOpen = false; domCloseAll(); toast('Market closed', 2); }));
@@ -8639,7 +8649,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.54',
+      buildVersion: 'v0.5.55',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -10443,6 +10453,128 @@ function drawNpcBubble() {
       }
     }
     ctx.restore();
+  }
+
+  // ── Market trade FX ──────────────────────────────────────────────────────
+  // marketTryTrade notes each completed trade made in the open market dialog;
+  // the next rebuild plays it: the row flashes (blue buy / gold sell), the gold
+  // total pops with a floating ±Ng, and coins + goods fly between the row, the
+  // gold total and the pack along an arc. Sprites and the ±Ng label live in
+  // #cr-fx-layer (pointer-events:none, outside #ui-root) so a re-render can't
+  // cut them short; the row/gold CSS animations are re-applied on a rebuild
+  // with a negative delay so they carry on where they were. UI timing uses
+  // performance.now() (wall clock), not the game clock.
+
+  // What flies where for a trade (pure; unit-tested).
+  function tradeFxPlan(kind, qty, gold) {
+    const sell = kind === 'sell';
+    const g = Math.max(0, Math.round(Math.abs(Number(gold) || 0)));
+    const q = Math.max(0, Math.floor(Number(qty) || 0));
+    return {
+      coins: g > 0 ? Math.min(8, Math.max(1, Math.ceil(Math.log2(g + 1) / 1.5))) : 0,
+      goods: Math.min(5, q),
+      coinsFrom: sell ? 'row' : 'gold', coinsTo: sell ? 'gold' : 'row',
+      goodsFrom: sell ? 'pack' : 'row', goodsTo: sell ? 'row' : 'pack',
+      goldSign: sell ? 1 : -1,
+    };
+  }
+
+  // Point on a flight from a to b at t (0..1), bowed upward by `arc` px, with
+  // the sprite swelling mid-flight (pure; unit-tested).
+  function flightPoint(a, b, t, arc) {
+    const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 1;
+    const bow = 4 * x * (1 - x);
+    return { x: a.x + (b.x - a.x) * x, y: a.y + (b.y - a.y) * x - arc * bow, scale: 1 + 0.35 * bow };
+  }
+
+  const _marketFxStats = { coins: 0, goods: 0 };
+  const MARKET_FLASH_MS = 650;
+  function noteTradeFx(kind, idx, itemId, qty, gold) {
+    if (!USE_DOM_MODALS || !ui.marketOpen) return; // nothing on screen to animate
+    const now = performance.now();
+    const prev = ui.tradeFx;
+    // Two trades before the next render (e.g. key repeat): merge same-row ones.
+    if (prev && !prev.played && prev.kind === kind && prev.idx === idx && now - prev.at < 300) {
+      prev.qty += qty; prev.gold += gold; prev.at = now;
+      return;
+    }
+    ui.tradeFx = { kind, idx, itemId, qty, gold, at: now, played: false };
+  }
+
+  let _fxLayer = null;
+  function fxLayer() {
+    if (!_fxLayer || !_fxLayer.isConnected) {
+      _fxLayer = document.getElementById('cr-fx-layer');
+      if (!_fxLayer) { _fxLayer = document.createElement('div'); _fxLayer.id = 'cr-fx-layer'; document.body.appendChild(_fxLayer); }
+    }
+    return _fxLayer;
+  }
+
+  function flySprite(glyph, a, b, delayMs, cls) {
+    const el = document.createElement('span');
+    el.className = `cr-fx-sprite ${cls}`;
+    el.textContent = glyph;
+    fxLayer().appendChild(el);
+    if (typeof el.animate !== 'function') { el.remove(); return; }
+    const arc = 40 + Math.min(60, Math.abs(b.x - a.x) * 0.15);
+    const frames = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10, p = flightPoint(a, b, t, arc);
+      frames.push({
+        transform: `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${p.scale})`,
+        opacity: t < 0.1 ? t * 10 : t > 0.85 ? (1 - t) / 0.15 : 1,
+      });
+    }
+    const anim = el.animate(frames, { duration: 650, delay: delayMs, easing: 'ease-in-out', fill: 'both' });
+    anim.onfinish = () => el.remove();
+    anim.oncancel = () => el.remove();
+  }
+
+  function playMarketTradeFx() {
+    const fx = ui.tradeFx;
+    if (!fx) return;
+    const age = performance.now() - fx.at;
+    if (!(age >= 0 && age < 1000)) { ui.tradeFx = null; return; } // stale
+    const plan = tradeFxPlan(fx.kind, fx.qty, fx.gold);
+    const row = uiRoot.querySelector(`.cr-card[data-idx="${fx.idx}"]`);
+    const goldEl = uiRoot.querySelector('.cr-gold');
+    const packEl = uiRoot.querySelector('.cr-pack');
+    // Row flash + gold pop: (re)applied on every rebuild inside the window,
+    // continuing from `age` instead of restarting.
+    if (age < MARKET_FLASH_MS) {
+      const delay = `-${Math.round(fx.played ? age : 0)}ms`;
+      if (row) { row.classList.add(fx.kind === 'sell' ? 'cr-flash-sell' : 'cr-flash-buy'); row.style.animationDelay = delay; }
+      if (goldEl && fx.gold) { goldEl.classList.add(plan.goldSign > 0 ? 'cr-gold-up' : 'cr-gold-down'); goldEl.style.animationDelay = delay; }
+    }
+    if (fx.played) return; // the one-shot parts below already ran
+    fx.played = true;
+    const centre = (el) => {
+      const r = el && el.getBoundingClientRect();
+      return r && r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    };
+    if (goldEl && fx.gold) {
+      const gp = centre(goldEl);
+      if (gp) {
+        const d = document.createElement('span');
+        d.className = `cr-gold-delta ${plan.goldSign > 0 ? 'up' : 'down'}`;
+        d.textContent = `${plan.goldSign > 0 ? '+' : '−'}${Math.abs(fx.gold)}g`;
+        d.style.left = `${gp.x}px`;
+        d.style.top = `${gp.y - 26}px`; // start just above the number, then rise
+        d.addEventListener('animationend', () => d.remove());
+        fxLayer().appendChild(d);
+      }
+    }
+    // Flight endpoints (viewport px). A row that sold out is gone: fly from
+    // the list's centre instead.
+    const rowPt = centre(row && (row.querySelector('.cr-right') || row)) || centre(uiRoot.querySelector('.cr-list'));
+    if (!rowPt) return;
+    const ends = { row: rowPt, gold: centre(goldEl) || rowPt, pack: centre(packEl) || rowPt };
+    if (REDUCED_MOTION) return;
+    _marketFxStats.coins += plan.coins;   // sprites actually launched
+    _marketFxStats.goods += plan.goods;
+    const glyph = fx.itemId === '__permit' ? '📜' : (ITEM_ICONS[fx.itemId] || '📦');
+    for (let i = 0; i < plan.coins; i++) flySprite('🪙', ends[plan.coinsFrom], ends[plan.coinsTo], i * 70, 'coin');
+    for (let i = 0; i < plan.goods; i++) flySprite(glyph, ends[plan.goodsFrom], ends[plan.goodsTo], 120 + i * 90, 'good');
   }
 
   function activeContractProgressLabel() {
@@ -16084,6 +16216,46 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         player.x = savedPos.x; player.y = savedPos.y;
         api.qaClearTerrainFx();
         api.qaClearLootPopups();
+      }
+
+      // ── Market trade FX: buy/sell feedback in the market dialog ─────────
+      // A trade flashes its row, pops the gold total with a +/- label and
+      // flies coins/goods between the row, the gold total and the pack.
+      {
+        const api = __QA.api;
+        const saved = { gold: player.gold, inv: { ...player.inv }, cap: player.capacity };
+        api.setPlayer({ gold: 500, inv: { food: 0 }, capacity: 999 });
+        api.openMarketUI('valdenmere', 'buy');
+        const foodIdx = ITEMS.findIndex(it => it.id === 'food');
+        api.qaClearMarketFx();
+        marketTryTrade(foodIdx, 2);
+        domRender();
+        const rowB = document.querySelector(`.cr-card[data-idx="${foodIdx}"]`);
+        assert(rowB && rowB.classList.contains('cr-flash-buy'), 'market fx: bought row should flash');
+        assert(!!document.querySelector('.cr-gold.cr-gold-down'), 'market fx: gold total should pop down on a buy');
+        assert(!!document.querySelector('.cr-gold-delta'), 'market fx: a -Ng label should float off the gold total');
+        const fxB = api.qaMarketFx();
+        assert(fxB.coins > 0 && fxB.goods > 0, `market fx: a buy flies coins and goods (got ${JSON.stringify(fxB)})`);
+        // Sell one back.
+        ui.mode = 'sell';
+        domRender();
+        api.qaClearMarketFx();
+        marketTryTrade(foodIdx, 1);
+        domRender();
+        const rowS = document.querySelector(`.cr-card[data-idx="${foodIdx}"]`);
+        assert(rowS && rowS.classList.contains('cr-flash-sell'), 'market fx: sold row should flash');
+        assert(!!document.querySelector('.cr-gold.cr-gold-up'), 'market fx: gold total should pop up on a sale');
+        assert(api.qaMarketFx().coins > 0, 'market fx: a sale flies coins into the gold total');
+        // A refused trade (nothing to sell) plays nothing.
+        api.qaClearMarketFx();
+        player.inv.food = 0;
+        marketTryTrade(foodIdx, 1);
+        domRender();
+        assert(api.qaMarketFx().coins === 0, 'market fx: a refused trade must not animate');
+        ui.marketOpen = false; ui.mode = 'buy'; domRender();
+        api.qaClearMarketFx();
+        api.setPlayer({ gold: saved.gold, inv: saved.inv });
+        api.setPlayer({ capacity: saved.cap });
       }
 
       // ── Mining animation: a landed swing strikes the vein ────────────────
