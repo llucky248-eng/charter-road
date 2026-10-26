@@ -33,7 +33,8 @@ const { groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
         advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
         findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
         characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
-        vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor } = core;
+        vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor,
+        carriageStruggle } = core;
 
 console.log('\n=== world3d_core: ground substitution ===');
 test('flat terrain keeps its own art', () => {
@@ -556,6 +557,44 @@ test('renderer preference: 3D by default, ?r=2d or stored 2d opts out', () => {
   eq(rendererPreference('?qa=1&r=3d', '2d'), '3d', 'query beats storage');
   eq(rendererPreference('', '2d'), '2d');
   eq(rendererPreference('?r=bogus', null), '3d');
+});
+
+console.log('\n=== world3d_core: carriage struggle ===');
+test('carriageStruggle: plain ground keeps the normal trot', () => {
+  assert(typeof carriageStruggle === 'function', 'carriageStruggle not exported');
+  for (const t of [0, 0.7, 3.1]) {
+    const s = carriageStruggle(null, t);
+    close(s.sink, 0); close(s.roll, 0); close(s.legRate, 1);
+    assert(s.bobAmp > 0 && s.legAmp > 0, 'still trots');
+  }
+});
+test('carriageStruggle: swamp sinks the wagon and rocks it with slow heavy steps', () => {
+  let maxRoll = 0;
+  for (let i = 0; i < 60; i++) {
+    const s = carriageStruggle('swamp', i / 10);
+    assert(s.sink > 0.05, 'wheels sink into the mud');
+    assert(s.legRate < 1, 'slower steps');
+    assert(s.legAmp > carriageStruggle(null, 0).legAmp, 'horse high-steps');
+    maxRoll = Math.max(maxRoll, Math.abs(s.roll));
+    assert(Math.abs(s.roll) <= 0.1, 'rocking stays gentle');
+  }
+  assert(maxRoll > 0.04, 'it visibly rocks');
+});
+test('carriageStruggle: forest lurches over roots, bouncier than the road', () => {
+  let maxRoll = 0;
+  for (let i = 0; i < 60; i++) {
+    const s = carriageStruggle('forest', i / 10);
+    close(s.sink, 0);
+    assert(s.bobAmp > carriageStruggle(null, 0).bobAmp, 'bouncier');
+    maxRoll = Math.max(maxRoll, Math.abs(s.roll));
+    assert(Math.abs(s.roll) <= 0.1, 'lurch stays gentle');
+  }
+  assert(maxRoll > 0.02, 'it visibly lurches');
+});
+test('carriageStruggle is deterministic and NaN-safe', () => {
+  eq(JSON.stringify(carriageStruggle('swamp', 1.3)), JSON.stringify(carriageStruggle('swamp', 1.3)));
+  const s = carriageStruggle('forest', NaN);
+  for (const v of Object.values(s)) assert(Number.isFinite(v), 'finite');
 });
 
 console.log(`\n${'─'.repeat(40)}\nResults: ${passed} passed, ${failed} failed`);

@@ -2266,6 +2266,64 @@ asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is 
   });
 }
 
+// ─── Slow-terrain struggle FX (extracted live from src/main.js) ──────────────
+// Swamp and forest slow the carriage; the overlay shows it (mud/ripples or
+// falling leaves, sweat drops, a one-time "-N%" cue). Pure helpers only.
+{
+  const terrainSlowKind = extractFromMain('terrainSlowKind');
+  const slowdownPct = extractFromMain('slowdownPct');
+  const leafFall = extractFromMain('leafFall');
+
+  console.log('\n=== Slow-terrain struggle FX ===');
+  test('struggle helpers exist in src/main.js', () => {
+    for (const [n, f] of Object.entries({ terrainSlowKind, slowdownPct, leafFall })) {
+      assert(typeof f === 'function', `${n} not found`);
+    }
+  });
+  test('only swamp (11) and forest (10) are slow terrain', () => {
+    assertEqual(terrainSlowKind(11), 'swamp');
+    assertEqual(terrainSlowKind(10), 'forest');
+    for (const id of [0, 1, 2, 4, 9, 17, 18, undefined]) assertEqual(terrainSlowKind(id), null);
+  });
+  test('slowdown percent reads the speed multiplier (swamp 0.28 → 72%, forest 0.45 → 55%)', () => {
+    assertEqual(slowdownPct(0.28), 72);
+    assertEqual(slowdownPct(0.45), 55);
+    assertEqual(slowdownPct(1), 0);
+    assertEqual(slowdownPct(1.35), 0);
+    assertEqual(slowdownPct(-1), 100);
+    assertEqual(slowdownPct(NaN), 0);
+  });
+  test('a mud splash hops up |vy| and lands where it started, then fades', () => {
+    const splashAt = extractFromMain('splashAt');
+    assert(typeof splashAt === 'function', 'splashAt not found');
+    const p = { vx: 6, vy: -10 };
+    const a = splashAt(p, 0), m = splashAt(p, 0.5), z = splashAt(p, 1);
+    assertClose(a.dx, 0); assertClose(a.dy, 0);
+    assertClose(m.dy, -10);            // peak (canvas y up is negative)
+    assertClose(z.dy, 0);              // lands back at the wheel
+    assertClose(z.dx, 6);
+    for (let i = 0; i <= 20; i++) assert(splashAt(p, i / 20).dy <= 1e-9, 'never below the ground');
+    assert(m.alpha > 0.9, 'visible mid-hop');
+    assertClose(z.alpha, 0);
+  });
+  test('a leaf falls from its start height to the ground, swaying, then fades', () => {
+    const leaf = { h0: 1.6, sway: 6, spin: 3, phase: 0.5 };
+    const a = leafFall(leaf, 0), m = leafFall(leaf, 0.5), z = leafFall(leaf, 1);
+    assertClose(a.h, 1.6);
+    assertClose(z.h, 0);
+    let prev = Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const f = leafFall(leaf, i / 20);
+      assert(f.h <= prev + 1e-9, 'height only goes down');
+      assert(Math.abs(f.dx) <= leaf.sway + 1e-9, 'sway stays within its amplitude');
+      prev = f.h;
+    }
+    assert(a.alpha > 0.9 && m.alpha > 0.9, 'visible while falling');
+    assert(z.alpha < 0.05, 'gone once it lands');
+    assert(Number.isFinite(leafFall(leaf, NaN).h), 'NaN-safe');
+  });
+}
+
 // ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
 // Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
 // figures; bankQuickAmounts scales the three buttons to the player's wealth.
