@@ -105,7 +105,7 @@ const { TRADER_DEFS, makeSeedTrader } = await import('./world_service.mjs');
 test('seeds every trader def to a fresh, fully-reset state', () => {
   assert(TRADER_DEFS.length > 0, 'expected at least one trader def');
   TRADER_DEFS.forEach((def, i) => {
-    const t = makeSeedTrader(def, i);
+    const t = makeSeedTrader(def, i, '2026-01-01T00:00:00.000Z');
     // Identity preserved from the def
     assertEqual(t.id, def.id, `id for ${def.id}`);
     assertEqual(t.name, def.name, `name for ${def.id}`);
@@ -123,7 +123,7 @@ test('seeds every trader def to a fresh, fully-reset state', () => {
 });
 
 test('seed carries no accumulated numeric field left non-zero', () => {
-  const t = makeSeedTrader(TRADER_DEFS[0], 0);
+  const t = makeSeedTrader(TRADER_DEFS[0], 0, '2026-01-01T00:00:00.000Z');
   // Guard against a future field addition that forgets to reset: any field whose
   // name implies accumulation must start at 0 / empty.
   const CONFIG_FIELDS = new Set(['start_gold', 'review_at_trips']); // config, not accumulators

@@ -28,7 +28,7 @@ jobs:
           node --check src/main.js
           find ops/scripts -name "*.mjs" -print0 | xargs -0 -n1 node --check
           # Browser ES modules (package.json is commonjs, so check them as modules via stdin)
-          for f in src/world3d.js src/world3d_core.js; do node --input-type=module --check < "$f" || { echo "::error file=$f::syntax error"; exit 1; }; done
+          for f in src/world3d.js src/world3d_core.js src/sim/trader_core.js; do node --input-type=module --check < "$f" || { echo "::error file=$f::syntax error"; exit 1; }; done
 
       - name: Run unit and parity tests
         run: npm run test:unit

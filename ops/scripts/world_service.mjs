@@ -8,6 +8,7 @@
  */
 
 import { pathToFileURL } from 'node:url';
+import { decideRoute as coreDecideRoute, traderRng, cityDwellSeconds } from '../../src/sim/trader_core.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ycjhcsxxtinipwailbjb.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY';
@@ -28,7 +29,8 @@ const TRADER_DEFS = [
 // reset here to its starting value so a RESET_TRADERS re-seed genuinely wipes
 // strategy state — upsertTraders merges by id, so any accumulated field NOT set
 // here would survive the reset. Keep this exhaustive when adding trader fields.
-function makeSeedTrader(def, index = 0) {
+function makeSeedTrader(def, index = 0, nowIso) {
+  if (typeof nowIso !== 'string') throw new Error('makeSeedTrader needs nowIso');
   return {
     id:              def.id,
     name:            def.name,
@@ -50,7 +52,7 @@ function makeSeedTrader(def, index = 0) {
     profit_history:  [],
     gear_tier:       0,   // explicit so a reset upsert clears any accumulated tier
     permits:         {},  // explicit so a reset upsert clears any accumulated permits
-    updated_at:      new Date().toISOString(),
+    updated_at:      nowIso,
   };
 }
 
@@ -459,95 +461,24 @@ function netSellPrice(cityId, item) {
   return Math.max(1, Math.round(gross * (1 - (CITY_TAX[cityId] || 0))));
 }
 
-// ── Route picking (mirrors main.js, extended with preferred_item bias) ────
+// ── Route picking ───────────────────────────────────────────────────────
+// The picker itself lives in src/sim/trader_core.js and is shared with the
+// browser fallback. This wrapper feeds it the server's prices, market pressure
+// and a seeded rng (from world seed + day + trader id + trip count), so a replay
+// picks the same trip.
 
-function decideRoute(trader) {
-  const fromId = trader.to_id || trader.from_id || 'valdenmere';
-  const candidates = [];
+const rngSalt = () => `${WORLD_STATE.seed}:${WORLD_STATE.day}`;
 
-  // FIX: evaluate ALL city pairs so distant routes (ironholt, ashport) are always considered
-  for (const toId of CITIES) {
-    if (toId === fromId) continue;
-    for (const item of ITEMS) {
-      if (item.sourceCities && !item.sourceCities.includes(fromId)) continue;
-
-      const buy = buyPrice(fromId, item);
-      const sellNet = netSellPrice(toId, item);
-      const profit = sellNet - buy;
-      if (profit <= 0) continue;
-
-      const units = Math.floor(traderCapacity(trader) / item.weight);
-      if (units === 0) continue;
-
-      let score = profit * units;
-
-      // FIX: stronger preferred_item bias (2× instead of 1.25×) so focus can beat saturated routes
-      if (trader.preferred_item && item.id === trader.preferred_item) score *= 2.0;
-
-      // FIX: penalise routes where sell pressure is at saturation (≥ 0.4 = heavily oversupplied)
-      const sellPressure = PRESSURE_MAP[`${toId}:${item.id}`] || 0;
-      if (sellPressure >= 0.4) score *= 0.3;        // heavily depressed sell market
-      else if (sellPressure >= 0.25) score *= 0.6;  // moderately depressed
-
-      // Bonus for routes where the source city is oversupplied, matching client pressure behavior.
-      const buyPressure = PRESSURE_MAP[`${fromId}:${item.id}`] || 0;
-      if (buyPressure <= -0.3) score *= 1.4;
-
-      candidates.push({ fromId, toId, itemId: item.id, profit: profit * units, score });
-    }
-  }
-
-  if (!candidates.length) {
-    const others = CITIES.filter(c => c !== fromId);
-    return { fromId, toId: others[Math.floor(Math.random() * others.length)], itemId: 'grain' };
-  }
-
-  candidates.sort((a, b) => b.score - a.score);
-
-  let pick;
-  if (trader.personality === 'aggressive') {
-    // Always takes best opportunity
-    pick = candidates[0];
-  } else if (trader.personality === 'cautious') {
-    // FIX: cautious picks the route with the most consistent (lowest variance) recent profit,
-    // not just 40th percentile by score. Fallback to top-3 if no history.
-    const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
-    if (history.length >= 3) {
-      const top5 = candidates.slice(0, Math.min(5, candidates.length));
-      // Score consistency: prefer routes the trader has done before with stable returns
-      const routeProfit = {};
-      for (const e of history) {
-        const k = `${e.to}:${e.item}`;
-        if (!routeProfit[k]) routeProfit[k] = [];
-        routeProfit[k].push(e.profit || 0);
-      }
-      let bestConsistent = null, bestConsistencyScore = -Infinity;
-      for (const c of top5) {
-        const k = `${c.toId}:${c.itemId}`;
-        const hist = routeProfit[k] || [];
-        const mean = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : c.score * 0.5;
-        const variance = hist.length > 1
-          ? hist.reduce((s, v) => s + (v - mean) ** 2, 0) / hist.length
-          : mean * mean; // unknown route = high variance
-        const consistencyScore = mean - Math.sqrt(variance) * 0.3;
-        if (consistencyScore > bestConsistencyScore) {
-          bestConsistencyScore = consistencyScore;
-          bestConsistent = c;
-        }
-      }
-      pick = bestConsistent || candidates[0];
-    } else {
-      pick = candidates[Math.min(2, candidates.length - 1)]; // top-3 until enough history
-    }
-  } else {
-    // Opportunist: random among top 5 with score weighting
-    const pool = candidates.slice(0, Math.min(5, candidates.length));
-    const totalScore = pool.reduce((s, c) => s + c.score, 0);
-    let r = Math.random() * totalScore;
-    pick = pool[pool.length - 1];
-    for (const c of pool) { r -= c.score; if (r <= 0) { pick = c; break; } }
-  }
-  return pick;
+function decideRoute(trader, rng = traderRng(trader, rngSalt(), 'route')) {
+  return coreDecideRoute(trader, {
+    cities:   CITIES,
+    items:    ITEMS,
+    capacity: traderCapacity(trader),
+    buy:      buyPrice,
+    sellNet:  netSellPrice,
+    pressure: (cityId, itemId) => PRESSURE_MAP[`${cityId}:${itemId}`] || 0,
+    rng,
+  });
 }
 
 // ── Strategy review (triggered every N trips) ─────────────────────────────
@@ -555,10 +486,9 @@ function decideRoute(trader) {
 const STRATEGY_LOG_BATCH = []; // collect log entries, upsert at end of tick
 const TRADE_EVENTS_BATCH = []; // collect trade events, upsert at end of tick
 
-// allTraders is injected by the tick loop so each trader can see peers
-let ALL_TRADERS_SNAPSHOT = [];
-
-function reviewStrategy(trader) {
+// peers: a snapshot of every trader taken before this tick, so each trader can
+// compare itself with the others. nowIso stamps the log entry.
+function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
   const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
   const trips   = trader.trips_completed || 0;
 
@@ -590,7 +520,7 @@ function reviewStrategy(trader) {
   const bestItem = Object.entries(itemProfits).sort((a, b) => b[1] - a[1])[0];
 
   // ── Peer comparison ───────────────────────────────────────────────────
-  const peers = ALL_TRADERS_SNAPSHOT.filter(p => p.id !== trader.id);
+  const peers = allPeers.filter(p => p.id !== trader.id);
   const peerRates = peers.map(p => {
     const ph = Array.isArray(p.profit_history) ? p.profit_history : [];
     const w  = ph.slice(-3);
@@ -682,7 +612,7 @@ function reviewStrategy(trader) {
     profit_rate:  recentRate,
     old_strategy: JSON.stringify(oldStrategy),
     new_strategy: JSON.stringify({ preferred_item: newPreferredItem, personality: trader.personality }),
-    created_at:   new Date().toISOString(),
+    created_at:   nowIso,
   };
   STRATEGY_LOG_BATCH.push(logEntry);
   console.log(`[STRATEGY][${trader.name}] ${decision}: ${reason}`);
@@ -977,7 +907,11 @@ async function callAggregateEconomy() {
 
 // ── Tick logic ────────────────────────────────────────────────────────────
 
-function tickTrader(t, elapsed) {
+// Advance one trader by `elapsed` seconds. Deterministic: the time stamp comes
+// from nowIso and every random choice from a seeded rng, so the same snapshot
+// always replays the same way. peers = pre-tick snapshot for strategy reviews.
+function tickTrader(t, elapsed, { nowIso, peers = [] } = {}) {
+  if (typeof nowIso !== 'string') throw new Error('tickTrader needs { nowIso }');
   // Process elapsed time in micro-steps so multiple trips can complete in one tick
   const STEP = 60; // seconds per micro-step
   let remaining = elapsed;
@@ -1011,7 +945,7 @@ function tickTrader(t, elapsed) {
               item_id:   route.itemId,
               direction: 'buy',
               qty:       units,
-              created_at: new Date().toISOString(),
+              created_at: nowIso,
             });
           } else {
             t.inv = {};
@@ -1055,7 +989,7 @@ function tickTrader(t, elapsed) {
             item_id:   itemId,
             direction: 'sell',
             qty,
-            created_at: new Date().toISOString(),
+            created_at: nowIso,
           });
         }
         if (taxPaid > 0) {
@@ -1087,13 +1021,13 @@ function tickTrader(t, elapsed) {
         t.trips_completed  = (t.trips_completed || 0) + 1;
         // Track per-trip realized profit history (keep last 10)
         const history = Array.isArray(t.profit_history) ? t.profit_history : [];
-        history.push({ trip: t.trips_completed, profit: tripProfit, item: t.item_id, to: t.to_id, at: new Date().toISOString() });
+        history.push({ trip: t.trips_completed, profit: tripProfit, item: t.item_id, to: t.to_id, at: nowIso });
         if (history.length > 10) history.splice(0, history.length - 10);
         t.profit_history   = history;
         t.inv              = {};
         t.from_id          = t.to_id;
         t.state            = 'in_city';
-        t.city_timer       = 30 + Math.random() * 60;
+        t.city_timer       = cityDwellSeconds(traderRng(t, rngSalt(), 'dwell'));
         t.progress         = 0;
         console.log(`[${t.name}] Arrived at ${t.to_id}, revenue ${revenue}g, trip profit ${tripProfit}g. Total profit: ${t.total_profit}g`);
 
@@ -1103,12 +1037,12 @@ function tickTrader(t, elapsed) {
         // Strategy review every N trips
         const reviewAt = t.review_at_trips || 3;
         if (t.trips_completed >= reviewAt) {
-          reviewStrategy(t);
+          reviewStrategy(t, { nowIso, peers });
         }
       }
     }
   }
-  t.updated_at = new Date().toISOString();
+  t.updated_at = nowIso;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -1133,21 +1067,23 @@ async function main() {
   // resumes as usual.
   const RESET_TRADERS = process.env.RESET_TRADERS === '1' || process.argv.includes('--reset-traders');
 
+  // The one place the wall clock is read; everything below gets it passed in.
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+
   if (RESET_TRADERS || !traders || traders.length === 0) {
     // Seed initial state
     console.log(RESET_TRADERS
       ? `[WORLD SIM] RESET_TRADERS set — re-seeding ${TRADER_DEFS.length} trader(s) to a fresh post-rebalance state`
       : '[WORLD SIM] No traders found — seeding initial state');
-    traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i));
+    traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i, nowIso));
   } else {
-    // Compute elapsed since last tick
-    const now = Date.now();
     // Snapshot all traders before ticking so strategy reviews can compare peers
-    ALL_TRADERS_SNAPSHOT = traders.map(t => ({ ...t }));
+    const peers = traders.map(t => ({ ...t }));
     traders = traders.map(t => {
       const lastTick = t.updated_at ? new Date(t.updated_at).getTime() : now;
       const elapsed  = Math.min(MAX_TICK, (now - lastTick) / 1000);
-      tickTrader(t, elapsed);
+      tickTrader(t, elapsed, { nowIso, peers });
       return t;
     });
   }
@@ -1224,6 +1160,7 @@ export {
   sellPrice,
   netSellPrice,
   decideRoute,
+  tickTrader,
   traderCapacity,
   eventModifier,
   generateWorldEvents,
