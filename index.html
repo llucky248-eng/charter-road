@@ -598,6 +598,37 @@
       .cr-banner.cr-reward, .cr-banner.cr-reward .cr-banner-icon { animation: crBannerIn 160ms ease-out forwards; }
       .cr-banner.cr-reward::after { display: none; }
     }
+    /* ── Market trade FX ── flying coins/goods live in #cr-fx-layer, outside
+       #ui-root, with pointer-events:none so dialogs stay clickable. */
+    #cr-fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; overflow: hidden; }
+    .cr-fx-sprite { position: absolute; left: 0; top: 0; font-size: 20px; line-height: 1; will-change: transform, opacity; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+    .cr-fx-sprite.coin { font-size: 18px; }
+    .cr-card.cr-flash-buy { animation: crFlashBuy 650ms ease-out; }
+    .cr-card.cr-flash-sell { animation: crFlashSell 650ms ease-out; }
+    @keyframes crFlashBuy {
+      0%   { box-shadow: 0 0 0 0 rgba(96,165,250,0); transform: scale(1); }
+      25%  { box-shadow: 0 0 0 4px rgba(96,165,250,.8); transform: scale(1.015); }
+      100% { box-shadow: 0 0 0 0 rgba(96,165,250,0); transform: scale(1); }
+    }
+    @keyframes crFlashSell {
+      0%   { box-shadow: 0 0 0 0 rgba(250,204,21,0); transform: scale(1); }
+      25%  { box-shadow: 0 0 0 4px rgba(250,204,21,.85); transform: scale(1.015); }
+      100% { box-shadow: 0 0 0 0 rgba(250,204,21,0); transform: scale(1); }
+    }
+    .cr-gold { position: relative; display: inline-block; }
+    .cr-gold.cr-gold-up { animation: crGoldUp 600ms cubic-bezier(.2,1.6,.4,1); }
+    .cr-gold.cr-gold-down { animation: crGoldDown 450ms ease-out; }
+    @keyframes crGoldUp { 0% { transform: scale(1); } 40% { transform: scale(1.3); color: #16a34a; } 100% { transform: scale(1); } }
+    @keyframes crGoldDown { 0% { transform: none; } 30% { transform: translateY(2px) scale(.9); color: #dc2626; } 100% { transform: none; } }
+    .cr-gold-delta { position: absolute; font: 800 15px 'Fredoka', system-ui, sans-serif; white-space: nowrap; pointer-events: none; text-shadow: 0 1px 0 #fff, 0 0 4px #fff; animation: crGoldDelta 900ms ease-out forwards; }
+    .cr-gold-delta.up { color: #16a34a; }
+    .cr-gold-delta.down { color: #dc2626; }
+    @keyframes crGoldDelta { 0% { opacity: 0; transform: translate(-50%, 6px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -14px); } }
+    .cr-card button:active { transform: translateY(2px) scale(.94); }
+    @media (prefers-reduced-motion: reduce) {
+      .cr-card.cr-flash-buy, .cr-card.cr-flash-sell, .cr-gold.cr-gold-up, .cr-gold.cr-gold-down { animation: none; }
+      .cr-gold-delta { animation-duration: 1ms; }
+    }
     @keyframes crBannerIn {
       from { transform: translateY(-10px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }

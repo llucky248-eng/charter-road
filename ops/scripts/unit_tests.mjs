@@ -2324,6 +2324,51 @@ asyncTest('bank lock: a withdraw is blocked while a deposit at the same city is 
   });
 }
 
+// ─── Market trade FX (extracted live from src/main.js) ───────────────────────
+// A buy sends coins from the gold total to the row and goods from the row to
+// the pack; a sell sends goods off and coins into the gold total. The plan
+// and the arc are pure so the DOM layer only plays them.
+{
+  const tradeFxPlan = extractFromMain('tradeFxPlan');
+  const flightPoint = extractFromMain('flightPoint');
+
+  console.log('\n=== Market trade FX ===');
+  test('trade FX helpers exist in src/main.js', () => {
+    assert(typeof tradeFxPlan === 'function', 'tradeFxPlan not found');
+    assert(typeof flightPoint === 'function', 'flightPoint not found');
+  });
+  test('buy: coins fly gold → row, goods fly row → pack; sell is the reverse for coins', () => {
+    const b = tradeFxPlan('buy', 3, 36);
+    assertEqual(b.coinsFrom, 'gold'); assertEqual(b.coinsTo, 'row');
+    assertEqual(b.goodsFrom, 'row'); assertEqual(b.goodsTo, 'pack');
+    assertEqual(b.goldSign, -1);
+    const s = tradeFxPlan('sell', 3, 36);
+    assertEqual(s.coinsFrom, 'row'); assertEqual(s.coinsTo, 'gold');
+    assertEqual(s.goodsFrom, 'pack'); assertEqual(s.goodsTo, 'row');
+    assertEqual(s.goldSign, 1);
+  });
+  test('more gold and more goods → more (but capped) flying sprites', () => {
+    assert(tradeFxPlan('sell', 1, 5).coins >= 1, 'at least one coin');
+    assert(tradeFxPlan('sell', 1, 500).coins > tradeFxPlan('sell', 1, 5).coins, 'bigger sale, more coins');
+    assert(tradeFxPlan('sell', 1, 1e9).coins <= 8, 'coins capped');
+    assertEqual(tradeFxPlan('buy', 1, 10).goods, 1);
+    assertEqual(tradeFxPlan('buy', 99, 10).goods, 5);
+    assertEqual(tradeFxPlan('buy', 0, 0).goods, 0);
+    assertEqual(tradeFxPlan('buy', 2, 0).coins, 0);
+  });
+  test('flight arc starts and ends on its points and bows upward', () => {
+    const a = { x: 0, y: 100 }, b = { x: 200, y: 100 };
+    const p0 = flightPoint(a, b, 0, 40), p1 = flightPoint(a, b, 1, 40), pm = flightPoint(a, b, 0.5, 40);
+    assertClose(p0.x, 0); assertClose(p0.y, 100);
+    assertClose(p1.x, 200); assertClose(p1.y, 100);
+    assertClose(pm.x, 100);
+    assert(pm.y < 100 - 30, `mid-flight should lift by ~the arc height (got y=${pm.y})`);
+    assert(pm.scale > p0.scale && pm.scale > p1.scale, 'sprite swells mid-flight');
+    const q = flightPoint(a, b, NaN, 40);
+    assert(Number.isFinite(q.x) && Number.isFinite(q.y), 'NaN-safe');
+  });
+}
+
 // ─── Bank deposit quick-amounts (extracted live from src/main.js) ────────────
 // Fixed +10/+50/+100 deposit buttons are meaningless once gear costs six
 // figures; bankQuickAmounts scales the three buttons to the player's wealth.
