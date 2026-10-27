@@ -4,7 +4,7 @@
 
 Charter Road is designed to be a **fully autonomous, self-running world simulation**. Markets, cities, AI traders, economy, events, hunger, and banking must operate without a human player present. This enables AI agents to play the game for testing, balance tuning, and emergent-behaviour research.
 
-**Next headless milestone (partially reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. A first deterministic slice now exists for the **mining economy** — `npm run mining:report -- --days N` (built on the pure `ops/scripts/lib/mining.mjs` module). The full world economy (traders, hunger, banking in `world_service.mjs`) still needs an offline local-state path — see below.
+**Next headless milestone (partially reached):** an AI agent can run a single local command (no browser, no remote DB) and receive a JSON economy report for N simulated game-days. Deterministic slices exist for the **mining economy** — `npm run mining:report -- --days N` (pure `ops/scripts/lib/mining.mjs`) — and for **AI traders** — `npm run traders:report -- --days N` (`simulateTraders` in `world_service.mjs`). Hunger, banking, events and live market-pressure feedback still need an offline path — see below.
 
 ## Headless constraint
 
@@ -18,7 +18,7 @@ Current headless infrastructure:
 - `ops/scripts/trade_sim.mjs` — AI trader simulation (also Supabase-backed)
 - `ops/scripts/qa_gameplay_sim.mjs` — automated player sim
 
-**What's missing for the milestone:** a *whole-world* in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. The **mining economy already does this** offline via `ops/scripts/mining_report.mjs`; bringing the rest along (traders, hunger, banking) would need `world_service.mjs` to gain a local-state mode (e.g. a JSON file as the state store).
+**What's missing for the milestone:** a *whole-world* in-memory simulation path that accepts `--days N` and writes a JSON report without touching a remote DB. **Mining** (`mining_report.mjs`) and **AI traders** (`trader_report.mjs`) already do this offline; the trader sim has no market-pressure feedback (live, the DB computes it from trade events). Hunger, banking and events would need `world_service.mjs` to gain a local-state mode too.
 
 ## Test-first rule
 
@@ -97,7 +97,7 @@ See `ops/RUNBOOK.md` for the full 8-step TDD loop and emergency rollback.
 | `ops/scripts/mining_tests.mjs` | Mining redesign: 2 sites, metal variants, rarity-based pricing, NPC+player production, warehouse conservation, trader+player shipping, deterministic report | Imports `lib/mining.mjs`; **fully offline, no browser** |
 | `ops/scripts/player_sim_tests.mjs` | Unit tests for the autonomous player-sim brain (`lib/player_ai.mjs`): `decideAction` policy + `detectStuck`/`detectBalance`/`detectQoL` detectors | Imports `lib/player_ai.mjs`; **fully offline, no browser** |
 | `ops/scripts/balance_regression_test.mjs` | Economy health guardrails on the **real** `world_service` model (neutralised drift/events/pressure): no dead trade goods, item-lane dominance <5×, ≥3 goods within 2× of the top lane, focused trader net-positive over 30 days. Fails CI if a price tweak re-breaks route balance. | Imports `world_service.mjs`; **fully offline, no browser** |
-| `ops/scripts/trader_tests.mjs` | AI trader brain: seeded RNG, `decideRoute` personalities, a multi-tick `tickTrader` run that must replay identically with `Math.random`/`Date` trapped, and a guard that route picking exists only in `src/sim/trader_core.js` | **Fully offline, no browser** |
+| `ops/scripts/trader_tests.mjs` | AI trader brain: seeded RNG, `decideRoute` personalities, a multi-tick `tickTrader` run that must replay identically with `Math.random`/`Date` trapped, a guard that route picking exists only in `src/sim/trader_core.js`, and `simulateTraders` checks (replay, report shape, everyone trades, diversity guardrail: ≥6 items, top item ≤40%, HHI ≤0.25 over 30 days, module state restored, CLI output) | **Fully offline, no browser** |
 | `ops/scripts/world3d_tests.mjs` | Pure helpers of the three.js renderer (`src/world3d_core.js`): tile→ground/prop mapping, camera rig framing, sun arc, building palette parity with `main.js`, renderer preference | **Fully offline, no browser** (loads the module via a `data:` import) |
 | `ops/scripts/qa_selftest.mjs` | Playwright: desktop (1280×720) + mobile (iPhone 12), waits for `window.__QA.status='pass'`. Also `renderer-3d` (3D boots on SwiftShader, non-blank frame, w2s↔s2w round trip, real click paths to the clicked tile) and `renderer-2d-optout` (`?r=2d`) | Requires Playwright + chromium; auto-starts server on port 8080; `QA_URL` env overrides |
 | `ops/scripts/qa_city_walk.mjs` | Teleports player into cities, performs random click-move sequences, checks bounds | Requires Playwright + `window.__QA.api` |
@@ -152,6 +152,7 @@ without z-index: as positioned siblings they stack in DOM order, so HTML dialogs
 | File | What it does |
 |---|---|
 | `src/sim/trader_core.js` | The one route-picker for AI traders (`decideRoute` with aggressive / cautious / opportunist personalities, optional `crowd` anti-herding filter — only the browser fallback passes it today), plus `makeRng`/`hashSeed`/`traderRng` (seeded RNG) and `cityDwellSeconds`. Pure: callers pass prices, market pressure and an rng in. Used by `world_service.mjs` (real routes) and by `main.js`'s offline fallback (dynamic `import`, `?v=`-versioned; until it loads the fallback waits, and the QA trader check awaits `TRADER_CORE_READY`). `src/sim/package.json` marks the folder as ES modules so Node can import it. |
+| `ops/scripts/trader_report.mjs` | Headless `--days N` JSON trader report: per-trader gold/profit/trips/gear, item trip shares, top routes, diversity (`distinctItems`, `topItemShare`, `hhi` — loaded trips only), stranded `rescues` and `emptyTrips` per trader. `npm run traders:report -- --days 30 --seed 7 [--pretty]`. Wraps `simulateTraders({days, seed})` in `world_service.mjs`: neutral world (no events/pressure/drift/discount), 90 simulated seconds per game-day, module state restored afterwards. |
 
 `world_service.mjs`'s `tickTrader(t, elapsed, { nowIso, peers })` is exported and deterministic: random choices come from `traderRng` (world seed + day + trader id + trip count), timestamps from `nowIso`, and `main()` is the only place that reads the clock. Other world systems (events, treasury) still use `Math.random`/`new Date()`.
 

@@ -907,10 +907,19 @@ async function callAggregateEconomy() {
 
 // ── Tick logic ────────────────────────────────────────────────────────────
 
+// Copy of every trader for strategy reviews, taken before a tick. profit_history
+// is copied too, so a peer never sees trips finished during the same tick.
+function snapshotPeers(traders) {
+  return traders.map(t => ({
+    ...t,
+    profit_history: Array.isArray(t.profit_history) ? t.profit_history.slice() : [],
+  }));
+}
+
 // Advance one trader by `elapsed` seconds. Deterministic: the time stamp comes
 // from nowIso and every random choice from a seeded rng, so the same snapshot
 // always replays the same way. peers = pre-tick snapshot for strategy reviews.
-function tickTrader(t, elapsed, { nowIso, peers = [] } = {}) {
+function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
   if (typeof nowIso !== 'string') throw new Error('tickTrader needs { nowIso }');
   // Process elapsed time in micro-steps so multiple trips can complete in one tick
   const STEP = 60; // seconds per micro-step
@@ -1015,6 +1024,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [] } = {}) {
             .map(c => buyPrice(c, it))));
         if (t.gold < minCargoCost) {
           console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any cargo)`);
+          if (onRescue) onRescue({ trader: t.id, from: t.gold, to: minCargoCost });
           t.gold = minCargoCost;
         }
         t.total_profit     = (t.total_profit || 0) + tripProfit;
@@ -1043,6 +1053,145 @@ function tickTrader(t, elapsed, { nowIso, peers = [] } = {}) {
     }
   }
   t.updated_at = nowIso;
+}
+
+// ── Offline trader simulation (headless report) ─────────────────────────
+// Runs every AI trader for N game-days entirely in memory: no DB, no clock, no
+// Math.random. Starts from a neutral world (day 1, no events, no pressure,
+// drift 1.0, no treasury discount) and restores this module's state afterwards.
+// Market pressure is NOT fed back from trades offline (live, the DB does that),
+// so the report shows where traders go on the base economy.
+//
+// SIM_SECONDS_PER_DAY ≈ ROUTE_DURATION / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
+const SIM_SECONDS_PER_DAY = 90;
+const SIM_STEP_SECONDS    = 60;
+const SIM_NOW_ISO         = '2000-01-01T00:00:00.000Z'; // fixed stamp for offline runs
+
+// Trip bookkeeping below needs every trip to span at least one step boundary.
+const MIN_ROUTE_SECONDS = Math.min(240, ...Object.values(ROUTE_DURATION)); // 240 = tickTrader default
+if (MIN_ROUTE_SECONDS <= SIM_STEP_SECONDS) {
+  throw new Error(`SIM_STEP_SECONDS (${SIM_STEP_SECONDS}) must be shorter than the shortest route (${MIN_ROUTE_SECONDS}s)`);
+}
+
+function simulateTraders({ days = 30, seed = 1 } = {}) {
+  const saved = {
+    world: { ...WORLD_STATE },
+    events: WORLD_EVENTS.slice(),
+    pressure: { ...PRESSURE_MAP },
+    drift: JSON.parse(JSON.stringify(MARKET_DRIFT)),
+    treasury: JSON.parse(JSON.stringify(CITY_TREASURY)),
+    tradeEvents: TRADE_EVENTS_BATCH.length,
+    strategyLog: STRATEGY_LOG_BATCH.length,
+  };
+  const log = console.log;
+  console.log = () => {};
+  try {
+    WORLD_STATE.day = 1;
+    WORLD_STATE.frac = 0;
+    WORLD_STATE.seed = seed;
+    WORLD_EVENTS.length = 0;
+    for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
+    for (const cityId of CITIES) {
+      MARKET_DRIFT[cityId] = {};
+      for (const item of ITEMS) MARKET_DRIFT[cityId][item.id] = 1.0;
+    }
+    for (const t of Object.values(CITY_TREASURY)) {
+      if (t.city_bonus) t.city_bonus.marketDiscount = 0;
+    }
+
+    const traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i, SIM_NOW_ISO));
+    const trips = []; // every completed trip: { trader, from, to, item, profit, empty }
+    const lastTrip = Object.fromEntries(traders.map(t => [t.id, 0]));
+    const rescues = Object.fromEntries(traders.map(t => [t.id, 0]));
+    const onRescue = ({ trader }) => { rescues[trader] += 1; };
+    const totalSeconds = days * SIM_SECONDS_PER_DAY;
+
+    for (let elapsed = 0; elapsed < totalSeconds; elapsed += SIM_STEP_SECONDS) {
+      WORLD_STATE.day = 1 + Math.floor(elapsed / SIM_SECONDS_PER_DAY);
+      const peers = snapshotPeers(traders);
+      for (const t of traders) {
+        // Routes take ≥ 180s and a step is 60s, so a trip that ends in this step
+        // was already on the road when the step began: its origin is from_id now.
+        const fromBefore = t.state === 'traveling' ? t.from_id : null;
+        const cargoBefore = Object.values(t.inv || {}).reduce((a, q) => a + (q || 0), 0);
+        tickTrader(t, Math.min(SIM_STEP_SECONDS, totalSeconds - elapsed), { nowIso: SIM_NOW_ISO, peers, onRescue });
+        for (const h of t.profit_history) {
+          if (h.trip > lastTrip[t.id]) {
+            trips.push({ trader: t.id, from: fromBefore, to: h.to, item: h.item, profit: h.profit, empty: cargoBefore === 0 });
+            lastTrip[t.id] = h.trip;
+          }
+        }
+      }
+    }
+    return buildTraderReport({ days, seed, traders, trips, rescues });
+  } finally {
+    console.log = log;
+    for (const k of Object.keys(WORLD_STATE)) delete WORLD_STATE[k];
+    Object.assign(WORLD_STATE, saved.world);
+    WORLD_EVENTS.length = 0; WORLD_EVENTS.push(...saved.events);
+    for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
+    Object.assign(PRESSURE_MAP, saved.pressure);
+    for (const k of Object.keys(MARKET_DRIFT)) delete MARKET_DRIFT[k];
+    Object.assign(MARKET_DRIFT, saved.drift);
+    for (const k of Object.keys(CITY_TREASURY)) delete CITY_TREASURY[k];
+    Object.assign(CITY_TREASURY, saved.treasury);
+    TRADE_EVENTS_BATCH.length = saved.tradeEvents;
+    STRATEGY_LOG_BATCH.length = saved.strategyLog;
+  }
+}
+
+function buildTraderReport({ days, seed, traders, trips, rescues }) {
+  const round = (x, d = 4) => Math.round(x * 10 ** d) / 10 ** d;
+  const items = {};
+  const routes = {};
+  const loaded = trips.filter(tr => !tr.empty);
+  const emptyBy = {};
+  for (const tr of trips) if (tr.empty) emptyBy[tr.trader] = (emptyBy[tr.trader] || 0) + 1;
+  // Item shares, routes and diversity count only trips that carried cargo.
+  for (const tr of loaded) {
+    const it = (items[tr.item] ||= { trips: 0, profit: 0, share: 0 });
+    it.trips += 1; it.profit += tr.profit;
+    const key = `${tr.from ?? '?'}→${tr.to}:${tr.item}`;
+    const r = (routes[key] ||= { from: tr.from, to: tr.to, item: tr.item, trips: 0, profit: 0 });
+    r.trips += 1; r.profit += tr.profit;
+  }
+  const n = loaded.length || 1;
+  let hhi = 0, topShare = 0;
+  for (const it of Object.values(items)) {
+    it.share = it.trips / n;
+    hhi += it.share * it.share;
+    topShare = Math.max(topShare, it.share);
+  }
+  const routeList = Object.values(routes).sort((a, b) => b.trips - a.trips || b.profit - a.profit);
+
+  return {
+    days, seed,
+    secondsPerDay: SIM_SECONDS_PER_DAY,
+    pressureFeedback: false,
+    traders: traders.map(t => ({
+      id: t.id, name: t.name, personality: t.personality,
+      startGold: t.start_gold, endGold: t.gold,
+      profit: t.total_profit, trips: t.trips_completed,
+      gearTier: t.gear_tier || 0, preferredItem: t.preferred_item,
+      rescues: rescues[t.id] || 0, emptyTrips: emptyBy[t.id] || 0,
+    })),
+    items,
+    routes: routeList.slice(0, 10),
+    diversity: {
+      distinctItems: Object.keys(items).length,
+      distinctRoutes: routeList.length,
+      topItemShare: round(topShare),
+      hhi: round(hhi), // Herfindahl index of item trip shares: 1 = one item only
+    },
+    totals: {
+      trips: trips.length,
+      emptyTrips: trips.length - loaded.length,
+      rescues: Object.values(rescues).reduce((a, b) => a + b, 0),
+      profit: traders.reduce((s, t) => s + (t.total_profit || 0), 0),
+      goldStart: traders.reduce((s, t) => s + t.start_gold, 0),
+      goldEnd: traders.reduce((s, t) => s + t.gold, 0),
+    },
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -1079,7 +1228,7 @@ async function main() {
     traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i, nowIso));
   } else {
     // Snapshot all traders before ticking so strategy reviews can compare peers
-    const peers = traders.map(t => ({ ...t }));
+    const peers = snapshotPeers(traders);
     traders = traders.map(t => {
       const lastTick = t.updated_at ? new Date(t.updated_at).getTime() : now;
       const elapsed  = Math.min(MAX_TICK, (now - lastTick) / 1000);
@@ -1161,6 +1310,8 @@ export {
   netSellPrice,
   decideRoute,
   tickTrader,
+  snapshotPeers,
+  simulateTraders,
   traderCapacity,
   eventModifier,
   generateWorldEvents,

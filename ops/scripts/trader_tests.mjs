@@ -13,6 +13,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
@@ -247,6 +248,102 @@ test('dwell timer after a trip is in [30, 90)', () => {
   for (let i = 0; i < 20 && !t.trips_completed; i++) tick(t, 60, { nowIso: NOW, peers: [] });
   assert(t.trips_completed >= 1, 'trader should complete a trip');
   if (t.state === 'in_city') assert(t.city_timer > 0 && t.city_timer < 90, `city_timer ${t.city_timer}`);
+});
+
+// ── simulateTraders (offline multi-day run + report) ───────────────────────
+console.log('\nworld_service: simulateTraders');
+
+const sim = (o) => withNoClock(() => ws.simulateTraders(o));
+
+test('simulateTraders is exported', () => {
+  assertEqual(typeof ws.simulateTraders, 'function', 'typeof simulateTraders');
+});
+
+test('same seed → identical report; different seed → different report', () => {
+  const a = sim({ days: 10, seed: 7 }), b = sim({ days: 10, seed: 7 }), c = sim({ days: 10, seed: 8 });
+  assertEqual(JSON.stringify(b), JSON.stringify(a), 'seed 7 replay');
+  assert(JSON.stringify(c) !== JSON.stringify(a), 'seed 8 should differ');
+});
+
+test('report shape: traders, items, routes, diversity, totals', () => {
+  const r = sim({ days: 10, seed: 1 });
+  assertEqual(r.days, 10, 'days'); assertEqual(r.seed, 1, 'seed');
+  assertEqual(r.traders.length, ws.TRADER_DEFS.length, 'one row per trader');
+  for (const t of r.traders) {
+    for (const k of ['id', 'name', 'personality', 'startGold', 'endGold', 'profit', 'trips', 'gearTier']) {
+      assert(k in t, `trader.${k}`);
+    }
+  }
+  assert(r.items && typeof r.items === 'object', 'items');
+  assert(Array.isArray(r.routes), 'routes');
+  for (const k of ['distinctItems', 'distinctRoutes', 'topItemShare', 'hhi']) assert(k in r.diversity, `diversity.${k}`);
+  for (const k of ['trips', 'profit', 'goldStart', 'goldEnd']) assert(k in r.totals, `totals.${k}`);
+  const shareSum = Object.values(r.items).reduce((s, i) => s + i.share, 0);
+  assert(Math.abs(shareSum - 1) < 1e-9, `item shares sum to 1 (got ${shareSum})`);
+});
+
+test('30 days: every trader trades and nobody ends with negative gold', () => {
+  const r = sim({ days: 30, seed: 3 });
+  for (const t of r.traders) {
+    assert(t.trips >= 5, `${t.id} made only ${t.trips} trips`);
+    assert(t.endGold >= 0, `${t.id} ended at ${t.endGold}g`);
+  }
+  assertEqual(r.totals.trips, r.traders.reduce((s, t) => s + t.trips, 0), 'totals.trips');
+});
+
+test('30 days: traders spread across goods (no herding onto one item)', () => {
+  // Baseline (loaded trips, seeds 1–3): 9 distinct items, top item 21–38%, HHI 0.13–0.20.
+  for (const seed of [1, 2, 3]) {
+    const d = sim({ days: 30, seed }).diversity;
+    assert(d.distinctItems >= 6, `seed ${seed}: only ${d.distinctItems} distinct items`);
+    assert(d.topItemShare <= 0.4, `seed ${seed}: one item takes ${d.topItemShare} of trips`);
+    assert(d.hhi <= 0.25, `seed ${seed}: item concentration HHI ${d.hhi}`);
+  }
+});
+
+test('report counts stranded rescues and empty-cart trips, and keeps them out of item shares', () => {
+  const r = sim({ days: 120, seed: 1 });
+  assert(Number.isInteger(r.totals.rescues), 'totals.rescues');
+  assert(Number.isInteger(r.totals.emptyTrips), 'totals.emptyTrips');
+  for (const t of r.traders) {
+    assert(Number.isInteger(t.rescues), `${t.id}.rescues`);
+    assert(Number.isInteger(t.emptyTrips), `${t.id}.emptyTrips`);
+  }
+  assertEqual(r.totals.rescues, r.traders.reduce((s, t) => s + t.rescues, 0), 'rescue total');
+  const itemTrips = Object.values(r.items).reduce((s, i) => s + i.trips, 0);
+  assertEqual(itemTrips + r.totals.emptyTrips, r.totals.trips, 'item trips + empty trips = all trips');
+});
+
+test('snapshotPeers copies profit_history (peers never see this tick\'s trips)', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  t.profit_history = [{ trip: 1, profit: 5 }];
+  const [p] = ws.snapshotPeers([t]);
+  t.profit_history.push({ trip: 2, profit: 999 });
+  assertEqual(p.profit_history.length, 1, 'snapshot history length');
+});
+
+test('tickTrader reports rescues through ctx.onRescue', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  t.gold = 0; t.city_timer = 0;
+  let rescues = 0;
+  for (let i = 0; i < 20 && !t.trips_completed; i++) tick(t, 60, { nowIso: NOW, peers: [], onRescue: () => rescues++ });
+  assert(t.trips_completed >= 1, 'made a trip');
+  assertEqual(rescues, 1, 'broke trader arriving with an empty cart is rescued once');
+});
+
+test('simulateTraders leaves world_service module state as it found it', () => {
+  const snap = () => JSON.stringify({ w: ws.WORLD_STATE, e: ws.WORLD_EVENTS, p: ws.PRESSURE_MAP, t: ws.CITY_TREASURY, d: ws.MARKET_DRIFT });
+  ws.MARKET_DRIFT.valdenmere = { ...(ws.MARKET_DRIFT.valdenmere || {}), grain: 1.07 }; // non-neutral drift must survive
+  const before = snap();
+  sim({ days: 5, seed: 2 });
+  const after = snap();
+  assertEqual(after, before, 'module state restored');
+});
+
+test('trader_report CLI prints the same JSON as simulateTraders', () => {
+  const r = spawnSync('node', [join(ROOT, 'ops/scripts/trader_report.mjs'), '--days', '6', '--seed', '4'], { encoding: 'utf8' });
+  assertEqual(r.status, 0, `exit code (stderr: ${r.stderr})`);
+  assertEqual(r.stdout.trim(), JSON.stringify(sim({ days: 6, seed: 4 })), 'CLI stdout');
 });
 
 // ── One shared route-picker ─────────────────────────────────────────────────

@@ -16,6 +16,7 @@
     "test:harness": "node ops/scripts/harness_tests.mjs",
     "test:unit": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/balance_regression_test.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs && node ops/scripts/world3d_tests.mjs && node ops/scripts/trader_tests.mjs",
     "mining:report": "node ops/scripts/mining_report.mjs",
+    "traders:report": "node ops/scripts/trader_report.mjs",
     "test": "node ops/scripts/unit_tests.mjs && node ops/scripts/economy_parity_test.mjs && node ops/scripts/mining_tests.mjs && node ops/scripts/balance_regression_test.mjs && node ops/scripts/harness_tests.mjs && node ops/scripts/player_sim_tests.mjs && node ops/scripts/world3d_tests.mjs && node ops/scripts/trader_tests.mjs && node ops/scripts/qa_selftest.mjs"
   },
   "repository": {
