@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.55'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.56'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4405,57 +4405,45 @@ function buildTraderPath(fromId, toId) {
   return result;
 }
 
+// The route picker is shared with the server ticker: src/sim/trader_core.js
+// (pure, seeded, unit-tested by ops/scripts/trader_tests.mjs). Loaded like
+// world3d_core, versioned per build. Until it arrives, localTraderDepart just
+// backs off; the server drives traders whenever it is ticking anyway.
+let TRADER_CORE = null;
+const TRADER_CORE_READY = import(new URL('./sim/trader_core.js?v=' + NPC_DIAG_BUILD.replace(/^v/, ''), MAIN_SCRIPT_URL).href)
+  .then((mod) => { TRADER_CORE = mod; return mod; });
+TRADER_CORE_READY.catch((e) => console.warn('[TRADERS] trader_core failed to load; local trader fallback disabled:', e?.message || e));
+
 /**
- * Decide the best route for a trader based on personality + current prices.
- * Returns { fromId, toId, itemId } - the trip they'll do.
+ * Decide the next trip for a trader with this client's prices.
+ * Returns { fromId, toId, itemId }, or null while trader_core is still loading.
  */
 function traderDecideRoute(trader) {
+  if (!TRADER_CORE) return null;
+  const { decideRoute, makeRng, hashSeed } = TRADER_CORE;
   const fromId = trader.toId || trader.fromId || 'valdenmere';
-  const candidates = [];
-  for (const to of world.cities) {
-    if (to.id === fromId) continue; // never stay in same city
-    for (const it of ITEMS) {
-      if (it.sourceCities && !it.sourceCities.includes(fromId)) continue; // respect item source restrictions
-      const buy  = quoteFor(fromId, it).buy;
-      const sell = quoteFor(to.id, it).sell;
-      const profit = sell - buy;
-      if (profit <= 0) continue;
-      const units = Math.floor(trader.capacity / it.weight);
-      candidates.push({ from: fromId, to: to.id, itemId: it.id, profit: profit * units });
-    }
-  }
-
-  if (!candidates.length) {
-    // No profitable route - pick any other city
-    const others = world.cities.filter(c => c.id !== fromId);
-    const fallbackTo = others[Math.floor(Math.random() * others.length)]?.id || 'ashport';
-    return { fromId, toId: fallbackTo, itemId: 'ore' };
-  }
-
-  candidates.sort((a, b) => b.profit - a.profit);
-
-  // Diversity enforcement: avoid piling onto an item already being traded by 2+ other traders.
-  // This prevents all traders from converging on a single over-pressured item.
-  const itemCounts = {};
+  // Seeded per trader + departure count, so the fallback never uses Math.random.
+  const rng = makeRng(hashSeed(trader.id, trader.tripsCompleted || 0, trader._localDeparts || 0, 'route'));
+  // Anti-herding: how many OTHER traders are carrying each item right now.
+  const crowd = {};
   for (const t of AI_TRADERS) {
-    if (t.id !== trader.id && t.itemId) {
-      itemCounts[t.itemId] = (itemCounts[t.itemId] || 0) + 1;
-    }
+    if (t.id !== trader.id && t.itemId) crowd[t.itemId] = (crowd[t.itemId] || 0) + 1;
   }
-  // Filter out items where 2+ other traders are already active, unless no alternative exists
-  const diverseCandidates = candidates.filter(c => (itemCounts[c.itemId] || 0) < 2);
-  const pool = diverseCandidates.length > 0 ? diverseCandidates : candidates;
-
-  let pick;
-  if (trader.personality === 'aggressive') {
-    pick = pool[0];
-  } else if (trader.personality === 'cautious') {
-    pick = pool[Math.floor(pool.length * 0.4)] || pool[0];
-  } else {
-    // Opportunist: random from top 5
-    pick = pool[Math.floor(Math.random() * Math.min(5, pool.length))];
-  }
-  return { fromId, toId: pick.to, itemId: pick.itemId };
+  const pick = decideRoute(
+    { id: trader.id, from_id: fromId, to_id: fromId, personality: trader.personality },
+    {
+      cities: world.cities.map(c => c.id),
+      items: ITEMS,
+      capacity: trader.capacity,
+      buy: (cityId, it) => quoteFor(cityId, it).buy,
+      // After sale tax, same as the server's netSellPrice.
+      sellNet: (cityId, it) => Math.max(1, Math.round(quoteFor(cityId, it).sell * (1 - (CITY_RULES[cityId]?.taxRate ?? 0)))),
+      pressure: (cityId, itemId) => ECONOMY.pressure[cityId]?.[itemId] || 0,
+      crowd,
+      rng,
+    },
+  );
+  return { fromId, toId: pick.toId, itemId: pick.itemId };
 }
 
 function spawnAiTraders() {
@@ -4620,6 +4608,9 @@ function parkTraderInCity(t) {
 
 function localTraderDepart(t) {
   const route = traderDecideRoute(t);
+  if (!route) return false; // trader_core still loading
+  // Count every attempt, so a retry after an unreachable pick gets a fresh roll.
+  t._localDeparts = (t._localDeparts || 0) + 1;
   const path = buildTraderPath(route.fromId, route.toId);
   if (!path || path.length === 0) return false;
   t.fromId = route.fromId;
@@ -6925,7 +6916,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.55',
+    version: 'v0.5.56',
     whatsNew: [
       'Trading feels alive: when you buy, coins fly from your gold into the goods and the goods fly into your pack; when you sell, your goods go to the merchant and a shower of coins flies into your purse. The row you traded flashes (blue for buying, gold for selling), your gold total bounces with a floating "+24g" or "−12g", and the trade buttons press in when tapped. (Calmer if your device asks for reduced motion.)',
       'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
@@ -8649,7 +8640,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.55',
+      buildVersion: 'v0.5.56',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -15951,27 +15942,6 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           `mine: legacy save with persisted mineCooldown is migrated to empty (got ${Object.keys(player.mineCooldown).length})`);
       }
 
-      // ── AI trader local-fallback departure ────────────────────────────────
-      // When the server (Supabase world_service cron) isn't reachable, all
-      // traders would otherwise sit forever 'in_city' because traderDepart()
-      // is a server-driven no-op. Confirm the local autonomy kicks in so
-      // traders still leave their starting city after a reasonable wait.
-      {
-        const api = __QA.api;
-        const seenTraveling = new Set();
-        // Tick ~40s of game time (well past the local fallback threshold).
-        // Watch every frame so a trader that departs + arrives between samples
-        // is still counted.
-        for (let i = 0; i < 2500; i++) {
-          api.step(1/60);
-          for (const t of api.qaAiTraders()) {
-            if (t.state === 'traveling') seenTraveling.add(t.id);
-          }
-        }
-        assert(seenTraveling.size > 0,
-          `traders: at least one should depart locally when server isn't ticking (saw ${seenTraveling.size} traveling)`);
-      }
-
       // ── Loot pickup animation: gain → popup queue ────────────────────────
       // Every item-gain site funnels through gainItem(itemId, qty), which
       // spawns a floating "+N icon" sprite. The render path consumes the
@@ -16343,7 +16313,40 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
         api.qaClearLootPopups();
       }
 
-      qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle + road-event-ui');
+      // The trader fallback needs src/sim/trader_core.js, which loads
+      // asynchronously, so this last check (and the pass) waits for it.
+      // Time-boxed, so a hung import fails QA instead of leaving it pending.
+      Promise.race([
+        TRADER_CORE_READY,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 15s')), 15000)),
+      ]).then(() => {
+        try {
+          // ── AI trader local-fallback departure ────────────────────────────────
+          // When the server (Supabase world_service cron) isn't reachable, all
+          // traders would otherwise sit forever 'in_city' because traderDepart()
+          // is a server-driven no-op. Confirm the local autonomy kicks in so
+          // traders still leave their starting city after a reasonable wait.
+          {
+            const api = __QA.api;
+            const seenTraveling = new Set();
+            // Tick ~40s of game time (well past the local fallback threshold).
+            // Watch every frame so a trader that departs + arrives between samples
+            // is still counted.
+            for (let i = 0; i < 2500; i++) {
+              api.step(1/60);
+              for (const t of api.qaAiTraders()) {
+                if (t.state === 'traveling') seenTraveling.add(t.id);
+              }
+            }
+            assert(seenTraveling.size > 0,
+              `traders: at least one should depart locally when server isn't ticking (saw ${seenTraveling.size} traveling)`);
+          }
+
+          qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle + road-event-ui');
+        } catch (e) {
+          qaFail(String(e && (e.stack || e.message) || e));
+        }
+      }, (e) => qaFail('trader_core failed to load: ' + String(e && (e.message || e))));
     } catch (e) {
       qaFail(String(e && (e.stack || e.message) || e));
     }
