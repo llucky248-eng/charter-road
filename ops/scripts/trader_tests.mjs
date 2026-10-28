@@ -161,6 +161,46 @@ test('traderRng depends on the salt (world seed / day)', () => {
   assert(core.traderRng(t, '1:5', 'route')() !== core.traderRng(t, '1:6', 'route')(), 'day changes the stream');
 });
 
+test('gold caps units: an unaffordable item loses to an affordable one', () => {
+  // With 30g: a (buy 10) → 3 units × 10 = 30; c (buy 10, weight 2) → 3 units × 20 = 60;
+  // make c expensive so only 1 fits: 1 × 20 = 20 → a (30) wins.
+  const buy = (cityId, item) => (item.id === 'c' ? 25 : TOY_BUY[cityId][item.id]);
+  const sellNet = (cityId, item) => (item.id === 'c' ? 45 : TOY_SELL[cityId][item.id]);
+  const r = core.decideRoute(toyTrader(), toyCtx({ buy, sellNet, gold: 30 }));
+  assertEqual(r.itemId, 'a', 'affordable a beats c');
+  assertEqual(r.units, 3, 'units capped by gold');
+});
+
+test('gold too low for any cargo → fallback trip (no phantom profit)', () => {
+  const r = core.decideRoute(toyTrader(), toyCtx({ gold: 5 }));
+  assertEqual(r.itemId, 'grain', 'fallback item');
+  assert(!r.units, 'no units');
+});
+
+test('score is gold per minute: a shorter route wins at equal trip profit', () => {
+  const ctx = toyCtx({
+    cities: ['x', 'y', 'z'],
+    buy: (c, it) => ({ a: 10, b: 10, c: 10, src: 99 })[it.id],
+    sellNet: (c, it) => (c === 'x' ? 1 : ({ a: 20, b: 1, c: 1, src: 1 })[it.id]),
+    routeSeconds: (from, to) => (to === 'y' ? 300 : 120),
+  });
+  const r = core.decideRoute(toyTrader(), ctx);
+  assertEqual(r.toId, 'z', 'same profit to y (300s) and z (120s) → z');
+});
+
+test('routeSeconds defaults to the shared ROUTE_SECONDS table', () => {
+  assertEqual(core.routeSeconds('valdenmere', 'ironholt'), 180, 'valdenmere→ironholt');
+  assertEqual(core.routeSeconds('ashport', 'ironholt'), 360, 'ashport→ironholt');
+  assertEqual(core.routeSeconds('nowhere', 'else'), 240, 'unknown route default');
+});
+
+test('gold given as a numeric string still caps units', () => {
+  const buy = (cityId, item) => (item.id === 'c' ? 25 : TOY_BUY[cityId][item.id]);
+  const sellNet = (cityId, item) => (item.id === 'c' ? 45 : TOY_SELL[cityId][item.id]);
+  const r = core.decideRoute(toyTrader(), toyCtx({ buy, sellNet, gold: '30' }));
+  assertEqual(r.units, 3, 'units capped by "30"');
+});
+
 test('decideRoute never reads the clock or Math.random', () => {
   withNoClock(() => {
     for (const personality of ['aggressive', 'cautious', 'opportunist']) {
@@ -232,6 +272,35 @@ test('makeSeedTrader refuses to run without a time', () => {
   let threw = false;
   try { ws.makeSeedTrader(ws.TRADER_DEFS[0], 0); } catch { threw = true; }
   assert(threw, 'makeSeedTrader without nowIso should throw');
+});
+
+test('gear upgrade keeps enough gold to fill the new cart with the cheapest goods', () => {
+  const reserve = ws.upgradeReserve(1, 'valdenmere'); // tier 1 cart, seed trader stands in valdenmere
+  assert(reserve > 0, `reserve ${reserve}`);
+  const history = [1, 2, 3].map(trip => ({ trip, profit: 60, item: 'grain', to: 'ironholt' }));
+  const poor = { ...ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW), gold: 200 + reserve - 1, profit_history: history };
+  quiet(() => ws.tryGearUpgrade(poor));
+  assertEqual(poor.gear_tier, 0, 'one gold short of cost + reserve → no upgrade');
+  const rich = { ...ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW), gold: 200 + reserve, profit_history: history };
+  quiet(() => ws.tryGearUpgrade(rich));
+  assertEqual(rich.gear_tier, 1, 'cost + reserve → upgrade');
+  assert(rich.gold >= reserve, `left with ${rich.gold}g, reserve ${reserve}g`);
+});
+
+test('tickTrader loads exactly the units decideRoute chose (fallback → empty cart)', () => {
+  let sawFallback = false;
+  for (const gold of [5, 12, 15, 25, 40, 500]) {
+    for (const from of ws.CITIES) {
+      const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+      t.gold = gold; t.city_timer = 0; t.from_id = from; t.to_id = from;
+      const route = ws.decideRoute(t);
+      tick(t, 60, { nowIso: NOW, peers: [] });
+      const expected = route.units ? { [route.itemId]: route.units } : {};
+      assertEqual(JSON.stringify(t.inv), JSON.stringify(expected), `gold ${gold} from ${from}`);
+      if (!route.units) sawFallback = true;
+    }
+  }
+  assert(sawFallback, 'at least one case should hit the fallback');
 });
 
 test('tickTrader refuses to run without a time', () => {
@@ -331,6 +400,23 @@ test('tickTrader reports rescues through ctx.onRescue', () => {
   assertEqual(rescues, 1, 'broke trader arriving with an empty cart is rescued once');
 });
 
+test('30 days: almost no trader leaves with an empty cart', () => {
+  // Before afford-aware routing: 23–34% of trips were empty.
+  for (const seed of [1, 2, 3]) {
+    const t = sim({ days: 30, seed }).totals;
+    assert(t.emptyTrips / t.trips <= 0.10, `seed ${seed}: ${t.emptyTrips}/${t.trips} trips empty`);
+  }
+});
+
+test('120 days: every trader ends richer than it started, with no rescues', () => {
+  // Before the upgrade reserve + afford-aware routing, 2 of 6 ended near or below start.
+  const r = sim({ days: 120, seed: 1 });
+  for (const t of r.traders) {
+    assert(t.endGold > t.startGold, `${t.id}: ${t.startGold}g → ${t.endGold}g`);
+    assertEqual(t.rescues, 0, `${t.id} rescues`);
+  }
+});
+
 test('simulateTraders leaves world_service module state as it found it', () => {
   const snap = () => JSON.stringify({ w: ws.WORLD_STATE, e: ws.WORLD_EVENTS, p: ws.PRESSURE_MAP, t: ws.CITY_TREASURY, d: ws.MARKET_DRIFT });
   ws.MARKET_DRIFT.valdenmere = { ...(ws.MARKET_DRIFT.valdenmere || {}), grain: 1.07 }; // non-neutral drift must survive
@@ -366,6 +452,16 @@ test('personality branching exists only in trader_core', () => {
   const re = /personality\s*===\s*['"](aggressive|cautious|opportunist)['"]\s*\)/;
   assert(!re.test(wsSrc), 'world_service.mjs still has its own personality branch');
   assert(!re.test(mainSrc), 'main.js still has its own personality branch');
+});
+
+test('main.js fallback passes the trader\'s gold to decideRoute', () => {
+  const i = mainSrc.indexOf('function traderDecideRoute');
+  const body = mainSrc.slice(i, mainSrc.indexOf('\n}\n', i));
+  assert(i > 0 && /\bgold:\s*trader\.gold\b/.test(body), 'traderDecideRoute should pass gold: trader.gold');
+});
+
+test('route durations live only in trader_core', () => {
+  assert(!/const ROUTE_DURATION\s*=\s*\{/.test(wsSrc), 'world_service.mjs still defines its own ROUTE_DURATION table');
 });
 
 test('trader logic in world_service uses no Math.random / new Date()', () => {

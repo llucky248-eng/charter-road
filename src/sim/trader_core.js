@@ -36,8 +36,27 @@ export function traderRng(trader, salt, purpose) {
 }
 
 // Seconds a trader rests in a city after arriving.
+const DWELL_MIN_SECONDS  = 30;
+const DWELL_SPAN_SECONDS = 60;
+const MEAN_DWELL_SECONDS = DWELL_MIN_SECONDS + DWELL_SPAN_SECONDS / 2;
 export function cityDwellSeconds(rng) {
-  return 30 + rng() * 60;
+  return DWELL_MIN_SECONDS + rng() * DWELL_SPAN_SECONDS;
+}
+
+// Travel time between cities, in seconds. Shared by the server ticker and the
+// browser fallback so both rank routes on the same clock.
+export const ROUTE_SECONDS = {
+  'valdenmere→ashport': 300, 'ashport→valdenmere': 300,
+  'valdenmere→crosshaven': 240, 'crosshaven→valdenmere': 240,
+  'valdenmere→ironholt': 180, 'ironholt→valdenmere': 180,
+  'ashport→crosshaven': 180, 'crosshaven→ashport': 180,
+  'ashport→ironholt': 360, 'ironholt→ashport': 360,
+  'crosshaven→ironholt': 240, 'ironholt→crosshaven': 240,
+};
+export const DEFAULT_ROUTE_SECONDS = 240;
+
+export function routeSeconds(fromId, toId) {
+  return ROUTE_SECONDS[`${fromId}→${toId}`] || DEFAULT_ROUTE_SECONDS;
 }
 
 /**
@@ -51,15 +70,24 @@ export function cityDwellSeconds(rng) {
  *   buy(cityId, item)     → price to buy one unit,
  *   sellNet(cityId, item) → price received for one unit after tax,
  *   pressure(cityId, itemId) → market pressure (optional, default 0),
+ *   gold:     trader's gold (optional) — caps units to what it can afford,
+ *   routeSeconds(fromId, toId) → travel time (optional, default ROUTE_SECONDS),
  *   crowd: { itemId: number of OTHER traders carrying it } (optional) — items
  *          with 2+ are skipped unless nothing else is profitable,
  *   rng: () => [0, 1),
  * }
- * Returns { fromId, toId, itemId, profit?, score? }.
+ * Score = gold per minute of the round (travel + mean city rest), so a short
+ * route beats a long one with the same trip profit.
+ * Returns { fromId, toId, itemId, units?, profit?, score? } — no units on the
+ * fallback trip (nothing affordable/profitable: travel on with an empty cart).
  */
 export function decideRoute(trader, ctx) {
   const fromId = trader.to_id || trader.from_id || ctx.cities[0];
   const pressure = ctx.pressure || (() => 0);
+  const travel = ctx.routeSeconds || routeSeconds;
+  // Gold may arrive as a numeric string from the DB; anything non-numeric = no cap.
+  const goldNum = ctx.gold == null ? NaN : Number(ctx.gold);
+  const gold = Number.isFinite(goldNum) ? goldNum : Infinity;
   const candidates = [];
 
   for (const toId of ctx.cities) {
@@ -67,13 +95,16 @@ export function decideRoute(trader, ctx) {
     for (const item of ctx.items) {
       if (item.sourceCities && !item.sourceCities.includes(fromId)) continue;
 
-      const profit = ctx.sellNet(toId, item) - ctx.buy(fromId, item);
+      const buy = ctx.buy(fromId, item);
+      if (!(buy > 0)) continue;
+      const profit = ctx.sellNet(toId, item) - buy;
       if (profit <= 0) continue;
 
-      const units = Math.floor(ctx.capacity / item.weight);
-      if (units === 0) continue;
+      const units = Math.min(Math.floor(ctx.capacity / item.weight), Math.floor(gold / buy));
+      if (units <= 0) continue;
 
-      let score = profit * units;
+      const minutes = (travel(fromId, toId) + MEAN_DWELL_SECONDS) / 60;
+      let score = (profit * units) / minutes;
 
       // Focus item from the strategy review gets a strong bias.
       if (trader.preferred_item && item.id === trader.preferred_item) score *= 2.0;
@@ -87,7 +118,7 @@ export function decideRoute(trader, ctx) {
       const buyPressure = pressure(fromId, item.id) || 0;
       if (buyPressure <= -0.3) score *= 1.4;
 
-      candidates.push({ fromId, toId, itemId: item.id, profit: profit * units, score });
+      candidates.push({ fromId, toId, itemId: item.id, units, profit: profit * units, score });
     }
   }
 
@@ -124,7 +155,8 @@ function pickCautious(trader, candidates) {
   let best = null, bestScore = -Infinity;
   for (const c of candidates.slice(0, 5)) {
     const hist = routeProfit[`${c.toId}:${c.itemId}`] || [];
-    const mean = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : c.score * 0.5;
+    // Both sides in gold per trip: past trip profits vs half this trip's expected profit.
+    const mean = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : c.profit * 0.5;
     const variance = hist.length > 1
       ? hist.reduce((s, v) => s + (v - mean) ** 2, 0) / hist.length
       : mean * mean; // unknown route = high variance

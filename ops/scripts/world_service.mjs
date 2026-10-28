@@ -8,7 +8,7 @@
  */
 
 import { pathToFileURL } from 'node:url';
-import { decideRoute as coreDecideRoute, traderRng, cityDwellSeconds } from '../../src/sim/trader_core.js';
+import { decideRoute as coreDecideRoute, traderRng, cityDwellSeconds, routeSeconds, ROUTE_SECONDS, DEFAULT_ROUTE_SECONDS } from '../../src/sim/trader_core.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ycjhcsxxtinipwailbjb.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljamhjc3h4dGluaXB3YWlsYmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTc1MDAsImV4cCI6MjA4OTIzMzUwMH0.cBEiiVExRAnWVeUV3v6ZLYmcPe1hnPc4wdmKSvkRahY';
@@ -192,16 +192,6 @@ function tickHunger() {
   }
 }
 
-// Travel durations in seconds (at 5-min ticks, progress advances each tick)
-const ROUTE_DURATION = {
-  'valdenmere→ashport': 300, 'ashport→valdenmere': 300,
-  'valdenmere→crosshaven': 240, 'crosshaven→valdenmere': 240,
-  'valdenmere→ironholt': 180, 'ironholt→valdenmere': 180,
-  'ashport→crosshaven': 180, 'crosshaven→ashport': 180,
-  'ashport→ironholt': 360, 'ironholt→ashport': 360,   // FIX: reduced from 720s — ashport was completely isolated
-  'crosshaven→ironholt': 240, 'ironholt→crosshaven': 240,
-};
-
 const BASE_CAPACITY = 12;
 const SPREAD        = 0.06; // matches main.js balance pass
 
@@ -219,12 +209,34 @@ function traderCapacity(trader) {
   return tier.capacity;
 }
 
+// Cheapest buy price on today's market, over every item a city sells (all
+// cities when cityId is omitted). perWeight: price per weight unit instead.
+function cheapestBuy({ cityId = null, perWeight = false } = {}) {
+  let cheapest = Infinity;
+  for (const item of ITEMS) {
+    for (const c of cityId ? [cityId] : CITIES) {
+      if (item.sourceCities && !item.sourceCities.includes(c)) continue;
+      cheapest = Math.min(cheapest, buyPrice(c, item) / (perWeight ? item.weight : 1));
+    }
+  }
+  return cheapest;
+}
+
+// Gold a trader must still hold after buying a cart of `tier` in `cityId`:
+// enough to fill it with that city's cheapest goods (per weight unit). Without
+// it an upgrade can leave the trader too broke to load even its old cart.
+function upgradeReserve(tier, cityId) {
+  return Math.ceil(GEAR_TIERS[tier].capacity * cheapestBuy({ cityId, perWeight: true }));
+}
+
 function tryGearUpgrade(trader) {
   const currentTier = trader.gear_tier || 0;
   const nextTier    = GEAR_TIERS[currentTier + 1];
   if (!nextTier) return; // already maxed
 
-  if ((trader.gold || 0) < nextTier.cost) return; // can't afford
+  // Upgrades happen on arrival, so the next cargo is bought where the trader stands.
+  const here = trader.to_id || trader.from_id || 'valdenmere';
+  if ((trader.gold || 0) < nextTier.cost + upgradeReserve(nextTier.tier, here)) return; // can't afford and still trade
 
   // Check ROI: extra capacity × avg profit per unit × payback in <10 trips
   const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
@@ -238,8 +250,8 @@ function tryGearUpgrade(trader) {
   const extraProfitPerTrip = profitPerUnit * extraCap;
   const paybackTrips = extraProfitPerTrip > 0 ? nextTier.cost / extraProfitPerTrip : Infinity;
 
-  if (paybackTrips <= 15 || (nextTier.tier === 1 && (trader.gold || 0) >= nextTier.cost)) {
-    // Always upgrade to tier 1 if affordable — minimum ROI check waived for first upgrade
+  if (paybackTrips <= 15 || nextTier.tier === 1) {
+    // First upgrade skips the ROI check (still needs cost + reserve, checked above)
     trader.gold      -= nextTier.cost;
     trader.gear_tier  = nextTier.tier;
     console.log(`[${trader.name}] 🔧 Upgraded to ${nextTier.name} (${nextTier.capacity} capacity) for ${nextTier.cost}g — payback in ~${paybackTrips.toFixed(1)} trips`);
@@ -477,6 +489,7 @@ function decideRoute(trader, rng = traderRng(trader, rngSalt(), 'route')) {
     buy:      buyPrice,
     sellNet:  netSellPrice,
     pressure: (cityId, itemId) => PRESSURE_MAP[`${cityId}:${itemId}`] || 0,
+    gold:     trader.gold || 0,
     rng,
   });
 }
@@ -937,14 +950,12 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
         t.to_id   = route.toId;
         t.item_id = route.itemId;
 
-        // Buy cargo
+        // Buy exactly what the route was scored on. The fallback trip (nothing
+        // affordable and profitable) has no units: travel on with an empty cart.
         const item = ITEMS.find(i => i.id === route.itemId);
         if (item) {
           const buy = buyPrice(route.fromId, item);
-          const units = Math.min(
-            Math.floor(traderCapacity(t) / item.weight),
-            t.gold > 0 ? Math.floor(t.gold / buy) : 0
-          );
+          const units = route.units || 0;
           if (units > 0) {
             t.gold -= buy * units;
             t.inv = { [route.itemId]: units };
@@ -969,8 +980,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
         console.log(`[${t.name}] Departing ${t.from_id} → ${t.to_id} with ${JSON.stringify(t.inv)}`);
       }
     } else if (t.state === 'traveling') {
-      const routeKey = `${t.from_id}→${t.to_id}`;
-      const duration = ROUTE_DURATION[routeKey] || 240;
+      const duration = routeSeconds(t.from_id, t.to_id);
       t.progress = Math.min(1, t.progress + dt / duration);
 
       if (t.progress >= 1) {
@@ -1018,10 +1028,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
         // be stranded with an empty cart forever. After the economy rebalance a
         // healthy trader stays well above this, so it should rarely trigger — if it
         // fires often, the base economy has regressed (see balance_regression_test).
-        const minCargoCost = Math.min(
-          ...ITEMS.flatMap(it => CITIES
-            .filter(c => !it.sourceCities || it.sourceCities.includes(c))
-            .map(c => buyPrice(c, it))));
+        const minCargoCost = cheapestBuy();
         if (t.gold < minCargoCost) {
           console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any cargo)`);
           if (onRescue) onRescue({ trader: t.id, from: t.gold, to: minCargoCost });
@@ -1062,13 +1069,13 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
 // Market pressure is NOT fed back from trades offline (live, the DB does that),
 // so the report shows where traders go on the base economy.
 //
-// SIM_SECONDS_PER_DAY ≈ ROUTE_DURATION / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
+// SIM_SECONDS_PER_DAY ≈ ROUTE_SECONDS / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
 const SIM_SECONDS_PER_DAY = 90;
 const SIM_STEP_SECONDS    = 60;
 const SIM_NOW_ISO         = '2000-01-01T00:00:00.000Z'; // fixed stamp for offline runs
 
 // Trip bookkeeping below needs every trip to span at least one step boundary.
-const MIN_ROUTE_SECONDS = Math.min(240, ...Object.values(ROUTE_DURATION)); // 240 = tickTrader default
+const MIN_ROUTE_SECONDS = Math.min(DEFAULT_ROUTE_SECONDS, ...Object.values(ROUTE_SECONDS));
 if (MIN_ROUTE_SECONDS <= SIM_STEP_SECONDS) {
   throw new Error(`SIM_STEP_SECONDS (${SIM_STEP_SECONDS}) must be shorter than the shortest route (${MIN_ROUTE_SECONDS}s)`);
 }
@@ -1310,6 +1317,8 @@ export {
   netSellPrice,
   decideRoute,
   tickTrader,
+  tryGearUpgrade,
+  upgradeReserve,
   snapshotPeers,
   simulateTraders,
   traderCapacity,
