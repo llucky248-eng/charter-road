@@ -319,6 +319,43 @@ test('dwell timer after a trip is in [30, 90)', () => {
   if (t.state === 'in_city') assert(t.city_timer > 0 && t.city_timer < 90, `city_timer ${t.city_timer}`);
 });
 
+// ── aggregatePressure (offline mirror of SQL aggregate_economy) ─────────────
+console.log('\nworld_service: aggregatePressure');
+
+test('aggregatePressure: decay, fold events, clamp, drop near-zero', () => {
+  const before = { 'a:grain': 0.4, 'b:ore': 0.0011, 'c:food': -0.2 };
+  const events = [
+    { city_id: 'a', item_id: 'grain', direction: 'buy', qty: 10 },   // +0.2
+    { city_id: 'c', item_id: 'food', direction: 'sell', qty: 5 },    // -0.1
+    { city_id: 'd', item_id: 'ink', direction: 'buy', qty: 3 },      // +0.06 (new key)
+  ];
+  const after = ws.aggregatePressure(before, events);
+  assert(Math.abs(after['a:grain'] - 0.5) < 1e-9, `a:grain 0.4*0.85+0.2=0.54 → clamp 0.5, got ${after['a:grain']}`);
+  assert(!('b:ore' in after), 'b:ore decays below 0.001 and is dropped');
+  assert(Math.abs(after['c:food'] - (-0.2 * 0.85 - 0.1)) < 1e-9, `c:food got ${after['c:food']}`);
+  assert(Math.abs(after['d:ink'] - 0.06) < 1e-9, `d:ink got ${after['d:ink']}`);
+  assertEqual(before['a:grain'], 0.4, 'input map not mutated');
+  // Boundary: SQL neither decays nor deletes a row at exactly the threshold.
+  assertEqual(ws.aggregatePressure({ 'e:ore': 0.001 }, [])['e:ore'], 0.001, 'exactly 0.001 kept as is');
+});
+
+test('aggregatePressure constants match ops/supabase_schema.sql aggregate_economy()', () => {
+  const sql = readFileSync(join(ROOT, 'ops/supabase_schema.sql'), 'utf8');
+  const fn = sql.slice(sql.indexOf('FUNCTION aggregate_economy()'), sql.indexOf('GRANT EXECUTE ON FUNCTION aggregate_economy()'));
+  const decay = Number(/decay_factor\s+FLOAT\s*:=\s*([0-9.]+)/.exec(fn)?.[1]);
+  const perUnit = Number(/ELSE -qty END\)\s*\*\s*([0-9.]+)/.exec(fn)?.[1]);
+  const clampM = /GREATEST\(-([0-9.]+),\s*LEAST\(([0-9.]+)/.exec(fn);
+  assertEqual(clampM?.[1], clampM?.[2], 'SQL clamp is symmetric');
+  const clamp = Number(clampM?.[1]);
+  const drop = Number(/DELETE FROM market_economy WHERE ABS\(pressure\) < ([0-9.]+)/.exec(fn)?.[1]);
+  const decayWhere = Number(/decay_factor,[\s\S]*?WHERE ABS\(pressure\) > ([0-9.]+)/.exec(fn)?.[1]);
+  assertEqual(decayWhere, drop, 'SQL decays rows above the same threshold it deletes below');
+  assertEqual(ws.PRESSURE_AGG.decay, decay, 'decay');
+  assertEqual(ws.PRESSURE_AGG.perUnit, perUnit, 'per-unit pressure');
+  assertEqual(ws.PRESSURE_AGG.clamp, clamp, 'clamp');
+  assertEqual(ws.PRESSURE_AGG.drop, drop, 'drop threshold');
+});
+
 // ── simulateTraders (offline multi-day run + report) ───────────────────────
 console.log('\nworld_service: simulateTraders');
 
@@ -360,10 +397,13 @@ test('30 days: every trader trades and nobody ends with negative gold', () => {
   assertEqual(r.totals.trips, r.traders.reduce((s, t) => s + t.trips, 0), 'totals.trips');
 });
 
+// Health guardrails below run on the BASE economy (pressure: false): they check
+// the trader brain and prices, not the strength of live market pressure, which
+// is a separate tuning question (see the pressure-feedback test).
 test('30 days: traders spread across goods (no herding onto one item)', () => {
   // Baseline (loaded trips, seeds 1–3): 9 distinct items, top item 21–38%, HHI 0.13–0.20.
   for (const seed of [1, 2, 3]) {
-    const d = sim({ days: 30, seed }).diversity;
+    const d = sim({ days: 30, seed, pressure: false }).diversity;
     assert(d.distinctItems >= 6, `seed ${seed}: only ${d.distinctItems} distinct items`);
     assert(d.topItemShare <= 0.4, `seed ${seed}: one item takes ${d.topItemShare} of trips`);
     assert(d.hhi <= 0.25, `seed ${seed}: item concentration HHI ${d.hhi}`);
@@ -403,18 +443,29 @@ test('tickTrader reports rescues through ctx.onRescue', () => {
 test('30 days: almost no trader leaves with an empty cart', () => {
   // Before afford-aware routing: 23–34% of trips were empty.
   for (const seed of [1, 2, 3]) {
-    const t = sim({ days: 30, seed }).totals;
+    const t = sim({ days: 30, seed, pressure: false }).totals;
     assert(t.emptyTrips / t.trips <= 0.10, `seed ${seed}: ${t.emptyTrips}/${t.trips} trips empty`);
   }
 });
 
 test('120 days: every trader ends richer than it started, with no rescues', () => {
   // Before the upgrade reserve + afford-aware routing, 2 of 6 ended near or below start.
-  const r = sim({ days: 120, seed: 1 });
+  const r = sim({ days: 120, seed: 1, pressure: false });
   for (const t of r.traders) {
     assert(t.endGold > t.startGold, `${t.id}: ${t.startGold}g → ${t.endGold}g`);
     assertEqual(t.rescues, 0, `${t.id} rescues`);
   }
+});
+
+test('pressure feedback: on by default, builds market pressure, still deterministic', () => {
+  const r = sim({ days: 30, seed: 1 });
+  assertEqual(r.pressureFeedback, true, 'pressureFeedback');
+  assert(r.market && r.market.maxPressure > 0.05, `pressure should build up (max ${r.market && r.market.maxPressure})`);
+  assert(r.market.minPressure < -0.05, `sell pressure should build up (min ${r.market.minPressure})`);
+  assertEqual(JSON.stringify(sim({ days: 30, seed: 1 })), JSON.stringify(r), 'replay with pressure');
+  const off = sim({ days: 30, seed: 1, pressure: false });
+  assertEqual(off.pressureFeedback, false, 'pressure: false turns it off');
+  assertEqual(off.market.maxPressure, 0, 'no pressure when off');
 });
 
 test('simulateTraders leaves world_service module state as it found it', () => {

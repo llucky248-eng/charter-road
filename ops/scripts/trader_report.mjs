@@ -7,19 +7,23 @@
  * routes and diversity metrics. No browser, no remote DB, no clock.
  *
  * Usage:
- *   node ops/scripts/trader_report.mjs [--days N] [--seed S] [--pretty]
+ *   node ops/scripts/trader_report.mjs [--days N] [--seed S] [--pretty] [--no-pressure]
+ *
+ * Market pressure (the offline mirror of SQL aggregate_economy) is on by default;
+ * --no-pressure reports the base economy instead.
  */
 
 import { simulateTraders } from './world_service.mjs';
 
 function parseArgs(argv) {
-  const out = { days: 30, seed: 1, pretty: false };
+  const out = { days: 30, seed: 1, pretty: false, pressure: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '--days':   out.days = Number(argv[++i]); break;
       case '--seed':   out.seed = Number(argv[++i]); break;
       case '--pretty': out.pretty = true; break;
+      case '--no-pressure': out.pressure = false; break;
       case '--help':
       case '-h':       out.help = true; break;
       default:         console.error(`Unknown argument: ${a}`); out.error = true;
@@ -30,7 +34,7 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help || args.error) {
-  console.error('Usage: node ops/scripts/trader_report.mjs [--days N] [--seed S] [--pretty]');
+  console.error('Usage: node ops/scripts/trader_report.mjs [--days N] [--seed S] [--pretty] [--no-pressure]');
   process.exit(args.error ? 2 : 0);
 }
 if (!Number.isInteger(args.days) || args.days < 1 || args.days > 3650) {
@@ -40,5 +44,5 @@ if (!Number.isInteger(args.seed)) {
   console.error('--seed must be an integer'); process.exit(2);
 }
 
-const report = simulateTraders({ days: args.days, seed: args.seed });
+const report = simulateTraders({ days: args.days, seed: args.seed, pressure: args.pressure });
 process.stdout.write(JSON.stringify(report, null, args.pretty ? 2 : 0) + '\n');
