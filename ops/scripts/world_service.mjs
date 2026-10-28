@@ -454,6 +454,33 @@ async function loadPressureMap() {
 
 const PRESSURE_EFFECT = 1;
 
+// Offline mirror of the SQL aggregate_economy() in ops/supabase_schema.sql
+// (trader_tests checks the constants against it). Live, the world cron calls it
+// after every ~5-min tick (and each browser client about hourly); simulateTraders
+// runs it every 300 simulated seconds, i.e. the cron cadence only.
+const PRESSURE_AGG = { decay: 0.85, drop: 0.001, perUnit: 0.02, clamp: 0.5 };
+
+// Pure: returns the next { 'city:item': pressure } map. Same order as the SQL:
+// decay, drop near-zero rows, fold in buy (+) / sell (−) volume, clamp.
+function aggregatePressure(prev, events) {
+  const next = {};
+  for (const [k, v] of Object.entries(prev)) {
+    // SQL: UPDATE … WHERE ABS(pressure) > drop (decay), then DELETE … WHERE ABS(pressure) < drop.
+    const d = Math.abs(v) > PRESSURE_AGG.drop ? v * PRESSURE_AGG.decay : v;
+    if (Math.abs(d) < PRESSURE_AGG.drop) continue;
+    next[k] = d;
+  }
+  const delta = {};
+  for (const e of events) {
+    const k = `${e.city_id}:${e.item_id}`;
+    delta[k] = (delta[k] || 0) + (e.direction === 'buy' ? e.qty : -e.qty);
+  }
+  for (const [k, q] of Object.entries(delta)) next[k] = (next[k] || 0) + q * PRESSURE_AGG.perUnit;
+  const c = PRESSURE_AGG.clamp;
+  for (const k of Object.keys(next)) next[k] = Math.max(-c, Math.min(c, next[k]));
+  return next;
+}
+
 function marketDiscountFor(cityId) {
   return CITY_TREASURY[cityId]?.city_bonus?.marketDiscount || 0;
 }
@@ -1066,12 +1093,13 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
 // Runs every AI trader for N game-days entirely in memory: no DB, no clock, no
 // Math.random. Starts from a neutral world (day 1, no events, no pressure,
 // drift 1.0, no treasury discount) and restores this module's state afterwards.
-// Market pressure is NOT fed back from trades offline (live, the DB does that),
-// so the report shows where traders go on the base economy.
+// With pressure (default) trades move prices through aggregatePressure, as the
+// live DB does; pressure: false reports the base economy instead.
 //
 // SIM_SECONDS_PER_DAY ≈ ROUTE_SECONDS / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
 const SIM_SECONDS_PER_DAY = 90;
 const SIM_STEP_SECONDS    = 60;
+const SIM_AGGREGATE_SECONDS = 300; // live: aggregate_economy() runs after each ~5-min cron tick
 const SIM_NOW_ISO         = '2000-01-01T00:00:00.000Z'; // fixed stamp for offline runs
 
 // Trip bookkeeping below needs every trip to span at least one step boundary.
@@ -1080,7 +1108,7 @@ if (MIN_ROUTE_SECONDS <= SIM_STEP_SECONDS) {
   throw new Error(`SIM_STEP_SECONDS (${SIM_STEP_SECONDS}) must be shorter than the shortest route (${MIN_ROUTE_SECONDS}s)`);
 }
 
-function simulateTraders({ days = 30, seed = 1 } = {}) {
+function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
   const saved = {
     world: { ...WORLD_STATE },
     events: WORLD_EVENTS.slice(),
@@ -1111,10 +1139,23 @@ function simulateTraders({ days = 30, seed = 1 } = {}) {
     const lastTrip = Object.fromEntries(traders.map(t => [t.id, 0]));
     const rescues = Object.fromEntries(traders.map(t => [t.id, 0]));
     const onRescue = ({ trader }) => { rescues[trader] += 1; };
+    const market = { maxPressure: 0, minPressure: 0 };
     const totalSeconds = days * SIM_SECONDS_PER_DAY;
 
     for (let elapsed = 0; elapsed < totalSeconds; elapsed += SIM_STEP_SECONDS) {
       WORLD_STATE.day = 1 + Math.floor(elapsed / SIM_SECONDS_PER_DAY);
+      // Market pressure: fold this period's trades in, like the live DB does.
+      if (pressure && elapsed > 0 && elapsed % SIM_AGGREGATE_SECONDS === 0) {
+        // Consume the events, as the SQL does by DELETE (keeps memory bounded).
+        const next = aggregatePressure(PRESSURE_MAP, TRADE_EVENTS_BATCH.slice(saved.tradeEvents));
+        TRADE_EVENTS_BATCH.length = saved.tradeEvents;
+        for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
+        Object.assign(PRESSURE_MAP, next);
+        for (const v of Object.values(next)) {
+          market.maxPressure = Math.max(market.maxPressure, v);
+          market.minPressure = Math.min(market.minPressure, v);
+        }
+      }
       const peers = snapshotPeers(traders);
       for (const t of traders) {
         // Routes take ≥ 180s and a step is 60s, so a trip that ends in this step
@@ -1130,7 +1171,7 @@ function simulateTraders({ days = 30, seed = 1 } = {}) {
         }
       }
     }
-    return buildTraderReport({ days, seed, traders, trips, rescues });
+    return buildTraderReport({ days, seed, traders, trips, rescues, pressure, market });
   } finally {
     console.log = log;
     for (const k of Object.keys(WORLD_STATE)) delete WORLD_STATE[k];
@@ -1147,7 +1188,7 @@ function simulateTraders({ days = 30, seed = 1 } = {}) {
   }
 }
 
-function buildTraderReport({ days, seed, traders, trips, rescues }) {
+function buildTraderReport({ days, seed, traders, trips, rescues, pressure, market }) {
   const round = (x, d = 4) => Math.round(x * 10 ** d) / 10 ** d;
   const items = {};
   const routes = {};
@@ -1174,7 +1215,8 @@ function buildTraderReport({ days, seed, traders, trips, rescues }) {
   return {
     days, seed,
     secondsPerDay: SIM_SECONDS_PER_DAY,
-    pressureFeedback: false,
+    pressureFeedback: pressure,
+    market: { maxPressure: round(market.maxPressure), minPressure: round(market.minPressure) },
     traders: traders.map(t => ({
       id: t.id, name: t.name, personality: t.personality,
       startGold: t.start_gold, endGold: t.gold,
@@ -1317,6 +1359,8 @@ export {
   netSellPrice,
   decideRoute,
   tickTrader,
+  aggregatePressure,
+  PRESSURE_AGG,
   tryGearUpgrade,
   upgradeReserve,
   snapshotPeers,
