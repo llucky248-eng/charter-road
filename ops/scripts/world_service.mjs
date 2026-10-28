@@ -453,12 +453,54 @@ async function loadWorldState() {
   }
 }
 
+// The id of the newest trade event already folded into pressure is kept in a
+// marker row of market_economy (no schema change; the anon key can't delete
+// trade_events, so events are consumed by id instead of by DELETE).
+const AGG_WATERMARK = { city_id: '__agg__', item_id: 'last_event_id' };
+let PRESSURE_LAST_EVENT_ID = null; // null = never aggregated by this ticker yet
+let PRESSURE_LOADED = false;
+
+// market_economy rows → { map: {'city:item': pressure}, lastId } (marker row split out).
+function parsePressureRows(rows) {
+  const map = {};
+  let lastId = null;
+  for (const r of rows || []) {
+    if (r.city_id === AGG_WATERMARK.city_id && r.item_id === AGG_WATERMARK.item_id) lastId = Number(r.pressure);
+    else map[`${r.city_id}:${r.item_id}`] = r.pressure;
+  }
+  return { map, lastId };
+}
+
+// Pure: fold trade events newer than lastId into pressure. First run (lastId
+// null) only records the newest id, so the backlog that piled up while the SQL
+// function was broken doesn't jolt prices. Returns the next map, the new
+// watermark and the market_economy rows to upsert (changed keys + marker).
+function foldTradeEvents(prev, events, lastId) {
+  const newest = events.reduce((m, e) => Math.max(m, Number(e.id) || 0), lastId ?? 0);
+  const marker = { ...AGG_WATERMARK, pressure: newest };
+  // First run folds no events but still decays/clamps (old rows may sit at ±0.5).
+  const fresh = lastId == null ? [] : events.filter(e => Number(e.id) > lastId);
+  const next = aggregatePressure(prev, fresh);
+  const rows = [];
+  for (const k of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+    const v = next[k] ?? 0;
+    if (v === (prev[k] ?? 0)) continue;
+    const [city_id, item_id] = k.split(':');
+    rows.push({ city_id, item_id, pressure: v });
+  }
+  rows.push(marker);
+  return { next, lastId: newest, rows };
+}
+
 async function loadPressureMap() {
   try {
     for (const key of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[key];
     const rows = await sbFetch('/rest/v1/market_economy?select=city_id,item_id,pressure') || [];
-    for (const r of rows) PRESSURE_MAP[`${r.city_id}:${r.item_id}`] = r.pressure;
-    console.log(`[PRESSURE] Loaded ${rows.length} pressure entries`);
+    const { map, lastId } = parsePressureRows(rows);
+    Object.assign(PRESSURE_MAP, map);
+    PRESSURE_LAST_EVENT_ID = lastId;
+    PRESSURE_LOADED = true;
+    console.log(`[PRESSURE] Loaded ${Object.keys(map).length} pressure entries (last folded event ${lastId ?? 'none'})`);
   } catch (e) {
     console.warn('[PRESSURE] Failed to load (non-fatal):', e.message);
   }
@@ -466,11 +508,13 @@ async function loadPressureMap() {
 
 const PRESSURE_EFFECT = 1;
 
-// Offline mirror of the SQL aggregate_economy() in ops/supabase_schema.sql
-// (trader_tests checks the constants against it). Live, the world cron calls it
-// after every ~5-min tick (and each browser client about hourly); simulateTraders
-// runs it every 300 simulated seconds, i.e. the cron cadence only.
-const PRESSURE_AGG = { decay: 0.85, drop: 0.001, perUnit: 0.02, clamp: 0.5 };
+// Market-pressure aggregation, same rules as SQL aggregate_economy() in
+// ops/supabase_schema.sql (trader_tests checks the constants against it). Live,
+// the world ticker runs it once per tick via foldTradeEvents (the deployed SQL
+// function failed on every call); simulateTraders runs it every 300 simulated s.
+// Tuned with trader_report: 0.002/unit and a ±0.15 cap keep traders solvent and
+// spread out (one 18-unit cart moves a price ~4%; the old 0.02/±0.5 moved it 36%).
+const PRESSURE_AGG = { decay: 0.85, drop: 0.001, perUnit: 0.002, clamp: 0.15 };
 
 // Pure: returns the next { 'city:item': pressure } map. Same order as the SQL:
 // decay, drop near-zero rows, fold in buy (+) / sell (−) volume, clamp.
@@ -981,12 +1025,48 @@ async function upsertTraders(traders) {
   });
 }
 
-async function callAggregateEconomy() {
+// Newest id from a `trade_events?select=id&order=id.desc&limit=1` response.
+// Throws on a malformed response, so a bad read can't record watermark 0 (which
+// would replay the whole backlog next tick); an empty table really is 0.
+function newestEventId(rows) {
+  if (!Array.isArray(rows)) throw new Error('unexpected trade_events response');
+  return rows.length ? Number(rows[0].id) || 0 : 0;
+}
+
+// Fold this tick's trade events into market pressure (replaces the RPC call to
+// the SQL aggregate_economy(), whose deployed copy failed on every run).
+const AGG_PAGE = 1000, AGG_MAX_PAGES = 20;
+async function aggregateMarketPressure(nowIso) {
+  if (!PRESSURE_LOADED) { console.warn('[ECONOMY] Pressure map not loaded; skipping aggregation'); return; }
   try {
-    await sbFetch('/rest/v1/rpc/aggregate_economy', { method: 'POST', body: '{}' });
-    console.log('[ECONOMY] aggregate_economy() called');
+    const events = [];
+    if (PRESSURE_LAST_EVENT_ID == null) {
+      // First run: only find the newest id (skip the backlog).
+      events.push({ id: newestEventId(await sbFetch('/rest/v1/trade_events?select=id&order=id.desc&limit=1')) });
+    } else {
+      let after = PRESSURE_LAST_EVENT_ID;
+      for (let page = 0; page < AGG_MAX_PAGES; page++) {
+        const batch = await sbFetch(`/rest/v1/trade_events?select=id,city_id,item_id,direction,qty&id=gt.${after}&order=id.asc&limit=${AGG_PAGE}`);
+        if (!Array.isArray(batch)) throw new Error('unexpected trade_events response');
+        events.push(...batch);
+        if (batch.length < AGG_PAGE) break;
+        after = batch[batch.length - 1].id;
+      }
+    }
+    const { next, lastId, rows } = foldTradeEvents(PRESSURE_MAP, events, PRESSURE_LAST_EVENT_ID);
+    await sbFetch('/rest/v1/market_economy?on_conflict=city_id,item_id', {
+      method: 'POST',
+      headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(rows.map(r => ({ ...r, updated_at: nowIso }))),
+    });
+    for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
+    Object.assign(PRESSURE_MAP, next);
+    console.log(PRESSURE_LAST_EVENT_ID == null
+      ? `[ECONOMY] Pressure aggregation initialised at event ${lastId} (backlog skipped)`
+      : `[ECONOMY] Folded ${events.length} trade event(s) into pressure (${rows.length - 1} row(s) changed, last event ${lastId})${events.length >= AGG_PAGE * AGG_MAX_PAGES ? ' — more pending, continues next tick' : ''}`);
+    PRESSURE_LAST_EVENT_ID = lastId;
   } catch (e) {
-    console.warn('[ECONOMY] aggregate_economy failed (non-fatal):', e.message);
+    console.warn('[ECONOMY] Pressure aggregation failed (non-fatal):', e.message);
   }
 }
 
@@ -1149,7 +1229,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, focus = null } =
 // SIM_SECONDS_PER_DAY ≈ ROUTE_SECONDS / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
 const SIM_SECONDS_PER_DAY = 90;
 const SIM_STEP_SECONDS    = 60;
-const SIM_AGGREGATE_SECONDS = 300; // live: aggregate_economy() runs after each ~5-min cron tick
+const SIM_AGGREGATE_SECONDS = 300; // live: aggregateMarketPressure() runs once per world tick
 const SIM_NOW_ISO         = '2000-01-01T00:00:00.000Z'; // fixed stamp for offline runs
 
 // Trip bookkeeping below needs every trip to span at least one step boundary.
@@ -1376,7 +1456,7 @@ async function main() {
   for (const cityId of CITIES) tickCityTreasury(cityId);
   await upsertTreasuries();
 
-  await callAggregateEconomy();
+  await aggregateMarketPressure(nowIso);
 
   // Tick world state: drift, hunger, bank solvency, events, contracts — then save all back
   tickMarketDrift();
@@ -1433,6 +1513,10 @@ export {
   stuckRescueGold,
   cheapestBuy,
   aggregatePressure,
+  foldTradeEvents,
+  newestEventId,
+  parsePressureRows,
+  AGG_WATERMARK,
   PRESSURE_AGG,
   tryGearUpgrade,
   upgradeReserve,

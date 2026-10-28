@@ -46,7 +46,12 @@ CREATE POLICY "public upsert market_economy"
   ON market_economy FOR ALL USING (true);
 
 -- 5. Function: aggregate recent trade events into market_economy pressure
---    Call this via RPC: POST /rest/v1/rpc/aggregate_economy
+--    NOTE: the live world ticker (ops/scripts/world_service.mjs) now does this
+--    aggregation itself through the REST API (foldTradeEvents, same constants),
+--    because the deployed copy of this function failed on every call with
+--    Supabase's safeupdate ("UPDATE requires a WHERE clause"). This function is
+--    kept in sync (trader_tests checks the constants) and safeupdate-proof, but
+--    nothing calls it any more.
 CREATE OR REPLACE FUNCTION aggregate_economy()
 RETURNS void
 LANGUAGE plpgsql
@@ -60,10 +65,10 @@ BEGIN
   UPDATE market_economy
   SET pressure = pressure * decay_factor,
       updated_at = v_now
-  WHERE ABS(pressure) > 0.001;
+  WHERE ABS(pressure) > 0.001 AND city_id <> '__agg__';  -- '__agg__' = ticker watermark row
 
   -- Remove near-zero rows
-  DELETE FROM market_economy WHERE ABS(pressure) < 0.001;
+  DELETE FROM market_economy WHERE ABS(pressure) < 0.001 AND city_id <> '__agg__';
 
   -- Consume trade events exactly once. The old version re-folded a trailing
   -- time window on every call, so one trade added pressure once per aggregation
@@ -74,18 +79,17 @@ BEGIN
   -- neither deleted nor counted now — they simply remain for the next run. That
   -- gives exactly-once semantics with no double-count (old bug) and no silent
   -- skip: concurrent aggregate calls serialize on the DELETE's row locks and
-  -- each removes a disjoint set. trade_events is an append-only aggregation feed
-  -- (only ever INSERTed, never read elsewhere), so consuming by deletion is its
-  -- intended lifecycle and also bounds table growth.
+  -- each removes a disjoint set. (Historical: the world ticker now reads
+  -- trade_events past a watermark instead and does not delete them.)
   WITH consumed AS (
-    DELETE FROM trade_events
+    DELETE FROM trade_events WHERE true   -- WHERE: Supabase safeupdate rejects bare DELETE/UPDATE
     RETURNING city_id, item_id, direction, qty
   )
   INSERT INTO market_economy (city_id, item_id, pressure, updated_at)
   SELECT
     city_id,
     item_id,
-    SUM(CASE WHEN direction = 'buy' THEN qty ELSE -qty END) * 0.02 AS pressure,
+    SUM(CASE WHEN direction = 'buy' THEN qty ELSE -qty END) * 0.002 AS pressure,
     v_now
   FROM consumed
   GROUP BY city_id, item_id
@@ -94,15 +98,16 @@ BEGIN
     pressure = market_economy.pressure + EXCLUDED.pressure,
     updated_at = v_now;
 
-  -- Clamp pressure to [-0.5, +0.5] (max 50% price swing)
+  -- Clamp pressure to [-0.15, +0.15] (max 15% price swing; one 18-unit cart ≈ 4%)
   UPDATE market_economy
-  SET pressure = GREATEST(-0.5, LEAST(0.5, pressure))
-  WHERE pressure < -0.5 OR pressure > 0.5;
+  SET pressure = GREATEST(-0.15, LEAST(0.15, pressure))
+  WHERE (pressure < -0.15 OR pressure > 0.15) AND city_id <> '__agg__';
 END;
 $$;
 
--- Allow anonymous users to call the aggregation function
-GRANT EXECUTE ON FUNCTION aggregate_economy() TO anon;
+-- Not callable over the API: the world ticker aggregates instead, and a call
+-- would consume trade_events the ticker has not read yet.
+REVOKE EXECUTE ON FUNCTION aggregate_economy() FROM PUBLIC, anon, authenticated;
 
 -- NOTE: the previous aggregate_economy() only read a trailing 1-hour window and
 -- never deleted, so an existing project may hold a large un-consumed backlog in

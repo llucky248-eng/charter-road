@@ -323,25 +323,29 @@ test('dwell timer after a trip is in [30, 90)', () => {
 console.log('\nworld_service: aggregatePressure');
 
 test('aggregatePressure: decay, fold events, clamp, drop near-zero', () => {
-  const before = { 'a:grain': 0.4, 'b:ore': 0.0011, 'c:food': -0.2 };
+  const { decay, perUnit, clamp } = ws.PRESSURE_AGG;
+  const before = { 'a:grain': clamp * 0.9, 'b:ore': 0.0011, 'c:food': -0.05 };
+  const big = Math.ceil(clamp / perUnit); // enough units to hit the clamp on its own
   const events = [
-    { city_id: 'a', item_id: 'grain', direction: 'buy', qty: 10 },   // +0.2
-    { city_id: 'c', item_id: 'food', direction: 'sell', qty: 5 },    // -0.1
-    { city_id: 'd', item_id: 'ink', direction: 'buy', qty: 3 },      // +0.06 (new key)
+    { city_id: 'a', item_id: 'grain', direction: 'buy', qty: big },
+    { city_id: 'c', item_id: 'food', direction: 'sell', qty: 5 },
+    { city_id: 'd', item_id: 'ink', direction: 'buy', qty: 3 },
   ];
   const after = ws.aggregatePressure(before, events);
-  assert(Math.abs(after['a:grain'] - 0.5) < 1e-9, `a:grain 0.4*0.85+0.2=0.54 → clamp 0.5, got ${after['a:grain']}`);
+  assertEqual(after['a:grain'], clamp, 'a:grain clamps at +clamp');
   assert(!('b:ore' in after), 'b:ore decays below 0.001 and is dropped');
-  assert(Math.abs(after['c:food'] - (-0.2 * 0.85 - 0.1)) < 1e-9, `c:food got ${after['c:food']}`);
-  assert(Math.abs(after['d:ink'] - 0.06) < 1e-9, `d:ink got ${after['d:ink']}`);
-  assertEqual(before['a:grain'], 0.4, 'input map not mutated');
+  assert(Math.abs(after['c:food'] - (-0.05 * decay - 5 * perUnit)) < 1e-12, `c:food got ${after['c:food']}`);
+  assert(Math.abs(after['d:ink'] - 3 * perUnit) < 1e-12, `d:ink got ${after['d:ink']}`);
+  assertEqual(before['a:grain'], clamp * 0.9, 'input map not mutated');
   // Boundary: SQL neither decays nor deletes a row at exactly the threshold.
   assertEqual(ws.aggregatePressure({ 'e:ore': 0.001 }, [])['e:ore'], 0.001, 'exactly 0.001 kept as is');
+  // Selling clamps at -clamp too.
+  assertEqual(ws.aggregatePressure({}, [{ city_id: 'f', item_id: 'ore', direction: 'sell', qty: big * 2 }])['f:ore'], -clamp, '-clamp');
 });
 
 test('aggregatePressure constants match ops/supabase_schema.sql aggregate_economy()', () => {
   const sql = readFileSync(join(ROOT, 'ops/supabase_schema.sql'), 'utf8');
-  const fn = sql.slice(sql.indexOf('FUNCTION aggregate_economy()'), sql.indexOf('GRANT EXECUTE ON FUNCTION aggregate_economy()'));
+  const fn = sql.slice(sql.indexOf('FUNCTION aggregate_economy()'), sql.indexOf('REVOKE EXECUTE ON FUNCTION aggregate_economy()'));
   const decay = Number(/decay_factor\s+FLOAT\s*:=\s*([0-9.]+)/.exec(fn)?.[1]);
   const perUnit = Number(/ELSE -qty END\)\s*\*\s*([0-9.]+)/.exec(fn)?.[1]);
   const clampM = /GREATEST\(-([0-9.]+),\s*LEAST\(([0-9.]+)/.exec(fn);
@@ -354,6 +358,123 @@ test('aggregatePressure constants match ops/supabase_schema.sql aggregate_econom
   assertEqual(ws.PRESSURE_AGG.perUnit, perUnit, 'per-unit pressure');
   assertEqual(ws.PRESSURE_AGG.clamp, clamp, 'clamp');
   assertEqual(ws.PRESSURE_AGG.drop, drop, 'drop threshold');
+});
+
+// ── Live pressure aggregation (world_service replaces the broken SQL RPC) ───
+console.log('\nworld_service: live pressure aggregation');
+
+test('gentler pressure: 0.002 per unit, clamp ±0.15 (one 18-unit cart moves a price ~4%)', () => {
+  assertEqual(ws.PRESSURE_AGG.perUnit, 0.002, 'perUnit');
+  assertEqual(ws.PRESSURE_AGG.clamp, 0.15, 'clamp');
+});
+
+test('foldTradeEvents: folds only events after the watermark; writes changed rows + new watermark', () => {
+  const prev = { 'a:grain': 0.1, 'b:ore': 0.0011 };
+  const events = [
+    { id: 3, city_id: 'a', item_id: 'grain', direction: 'buy', qty: 99 },  // at/below watermark: ignored
+    { id: 5, city_id: 'a', item_id: 'grain', direction: 'buy', qty: 10 },
+    { id: 7, city_id: 'c', item_id: 'food', direction: 'sell', qty: 5 },
+  ];
+  const r = ws.foldTradeEvents(prev, events, 4);
+  assertEqual(r.lastId, 7, 'watermark advances to the newest event');
+  const a = 0.1 * 0.85 + 10 * 0.002, c = -5 * 0.002;
+  assert(Math.abs(r.next['a:grain'] - a) < 1e-12, `a:grain ${r.next['a:grain']}`);
+  assert(Math.abs(r.next['c:food'] - c) < 1e-12, `c:food ${r.next['c:food']}`);
+  const row = (city, item) => r.rows.find(x => x.city_id === city && x.item_id === item);
+  assert(Math.abs(row('a', 'grain').pressure - a) < 1e-12, 'a:grain row');
+  assertEqual(row('b', 'ore').pressure, 0, 'dropped key is written back as 0');
+  assertEqual(row(ws.AGG_WATERMARK.city_id, ws.AGG_WATERMARK.item_id).pressure, 7, 'watermark row');
+});
+
+test('foldTradeEvents: first run (no watermark) skips the backlog, but decays + clamps old values', () => {
+  const prev = { 'a:grain': 0.5, 'b:ore': 0.1 }; // 0.5 = left over from the old ±0.5 clamp
+  const events = [{ id: 40, city_id: 'a', item_id: 'grain', direction: 'buy', qty: 500 }];
+  const r = ws.foldTradeEvents(prev, events, null);
+  assertEqual(r.lastId, 40, 'watermark = newest event');
+  assertEqual(r.next['a:grain'], ws.PRESSURE_AGG.clamp, 'old 0.5 clamped to the new cap (backlog not folded)');
+  assert(Math.abs(r.next['b:ore'] - 0.1 * ws.PRESSURE_AGG.decay) < 1e-12, 'decayed');
+  assert(r.rows.some(x => x.city_id === 'a' && x.pressure === ws.PRESSURE_AGG.clamp), 'clamped row written');
+});
+
+test('newestEventId: rejects a malformed response instead of recording watermark 0', () => {
+  assertEqual(ws.newestEventId([{ id: 77 }]), 77, 'newest id');
+  assertEqual(ws.newestEventId([]), 0, 'empty table → 0');
+  let threw = false;
+  try { ws.newestEventId(null); } catch { threw = true; }
+  assert(threw, 'null response must throw');
+});
+
+test('browser pressure constants match the ticker (optimistic updates use the same scale)', () => {
+  const mainSrc = readFileSync(join(ROOT, 'src/main.js'), 'utf8');
+  const per = Number(/const PRESSURE_PER_UNIT\s*=\s*([0-9.]+)/.exec(mainSrc)?.[1]);
+  const clamp = Number(/const PRESSURE_CLAMP\s*=\s*([0-9.]+)/.exec(mainSrc)?.[1]);
+  assertEqual(per, ws.PRESSURE_AGG.perUnit, 'main.js PRESSURE_PER_UNIT');
+  assertEqual(clamp, ws.PRESSURE_AGG.clamp, 'main.js PRESSURE_CLAMP');
+  assert(!/ECONOMY\.pressure[^\n]*0\.25/.test(mainSrc), 'no leftover ±0.25 pressure clamps in main.js');
+  assert(/__agg__|AGG_MARKER/.test(mainSrc), 'economySync should skip the watermark marker row');
+});
+
+test('SQL aggregate_economy skips the watermark row and is not callable by anon', () => {
+  const sql = readFileSync(join(ROOT, 'ops/supabase_schema.sql'), 'utf8');
+  const fn = sql.slice(sql.indexOf('FUNCTION aggregate_economy()'), sql.indexOf('REVOKE EXECUTE ON FUNCTION aggregate_economy()'));
+  const body = fn.replace(/--[^\n]*/g, '');
+  const re = /\b(UPDATE|DELETE FROM)\s+market_economy\b/g;
+  let m, n = 0;
+  while ((m = re.exec(body))) {
+    n++;
+    const rest = body.slice(m.index);
+    const stmt = rest.slice(0, rest.search(/;/));
+    assert(/city_id\s*<>\s*'__agg__'/.test(stmt), `market_economy statement must skip the marker row: ${stmt.trim().slice(0, 60)}`);
+  }
+  assert(n >= 3, `found ${n} market_economy UPDATE/DELETE statements`);
+  assert(!/GRANT EXECUTE ON FUNCTION aggregate_economy\(\) TO anon/.test(sql), 'anon must not be granted aggregate_economy');
+  assert(/REVOKE EXECUTE ON FUNCTION aggregate_economy\(\) FROM/.test(sql), 'REVOKE present');
+});
+
+test('foldTradeEvents: unchanged keys are not rewritten; no events still decays', () => {
+  const r = ws.foldTradeEvents({ 'a:grain': 0.1, 'z:ink': 0 }, [], 9);
+  assertEqual(r.lastId, 9, 'watermark unchanged');
+  assert(r.rows.some(x => x.city_id === 'a' && Math.abs(x.pressure - 0.085) < 1e-12), 'decayed row written');
+  assert(!r.rows.some(x => x.city_id === 'z'), 'zero row stays as is');
+});
+
+test('parsePressureRows: the watermark row is not market pressure', () => {
+  const { map, lastId } = ws.parsePressureRows([
+    { city_id: 'a', item_id: 'grain', pressure: 0.1 },
+    { city_id: ws.AGG_WATERMARK.city_id, item_id: ws.AGG_WATERMARK.item_id, pressure: 1234 },
+  ]);
+  assertEqual(JSON.stringify(map), JSON.stringify({ 'a:grain': 0.1 }), 'map');
+  assertEqual(lastId, 1234, 'lastId');
+  assertEqual(ws.parsePressureRows([]).lastId, null, 'no watermark yet');
+});
+
+test('nothing calls the broken aggregate_economy RPC any more', () => {
+  const mainSrc = readFileSync(join(ROOT, 'src/main.js'), 'utf8');
+  const wsSrc = readFileSync(join(ROOT, 'ops/scripts/world_service.mjs'), 'utf8');
+  assert(!/rpc\/aggregate_economy/.test(mainSrc), 'main.js still calls rpc/aggregate_economy');
+  assert(!/rpc\/aggregate_economy/.test(wsSrc), 'world_service.mjs still calls rpc/aggregate_economy');
+});
+
+test('SQL aggregate_economy is safeupdate-proof: every UPDATE/DELETE has a WHERE', () => {
+  const sql = readFileSync(join(ROOT, 'ops/supabase_schema.sql'), 'utf8');
+  const fn = sql.slice(sql.indexOf('FUNCTION aggregate_economy()'), sql.indexOf('REVOKE EXECUTE ON FUNCTION aggregate_economy()'));
+  const body = fn.replace(/--[^\n]*/g, '');
+  // ON CONFLICT … DO UPDATE has no table name, so it never matches this regex.
+  const re = /\b(UPDATE|DELETE FROM)\s+(market_economy|trade_events)\b/g;
+  let m, n = 0;
+  while ((m = re.exec(body))) {
+    n++;
+    const rest = body.slice(m.index + m[0].length);
+    const end = rest.search(/;|\bRETURNING\b/);
+    const clause = end >= 0 ? rest.slice(0, end) : rest;
+    assert(/\bWHERE\b/.test(clause), `missing WHERE after "${m[0]}"`);
+  }
+  assert(n >= 4, `found ${n} UPDATE/DELETE statements`);
+});
+
+test('world-sim workflow runs one tick at a time (no double folding)', () => {
+  const wf = readFileSync(join(ROOT, '.github/workflows/world-sim.yml'), 'utf8');
+  assert(/^concurrency:/m.test(wf), 'world-sim.yml needs a concurrency group');
 });
 
 // ── simulateTraders (offline multi-day run + report) ───────────────────────
@@ -472,6 +593,19 @@ test('30 days: no strategy herds (2+ traders switching to the same item in one s
   for (const seed of [1, 2, 3]) for (const pressure of [false, true]) {
     const st = sim({ days: 30, seed, pressure }).strategy;
     assertEqual(st.herds, 0, `seed ${seed} pressure ${pressure} herds`);
+  }
+});
+
+test('with live (gentler) pressure: traders stay healthy over 30 and 120 days', () => {
+  for (const seed of [1, 2, 3]) {
+    const r = sim({ days: 30, seed, pressure: true });
+    assert(r.totals.emptyTrips / r.totals.trips <= 0.10, `seed ${seed}: ${r.totals.emptyTrips}/${r.totals.trips} empty`);
+    assert(r.diversity.hhi <= 0.25, `seed ${seed}: HHI ${r.diversity.hhi}`);
+    assert(r.diversity.topItemShare <= 0.40, `seed ${seed}: top item ${r.diversity.topItemShare}`);
+  }
+  const long = sim({ days: 120, seed: 1, pressure: true });
+  for (const t of long.traders) {
+    assert(t.endGold > t.startGold, `${t.id}: ${t.startGold}g → ${t.endGold}g`);
   }
 });
 

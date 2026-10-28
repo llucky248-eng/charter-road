@@ -98,7 +98,22 @@ depend on the client being honest):
   run instead of leaving dangling local state. Residual: a committed-but-unacked
   write still reverts locally and desyncs until the next world sync — closing it
   needs server-issued transaction IDs to reconcile against.
-- **Market aggregation double-counting** (`aggregate_economy`,
+- **Market aggregation moved into the world ticker** (Oct 2026): the deployed
+  SQL `aggregate_economy()` failed on every call (`UPDATE requires a WHERE
+  clause` — Supabase safeupdate), freezing market pressure. `world_service.mjs`
+  now aggregates each tick itself (`aggregateMarketPressure` → pure
+  `foldTradeEvents`, same rules as the SQL): it reads `trade_events` newer than a
+  watermark kept in the `market_economy` marker row `('__agg__','last_event_id')`
+  and upserts the changed pressure rows. The first run only records the newest
+  event id, so the backlog left while the RPC was broken is skipped (no price
+  jolt). Settings were softened at the same time to 0.002/unit and ±0.15 (were
+  0.02 and ±0.5: one cart moved a price 36%). Browsers no longer call the RPC.
+  `trade_events` is no longer consumed by DELETE (the anon key can't), so it
+  grows; prune old rows by hand now and then:
+  `DELETE FROM trade_events WHERE created_at < NOW() - INTERVAL '7 days';`.
+  Re-applying section 5 of `supabase_schema.sql` is optional (it is now
+  safeupdate-proof and uses the same constants) and not needed for the fix.
+- **Market aggregation double-counting** (historical; `aggregate_economy`,
   `ops/supabase_schema.sql`): fixed by consuming events with `DELETE ...
   RETURNING` so each trade folds into pressure exactly once regardless of run
   frequency, with no double-count and no skip race (concurrent runs delete
