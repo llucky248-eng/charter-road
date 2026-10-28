@@ -468,6 +468,13 @@ test('pressure feedback: on by default, builds market pressure, still determinis
   assertEqual(off.market.maxPressure, 0, 'no pressure when off');
 });
 
+test('30 days: no strategy herds (2+ traders switching to the same item in one step)', () => {
+  for (const seed of [1, 2, 3]) for (const pressure of [false, true]) {
+    const st = sim({ days: 30, seed, pressure }).strategy;
+    assertEqual(st.herds, 0, `seed ${seed} pressure ${pressure} herds`);
+  }
+});
+
 test('simulateTraders leaves world_service module state as it found it', () => {
   const snap = () => JSON.stringify({ w: ws.WORLD_STATE, e: ws.WORLD_EVENTS, p: ws.PRESSURE_MAP, t: ws.CITY_TREASURY, d: ws.MARKET_DRIFT });
   ws.MARKET_DRIFT.valdenmere = { ...(ws.MARKET_DRIFT.valdenmere || {}), grain: 1.07 }; // non-neutral drift must survive
@@ -481,6 +488,102 @@ test('trader_report CLI prints the same JSON as simulateTraders', () => {
   const r = spawnSync('node', [join(ROOT, 'ops/scripts/trader_report.mjs'), '--days', '6', '--seed', '4'], { encoding: 'utf8' });
   assertEqual(r.status, 0, `exit code (stderr: ${r.stderr})`);
   assertEqual(r.stdout.trim(), JSON.stringify(sim({ days: 6, seed: 4 })), 'CLI stdout');
+});
+
+// ── Live-failure fixes: stuck traders + strategy herding ────────────────────
+console.log('\nworld_service: stuck-trader rescue + strategy herding');
+
+test('stuck rescue: a trader who cannot afford any profitable cargo where it stands is rescued', () => {
+  // Live: Cargo Dom and Olt held >= the global cheapest unit, so the old rescue
+  // never fired, but nothing profitable from their city was affordable: empty
+  // trips forever. Find a city where that gap exists today.
+  const city = ws.CITIES.find(c => ws.stuckRescueGold(c) > ws.cheapestBuy());
+  assert(city, 'expected a city whose cheapest profitable unit costs more than the global cheapest unit');
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[2], 2, NOW);
+  const other = ws.CITIES.find(c => c !== city);
+  Object.assign(t, { state: 'traveling', from_id: other, to_id: city, progress: 0.99, inv: {}, gold: ws.cheapestBuy() });
+  let rescued = 0;
+  tick(t, 60, { nowIso: NOW, peers: [], onRescue: () => rescued++ });
+  assertEqual(rescued, 1, 'rescued on arrival');
+  assert(t.gold >= ws.stuckRescueGold(city), `gold ${t.gold} should cover one profitable unit (${ws.stuckRescueGold(city)})`);
+  t.city_timer = 0;
+  tick(t, 60, { nowIso: NOW, peers: [] });
+  assert(Object.keys(t.inv).length > 0, `next trip should carry cargo, got ${JSON.stringify(t.inv)}`);
+});
+
+test('stuck rescue never fires for a trader that can afford a profitable trip', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[2], 2, NOW);
+  Object.assign(t, { state: 'traveling', from_id: 'ashport', to_id: 'valdenmere', progress: 0.99, inv: {}, gold: 500, gear_tier: 3 }); // maxed cart: no upgrade spend
+  let rescued = 0;
+  tick(t, 60, { nowIso: NOW, peers: [], onRescue: () => rescued++ });
+  assertEqual(rescued, 0, 'no rescue');
+  assertEqual(t.gold, 500, 'gold untouched');
+});
+
+function fresh(i, over = {}) {
+  return { ...ws.makeSeedTrader(ws.TRADER_DEFS[i], i, NOW), ...over };
+}
+const review = (t, ctx) => quiet(() => ws.reviewStrategy(t, { nowIso: NOW, ...ctx }));
+
+test('herding: traders reviewing in the same tick pick different focus items', () => {
+  // Live: 3-5 traders "pivot to uncontested X" in one run, all to the same X,
+  // because each compared itself with the pre-tick snapshot.
+  const traders = [0, 1, 2, 3].map(i => fresh(i, { trips_completed: 0, profit_history: [] }));
+  const peers = ws.snapshotPeers(traders);
+  const focus = {};
+  for (const t of traders) review(t, { peers, focus });
+  const picks = traders.map(t => t.preferred_item);
+  assertEqual(new Set(picks).size, picks.length, `distinct picks, got ${picks}`);
+  for (const t of traders) assertEqual(focus[t.id], t.preferred_item, 'focus board updated');
+});
+
+test('herding: trailing traders do not all pivot to the same niche in one tick', () => {
+  const hist = p => [1, 2, 3].map(trip => ({ trip, profit: p, item: 'grain', to: 'ironholt' }));
+  const leader = fresh(0, { trips_completed: 9, preferred_item: 'grain', profit_history: hist(400) });
+  const laggards = [1, 2, 3].map(i => fresh(i, { trips_completed: 9, preferred_item: 'grain', profit_history: hist(5), review_at_trips: 9 }));
+  const all = [leader, ...laggards];
+  const peers = ws.snapshotPeers(all);
+  const focus = Object.fromEntries(all.map(t => [t.id, t.preferred_item]));
+  for (const t of laggards) review(t, { peers, focus });
+  const moved = laggards.map(t => t.preferred_item).filter(x => x !== 'grain');
+  assertEqual(new Set(moved).size, moved.length, `no two laggards move to the same item, got ${laggards.map(t => t.preferred_item)}`);
+});
+
+test('hysteresis: hold when the current focus is within 25% of the niche; switch when clearly beaten', () => {
+  const hist = p => [1, 2, 3].map(trip => ({ trip, profit: p, item: 'x', to: 'ironholt' }));
+  const scores = ws.focusScores(fresh(1, { trips_completed: 9 }));
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const [best, second] = ranked;
+  const worst = ranked[ranked.length - 1];
+  assert(second[1] * 1.25 >= best[1], `test needs a runner-up within 25% of the best (${best[0]} ${best[1]}, ${second[0]} ${second[1]})`);
+  assert(worst[1] * 1.25 < best[1], `test needs a clearly beaten item (${worst[0]} ${worst[1]})`);
+  // Leader earns far more and focuses on the worst item, so trailing traders pivot rather than copy.
+  const mk = (pref) => {
+    const leader = fresh(0, { trips_completed: 9, preferred_item: worst[0], profit_history: hist(400) });
+    const t = fresh(1, { trips_completed: 9, preferred_item: pref, profit_history: hist(5) });
+    review(t, { peers: ws.snapshotPeers([leader, t]), focus: { [leader.id]: leader.preferred_item, [t.id]: pref } });
+    return t.preferred_item;
+  };
+  assertEqual(mk(second[0]), second[0], `${second[0]} is within 25% of ${best[0]}: hold`);
+  const moved = mk(ranked[ranked.length - 2][0]);
+  assert(moved !== ranked[ranked.length - 2][0] && scores[moved] >= scores[ranked[ranked.length - 2][0]] * 1.25,
+    `a clearly beaten focus should switch to something >=25% better, got ${moved}`);
+});
+
+test('copy_leader does not pile a 3rd trader onto an item two already hold', () => {
+  const hist = p => [1, 2, 3].map(trip => ({ trip, profit: p, item: 'x', to: 'ironholt' }));
+  const scores = ws.focusScores(fresh(1, { trips_completed: 9 }));
+  const top = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+  // Every other item is taken, so there's no niche to pivot to; leader + one more hold `top`.
+  const others = Object.keys(scores).filter(k => k !== top);
+  const leader = fresh(0, { trips_completed: 9, preferred_item: top, profit_history: hist(400) });
+  const twin = fresh(2, { trips_completed: 9, preferred_item: top, profit_history: hist(300) });
+  const t = fresh(1, { trips_completed: 9, preferred_item: others[0], profit_history: hist(5) });
+  const fillers = others.slice(1).map((item, i) => ({ id: `filler_${i}`, preferred_item: item, profit_history: hist(1) }));
+  const all = [leader, twin, t, ...fillers];
+  const focus = Object.fromEntries(all.map(x => [x.id, x.preferred_item]));
+  review(t, { peers: ws.snapshotPeers(all), focus });
+  assert(t.preferred_item !== top, `should not become the 3rd trader on ${top}`);
 });
 
 // ── One shared route-picker ─────────────────────────────────────────────────
