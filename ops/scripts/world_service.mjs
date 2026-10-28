@@ -222,6 +222,18 @@ function cheapestBuy({ cityId = null, perWeight = false } = {}) {
   return cheapest;
 }
 
+// Gold needed to buy one unit of the cheapest item that is profitable to carry
+// from cityId to somewhere (Infinity when nothing from here is profitable).
+function stuckRescueGold(cityId) {
+  let need = Infinity;
+  for (const item of ITEMS) {
+    if (item.sourceCities && !item.sourceCities.includes(cityId)) continue;
+    const buy = buyPrice(cityId, item);
+    if (CITIES.some(to => to !== cityId && netSellPrice(to, item) > buy)) need = Math.min(need, buy);
+  }
+  return need;
+}
+
 // Gold a trader must still hold after buying a cart of `tier` in `cityId`:
 // enough to fill it with that city's cheapest goods (per weight unit). Without
 // it an upgrade can leave the trader too broke to load even its old cart.
@@ -526,19 +538,10 @@ function decideRoute(trader, rng = traderRng(trader, rngSalt(), 'route')) {
 const STRATEGY_LOG_BATCH = []; // collect log entries, upsert at end of tick
 const TRADE_EVENTS_BATCH = []; // collect trade events, upsert at end of tick
 
-// peers: a snapshot of every trader taken before this tick, so each trader can
-// compare itself with the others. nowIso stamps the log entry.
-function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
-  const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
-  const trips   = trader.trips_completed || 0;
-
-  // Compute recent profit rate (last 3 trips)
-  const recentWindow = history.slice(-3);
-  const recentProfit = recentWindow.reduce((s, e) => s + (e.profit || 0), 0);
-  const recentRate   = recentWindow.length > 0 ? recentProfit / recentWindow.length : 0;
-
-  // FIX: evaluate item profitability across ALL city pairs (not just from current city)
-  // and apply pressure penalty so saturated routes rank lower
+// How attractive each item is as a trader's focus: profit over every city pair
+// (saturated sell markets skipped), weighted up where the source is the trader's
+// current city. Same units as before the extraction; used by reviewStrategy.
+function focusScores(trader) {
   const fromId = trader.to_id || trader.from_id || 'valdenmere';
   const itemProfits = {};
   for (const srcId of CITIES) {
@@ -557,6 +560,28 @@ function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
       }
     }
   }
+  return itemProfits;
+}
+
+// A niche pivot must score this much better than the current focus to happen
+// (not when the current item is crowded). Stops the every-review churn.
+const FOCUS_SWITCH_MARGIN = 1.25;
+
+// peers: a snapshot of every trader taken before this tick, so each trader can
+// compare itself with the others. nowIso stamps the log entry.
+// focus: live { traderId: preferred_item } board shared by every review in one
+// tick, so a trader sees the picks peers made earlier in the same tick instead
+// of all diving into the same "uncontested" item from the pre-tick snapshot.
+function reviewStrategy(trader, { nowIso, peers: allPeers = [], focus = null }) {
+  const history = Array.isArray(trader.profit_history) ? trader.profit_history : [];
+  const trips   = trader.trips_completed || 0;
+
+  // Compute recent profit rate (last 3 trips)
+  const recentWindow = history.slice(-3);
+  const recentProfit = recentWindow.reduce((s, e) => s + (e.profit || 0), 0);
+  const recentRate   = recentWindow.length > 0 ? recentProfit / recentWindow.length : 0;
+
+  const itemProfits = focusScores(trader);
   const bestItem = Object.entries(itemProfits).sort((a, b) => b[1] - a[1])[0];
 
   // ── Peer comparison ───────────────────────────────────────────────────
@@ -570,10 +595,11 @@ function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
   const avgPeerRate  = peerRates.length > 0 ? peerRates.reduce((a, b) => a + b, 0) / peerRates.length : 0;
 
   // Count how many peers share the same preferred item (saturation)
-  const competingPeers = peers.filter(p => p.preferred_item === trader.preferred_item && trader.preferred_item).length;
+  const peerFocus = p => (focus && p.id in focus ? focus[p.id] : p.preferred_item);
+  const competingPeers = peers.filter(p => peerFocus(p) === trader.preferred_item && trader.preferred_item).length;
 
   // Find item no other trader is focusing on (niche opportunity)
-  const takenItems = new Set(peers.map(p => p.preferred_item).filter(Boolean));
+  const takenItems = new Set(peers.map(peerFocus).filter(Boolean));
   const nicheItems = Object.entries(itemProfits)
     .filter(([id]) => !takenItems.has(id))
     .sort((a, b) => b[1] - a[1]);
@@ -605,10 +631,18 @@ function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
       newPreferredItem = nicheItem[0];
       reason = `Trailing best peer ${bestPeer?.name} (${bestPeerRate.toFixed(0)}g vs my ${recentRate.toFixed(0)}g/trip). Pivoting to uncontested ${newPreferredItem} (score ${nicheItem[1]}g).`;
     } else {
-      // Copy the leader's item
-      decision = 'copy_leader';
-      newPreferredItem = bestPeer?.preferred_item || bestItem?.[0] || null;
-      reason = `Trailing best peer ${bestPeer?.name} (${bestPeerRate.toFixed(0)}g vs my ${recentRate.toFixed(0)}g/trip). Copying their focus: ${newPreferredItem}.`;
+      // Copy the leader's item — unless 2+ traders already focus on it (live
+      // board), which would just pile everyone onto one market.
+      const leaderItem = (bestPeer && peerFocus(bestPeer)) || bestItem?.[0] || null;
+      const holders = peers.filter(p => peerFocus(p) === leaderItem).length;
+      if (leaderItem && leaderItem !== trader.preferred_item && holders >= 2) {
+        decision = 'hold';
+        reason = `Trailing best peer ${bestPeer?.name}, but ${holders} traders already focus on ${leaderItem}. Holding ${newPreferredItem || 'flexible'}.`;
+      } else {
+        decision = 'copy_leader';
+        newPreferredItem = leaderItem;
+        reason = `Trailing best peer ${bestPeer?.name} (${bestPeerRate.toFixed(0)}g vs my ${recentRate.toFixed(0)}g/trip). Copying their focus: ${newPreferredItem}.`;
+      }
     }
     nextReviewAt = trips + 2;
   } else if (recentRate >= bestPeerRate && recentRate > avgPeerRate * 1.2) {
@@ -640,7 +674,18 @@ function reviewStrategy(trader, { nowIso, peers: allPeers = [] }) {
     reason = `No focus set. Picking ${newPreferredItem} — ${takenItems.has(newPreferredItem) ? 'contested' : 'uncontested'} (score ${itemProfits[newPreferredItem] || 0}g).`;
   }
 
+  // Hysteresis: a niche pivot must clearly beat the current focus on paper.
+  // copy_leader is exempt (it follows realised results); so is a crowded item.
+  const prevItem = trader.preferred_item || null;
+  if (prevItem && newPreferredItem !== prevItem && decision === 'pivot_niche' && competingPeers < 2
+      && (itemProfits[newPreferredItem] || 0) < (itemProfits[prevItem] || 0) * FOCUS_SWITCH_MARGIN) {
+    reason = `Would ${decision} to ${newPreferredItem} (${itemProfits[newPreferredItem] || 0}g) but ${prevItem} (${itemProfits[prevItem] || 0}g) is within ${Math.round((FOCUS_SWITCH_MARGIN - 1) * 100)}%. Holding.`;
+    decision = 'hold';
+    newPreferredItem = prevItem;
+  }
+
   trader.preferred_item  = newPreferredItem;
+  if (focus) focus[trader.id] = newPreferredItem;
   trader.review_at_trips = nextReviewAt;
 
   const logEntry = {
@@ -959,7 +1004,7 @@ function snapshotPeers(traders) {
 // Advance one trader by `elapsed` seconds. Deterministic: the time stamp comes
 // from nowIso and every random choice from a seeded rng, so the same snapshot
 // always replays the same way. peers = pre-tick snapshot for strategy reviews.
-function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
+function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, focus = null } = {}) {
   if (typeof nowIso !== 'string') throw new Error('tickTrader needs { nowIso }');
   // Process elapsed time in micro-steps so multiple trips can complete in one tick
   const STEP = 60; // seconds per micro-step
@@ -1055,9 +1100,14 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
         // be stranded with an empty cart forever. After the economy rebalance a
         // healthy trader stays well above this, so it should rarely trigger — if it
         // fires often, the base economy has regressed (see balance_regression_test).
-        const minCargoCost = cheapestBuy();
-        if (t.gold < minCargoCost) {
-          console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any cargo)`);
+        // The bar is one unit of the cheapest *profitable* cargo from this
+        // city: a trader holding only the global cheapest unit's price can
+        // still be unable to buy anything worth carrying here and shuttle with
+        // an empty cart forever (seen live). No rescue when nothing from here
+        // is profitable at all: the fallback trip moves the trader on instead.
+        const minCargoCost = stuckRescueGold(t.to_id);
+        if (Number.isFinite(minCargoCost) && t.gold < minCargoCost) {
+          console.log(`[${t.name}] ⚠️ Stranded rescue (${t.gold}g → ${minCargoCost}g — couldn't afford any profitable cargo here)`);
           if (onRescue) onRescue({ trader: t.id, from: t.gold, to: minCargoCost });
           t.gold = minCargoCost;
         }
@@ -1081,7 +1131,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue } = {}) {
         // Strategy review every N trips
         const reviewAt = t.review_at_trips || 3;
         if (t.trips_completed >= reviewAt) {
-          reviewStrategy(t, { nowIso, peers });
+          reviewStrategy(t, { nowIso, peers, focus });
         }
       }
     }
@@ -1140,6 +1190,10 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
     const rescues = Object.fromEntries(traders.map(t => [t.id, 0]));
     const onRescue = ({ trader }) => { rescues[trader] += 1; };
     const market = { maxPressure: 0, minPressure: 0 };
+    const strategy = { switches: 0, herds: 0 }; // focus changes; herds = 2+ switching to one item in a live-tick window
+    const switchedTo = {};
+    // Live focus board for the whole run (kept current after every review), like main()'s per tick.
+    const focus = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
     const totalSeconds = days * SIM_SECONDS_PER_DAY;
 
     for (let elapsed = 0; elapsed < totalSeconds; elapsed += SIM_STEP_SECONDS) {
@@ -1157,12 +1211,23 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
         }
       }
       const peers = snapshotPeers(traders);
+      // Herds are counted per live-tick window (MAX_TICK), where live reviews share a board.
+      if (elapsed % MAX_TICK === 0) {
+        for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
+        for (const k of Object.keys(switchedTo)) delete switchedTo[k];
+      }
       for (const t of traders) {
+        const focusBefore = t.preferred_item;
         // Routes take ≥ 180s and a step is 60s, so a trip that ends in this step
         // was already on the road when the step began: its origin is from_id now.
         const fromBefore = t.state === 'traveling' ? t.from_id : null;
         const cargoBefore = Object.values(t.inv || {}).reduce((a, q) => a + (q || 0), 0);
-        tickTrader(t, Math.min(SIM_STEP_SECONDS, totalSeconds - elapsed), { nowIso: SIM_NOW_ISO, peers, onRescue });
+        tickTrader(t, Math.min(SIM_STEP_SECONDS, totalSeconds - elapsed), { nowIso: SIM_NOW_ISO, peers, onRescue, focus });
+        if (focusBefore && t.preferred_item !== focusBefore) { // a first pick is not a switch
+          strategy.switches += 1;
+          if (t.preferred_item) switchedTo[t.preferred_item] = (switchedTo[t.preferred_item] || 0) + 1;
+        }
+        focus[t.id] = t.preferred_item || null;
         for (const h of t.profit_history) {
           if (h.trip > lastTrip[t.id]) {
             trips.push({ trader: t.id, from: fromBefore, to: h.to, item: h.item, profit: h.profit, empty: cargoBefore === 0 });
@@ -1171,7 +1236,8 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
         }
       }
     }
-    return buildTraderReport({ days, seed, traders, trips, rescues, pressure, market });
+    for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
+    return buildTraderReport({ days, seed, traders, trips, rescues, pressure, market, strategy });
   } finally {
     console.log = log;
     for (const k of Object.keys(WORLD_STATE)) delete WORLD_STATE[k];
@@ -1188,7 +1254,7 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
   }
 }
 
-function buildTraderReport({ days, seed, traders, trips, rescues, pressure, market }) {
+function buildTraderReport({ days, seed, traders, trips, rescues, pressure, market, strategy }) {
   const round = (x, d = 4) => Math.round(x * 10 ** d) / 10 ** d;
   const items = {};
   const routes = {};
@@ -1217,6 +1283,7 @@ function buildTraderReport({ days, seed, traders, trips, rescues, pressure, mark
     secondsPerDay: SIM_SECONDS_PER_DAY,
     pressureFeedback: pressure,
     market: { maxPressure: round(market.maxPressure), minPressure: round(market.minPressure) },
+    strategy,
     traders: traders.map(t => ({
       id: t.id, name: t.name, personality: t.personality,
       startGold: t.start_gold, endGold: t.gold,
@@ -1252,7 +1319,8 @@ async function main() {
   // Load market pressure before ticking so prices respond to supply/demand.
   await loadPressureMap();
 
-  let traders = await fetchTraders();
+  // Fixed order: reviews share a live focus board, so who reviews first matters.
+  let traders = (await fetchTraders() || []).slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
   // fetchTreasuries() already merges DB state into CITY_TREASURY in-memory — no second loop needed
   const treasuryRows = await fetchTreasuries();
 
@@ -1278,10 +1346,11 @@ async function main() {
   } else {
     // Snapshot all traders before ticking so strategy reviews can compare peers
     const peers = snapshotPeers(traders);
+    const focus = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
     traders = traders.map(t => {
       const lastTick = t.updated_at ? new Date(t.updated_at).getTime() : now;
       const elapsed  = Math.min(MAX_TICK, (now - lastTick) / 1000);
-      tickTrader(t, elapsed, { nowIso, peers });
+      tickTrader(t, elapsed, { nowIso, peers, focus });
       return t;
     });
   }
@@ -1359,6 +1428,10 @@ export {
   netSellPrice,
   decideRoute,
   tickTrader,
+  reviewStrategy,
+  focusScores,
+  stuckRescueGold,
+  cheapestBuy,
   aggregatePressure,
   PRESSURE_AGG,
   tryGearUpgrade,
