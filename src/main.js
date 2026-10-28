@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.56'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.57'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -4435,6 +4435,7 @@ function traderDecideRoute(trader) {
       cities: world.cities.map(c => c.id),
       items: ITEMS,
       capacity: trader.capacity,
+      gold: trader.gold,
       buy: (cityId, it) => quoteFor(cityId, it).buy,
       // After sale tax, same as the server's netSellPrice.
       sellNet: (cityId, it) => Math.max(1, Math.round(quoteFor(cityId, it).sell * (1 - (CITY_RULES[cityId]?.taxRate ?? 0)))),
@@ -6916,7 +6917,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.56',
+    version: 'v0.5.57',
     whatsNew: [
       'Trading feels alive: when you buy, coins fly from your gold into the goods and the goods fly into your pack; when you sell, your goods go to the merchant and a shower of coins flies into your purse. The row you traded flashes (blue for buying, gold for selling), your gold total bounces with a floating "+24g" or "−12g", and the trade buttons press in when tapped. (Calmer if your device asks for reduced motion.)',
       'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
@@ -8640,7 +8641,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.56',
+      buildVersion: 'v0.5.57',
       savedAt: Date.now(),
       player: {
         x: player.x,
