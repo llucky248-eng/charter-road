@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.57'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.59'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -3326,6 +3326,7 @@ const NPC_INTERACT_RADIUS = 18;
       if (!res.ok) return;
       const rows = await res.json();
       for (const row of rows) {
+        if (row.city_id === '__agg__') continue; // the ticker's watermark row, not a market
         if (!ECONOMY.pressure[row.city_id]) ECONOMY.pressure[row.city_id] = {};
         ECONOMY.pressure[row.city_id][row.item_id] = row.pressure || 0;
       }
@@ -3334,15 +3335,19 @@ const NPC_INTERACT_RADIUS = 18;
     }
   }
 
+  // Same scale as the world ticker's PRESSURE_AGG (world_service.mjs); trader_tests
+  // checks they match, so optimistic local updates agree with the next sync.
+  const PRESSURE_PER_UNIT = 0.002;
+  const PRESSURE_CLAMP = 0.15;
+  const clampPressure = (p) => Math.max(-PRESSURE_CLAMP, Math.min(PRESSURE_CLAMP, p));
+
   // Post a trade event to Supabase (fire-and-forget)
   function economyPostTrade(cityId, itemId, direction, qty) {
     if (!ECONOMY.enabled) return;
     // Optimistically update local cache immediately
     if (!ECONOMY.pressure[cityId]) ECONOMY.pressure[cityId] = {};
-    const delta = (direction === 'buy' ? qty : -qty) * 0.02;
-    ECONOMY.pressure[cityId][itemId] = Math.max(-0.25, Math.min(0.25,
-      (ECONOMY.pressure[cityId][itemId] || 0) + delta
-    ));
+    const delta = (direction === 'buy' ? qty : -qty) * PRESSURE_PER_UNIT;
+    ECONOMY.pressure[cityId][itemId] = clampPressure((ECONOMY.pressure[cityId][itemId] || 0) + delta);
     // Push to server async
     fetch(`${ECONOMY.url}/rest/v1/trade_events`, {
       method: 'POST',
@@ -3354,8 +3359,8 @@ const NPC_INTERACT_RADIUS = 18;
   // Get economy price modifier for a city/item (1.0 = no effect)
   function economyModifier(cityId, itemId) {
     const p = ECONOMY.pressure[cityId]?.[itemId] || 0;
-    // pressure clamped to ±0.25: max +0.25 → price ×1.25, max -0.25 → price ×0.75
-    // Halved from ±0.5 to prevent heavy trade from completely collapsing a route.
+    // pressure is clamped to ±0.15 by the world ticker (PRESSURE_AGG in
+    // world_service.mjs): max price ×1.15 / ×0.85, one 18-unit cart ≈ 4%.
     return 1 + p;
   }
 
@@ -3372,19 +3377,8 @@ const NPC_INTERACT_RADIUS = 18;
     return mult;
   }
 
-  // Trigger economy aggregation on server (called hourly via stateTime)
-  let _lastEconomyAggregate = 0;
-  function maybeAggregateEconomy() {
-    if (!ECONOMY.enabled) return;
-    const now = Date.now();
-    if (now - _lastEconomyAggregate < 3_600_000) return; // once per hour
-    _lastEconomyAggregate = now;
-    fetch(`${ECONOMY.url}/rest/v1/rpc/aggregate_economy`, {
-      method: 'POST',
-      headers: { ...economyHeaders(), 'Prefer': 'return=minimal' },
-      body: '{}',
-    }).catch(() => {});
-  }
+  // Market pressure is aggregated by the world ticker (world_service.mjs,
+  // aggregateMarketPressure); the client only posts trade events and reads it.
 
   // ── World state sync from DB ─────────────────────────────────────────────
   // Reads world_state (time), city_treasury (pop/hunger/treasury/buildings/bonus)
@@ -6539,8 +6533,8 @@ function drawNpcBubble() {
       const pressureBoost = state.hunger * 0.4;
       if (pressureBoost > 0.02) {
         if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
-        ECONOMY.pressure[cid]['food']  = Math.min(0.25, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
-        ECONOMY.pressure[cid]['grain'] = Math.min(0.25, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
+        ECONOMY.pressure[cid]['food']  = Math.min(PRESSURE_CLAMP, (ECONOMY.pressure[cid]['food']  || 0) + pressureBoost * 0.15);
+        ECONOMY.pressure[cid]['grain'] = Math.min(PRESSURE_CLAMP, (ECONOMY.pressure[cid]['grain'] || 0) + pressureBoost * 0.15);
       }
       // Natural growth/decline
       if (state.hunger < 0.2) {
@@ -6877,10 +6871,10 @@ function drawNpcBubble() {
         cityTreasury[cid].gold += goldGained;
       }
       if (!ECONOMY.pressure[cid]) ECONOMY.pressure[cid] = {};
-      ECONOMY.pressure[cid].ore  = Math.max(-0.25, (ECONOMY.pressure[cid].ore  || 0) - 0.010 * lvl);
-      ECONOMY.pressure[cid].coal = Math.max(-0.25, (ECONOMY.pressure[cid].coal || 0) - 0.005 * lvl);
+      ECONOMY.pressure[cid].ore  = Math.max(-PRESSURE_CLAMP, (ECONOMY.pressure[cid].ore  || 0) - 0.010 * lvl);
+      ECONOMY.pressure[cid].coal = Math.max(-PRESSURE_CLAMP, (ECONOMY.pressure[cid].coal || 0) - 0.005 * lvl);
       if (yields.gem) {
-        ECONOMY.pressure[cid].gem = Math.max(-0.25, (ECONOMY.pressure[cid].gem || 0) - 0.010);
+        ECONOMY.pressure[cid].gem = Math.max(-PRESSURE_CLAMP, (ECONOMY.pressure[cid].gem || 0) - 0.010);
       }
       pushCityTreasuryToDb(cid);
     }
@@ -6917,7 +6911,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.57',
+    version: 'v0.5.59',
     whatsNew: [
       'Trading feels alive: when you buy, coins fly from your gold into the goods and the goods fly into your pack; when you sell, your goods go to the merchant and a shower of coins flies into your purse. The row you traded flashes (blue for buying, gold for selling), your gold total bounces with a floating "+24g" or "−12g", and the trade buttons press in when tapped. (Calmer if your device asks for reduced motion.)',
       'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
@@ -8641,7 +8635,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.57',
+      buildVersion: 'v0.5.59',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -14725,8 +14719,6 @@ function drawEvent() {
       }
       // Sync global economy on city entry
       if (nowId) { economySync(); syncWorldState(); } // on city entry: refresh world state
-      // Trigger server aggregation (hourly, no-op if too soon)
-      maybeAggregateEconomy();
     }
     // (Forest/swamp entry is announced by the struggle cue in updateTerrainFx,
     // with a cooldown, instead of a toast on every ragged-edge tile change.)
