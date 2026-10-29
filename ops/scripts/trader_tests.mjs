@@ -501,6 +501,115 @@ test('world-sim workflow runs one tick at a time (no double folding)', () => {
   assert(/^concurrency:/m.test(wf), 'world-sim.yml needs a concurrency group');
 });
 
+// ── Catch-up ticks (fewer DB writes, real elapsed time) ────────────────────
+console.log('\nworld_service: catch-up ticks within Supabase limits');
+
+// Run fn with PRESSURE_MAP and the trade-event batch restored afterwards, even on failure.
+function isolated(fn) {
+  const saveP = { ...ws.PRESSURE_MAP };
+  const batch = ws.TRADE_EVENTS_BATCH.length;
+  try { return fn(); } finally {
+    for (const k of Object.keys(ws.PRESSURE_MAP)) delete ws.PRESSURE_MAP[k];
+    Object.assign(ws.PRESSURE_MAP, saveP);
+    ws.TRADE_EVENTS_BATCH.length = batch;
+  }
+}
+
+test('catchUpSeconds: real gap since the last tick, capped at 8 hours', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const tr = (iso) => ({ updated_at: iso });
+  assertEqual(ws.catchUpSeconds(now, [tr('2026-01-01T09:00:00Z'), tr('2026-01-01T09:00:05Z')]), 3 * 3600 - 5, 'uses the newest updated_at');
+  assertEqual(ws.catchUpSeconds(now, [tr('2025-12-30T00:00:00Z')]), 8 * 3600, 'capped at 8h');
+  assertEqual(ws.catchUpSeconds(now, [tr('2026-01-01T13:00:00Z')]), 0, 'clock skew → 0');
+  assertEqual(ws.catchUpSeconds(now, [{}]), 0, 'no timestamp → 0');
+});
+
+test('advanceTraders: trader trades move pressure in memory and never reach trade_events', () => isolated(() => {
+  for (const k of Object.keys(ws.PRESSURE_MAP)) delete ws.PRESSURE_MAP[k];
+  const before = ws.TRADE_EVENTS_BATCH.length;
+  const traders = ws.TRADER_DEFS.map((d, i) => ws.makeSeedTrader(d, i, NOW));
+  quiet(() => ws.advanceTraders(traders, 2 * 3600, { nowIso: NOW }));
+  const trips = traders.reduce((a, t) => a + t.trips_completed, 0);
+  assert(trips >= 12, `traders should trade during catch-up (${trips} trips)`);
+  assert(Object.keys(ws.PRESSURE_MAP).length > 0, 'pressure built from trader trades');
+  assertEqual(ws.TRADE_EVENTS_BATCH.length, before, 'trader events consumed in memory, nothing left to insert');
+}));
+
+test('advanceTraders is deterministic', () => {
+  const run = () => {
+    const saveP = { ...ws.PRESSURE_MAP };
+    for (const k of Object.keys(ws.PRESSURE_MAP)) delete ws.PRESSURE_MAP[k];
+    const traders = ws.TRADER_DEFS.map((d, i) => ws.makeSeedTrader(d, i, NOW));
+    quiet(() => ws.advanceTraders(traders, 3600, { nowIso: NOW }));
+    const out = JSON.stringify({ traders, p: ws.PRESSURE_MAP });
+    for (const k of Object.keys(ws.PRESSURE_MAP)) delete ws.PRESSURE_MAP[k];
+    Object.assign(ws.PRESSURE_MAP, saveP);
+    return out;
+  };
+  assertEqual(withNoClock(run), withNoClock(run), 'replay');
+});
+
+test('advanceTraders(tailFold:false) leaves the last trades for the single end-of-run fold', () => isolated(() => {
+  const before = ws.TRADE_EVENTS_BATCH.length;
+  const traders = ws.TRADER_DEFS.map((d, i) => ws.makeSeedTrader(d, i, NOW));
+  quiet(() => ws.advanceTraders(traders, 1000, { nowIso: NOW, tailFold: false }));
+  assert(ws.TRADE_EVENTS_BATCH.length > before, 'tail events kept for aggregateMarketPressure');
+}));
+
+test('foldTradeEvents folds trader leftovers (no id) with player events in one decay', () => {
+  const leftovers = [{ city_id: 'a', item_id: 'grain', direction: 'buy', qty: 10 }];
+  const players = [{ id: 8, city_id: 'a', item_id: 'grain', direction: 'buy', qty: 5 }];
+  const r = ws.foldTradeEvents({ 'a:grain': 0.1 }, players, 7, leftovers);
+  const want = 0.1 * ws.PRESSURE_AGG.decay + 15 * ws.PRESSURE_AGG.perUnit;
+  assert(Math.abs(r.next['a:grain'] - want) < 1e-12, `one decay + both folds, got ${r.next['a:grain']}`);
+  assertEqual(r.lastId, 8, 'watermark from player ids only');
+  const init = ws.foldTradeEvents({}, [{ id: 99 }], null, leftovers);
+  assert(Math.abs(init.next['a:grain'] - 10 * ws.PRESSURE_AGG.perUnit) < 1e-12, 'first run still folds trader leftovers');
+});
+
+test('advanceTraders(startMs) stamps catch-up activity across the gap', () => isolated(() => {
+  const traders = [ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW)];
+  const start = Date.parse('2026-01-01T00:00:00Z');
+  quiet(() => ws.advanceTraders(traders, 3600, { nowIso: NOW, startMs: start }));
+  const ats = traders[0].profit_history.map(h => h.at);
+  assert(ats.length >= 2, 'made trips');
+  assert(new Set(ats).size === ats.length, `distinct timestamps: ${ats}`);
+  assertEqual(traders[0].updated_at, new Date(start + 3600 * 1000).toISOString(), 'updated_at = end of the gap');
+}));
+
+test('main() skips the catch-up when pressure or world state did not load (no lost trader pressure)', () => {
+  const wsSrc = readFileSync(join(ROOT, 'ops/scripts/world_service.mjs'), 'utf8');
+  const main = wsSrc.slice(wsSrc.indexOf('async function main()'));
+  const i = main.indexOf('advanceTraders(');
+  assert(/!PRESSURE_LOADED\s*\|\|\s*!WORLD_STATE_LOADED/.test(main.slice(0, i)), 'guard before advanceTraders');
+});
+
+test('pressureDiffRows: rows to write are the change vs what the DB holds', () => {
+  const rows = ws.pressureDiffRows({ 'a:grain': 0.1, 'b:ore': 0.05 }, { 'a:grain': 0.1, 'b:ore': 0.02, 'c:ink': 0.01 });
+  const by = Object.fromEntries(rows.map(r => [`${r.city_id}:${r.item_id}`, r.pressure]));
+  assertEqual(JSON.stringify(by), JSON.stringify({ 'b:ore': 0.02, 'c:ink': 0.01 }), 'only changed keys');
+  assertEqual(ws.pressureDiffRows({ 'a:grain': 0.1 }, {})[0].pressure, 0, 'dropped key written as 0');
+});
+
+test('live tick writes no trader trade events and one stepping loop serves live + sim', () => {
+  const wsSrc = readFileSync(join(ROOT, 'ops/scripts/world_service.mjs'), 'utf8');
+  const main = wsSrc.slice(wsSrc.indexOf('async function main()'));
+  assert(!/flushTradeEvents\(/.test(main), 'main() must not insert trader trade events');
+  assert(/advanceTraders\(/.test(main), 'main() advances traders with advanceTraders');
+  const sim = wsSrc.slice(wsSrc.indexOf('function simulateTraders'), wsSrc.indexOf('function buildTraderReport'));
+  assert(/advanceTraders\(/.test(sim), 'simulateTraders uses advanceTraders');
+  assert(!/for \(let elapsed = 0; elapsed < totalSeconds/.test(sim), 'no second stepping loop in simulateTraders');
+});
+
+test('strategy log records focus changes only (keeps trader_strategy_log small)', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  Object.assign(t, { trips_completed: 9, preferred_item: 'grain', profit_history: [1, 2, 3].map(trip => ({ trip, profit: 500, item: 'grain', to: 'ironholt' })) });
+  const before = ws.STRATEGY_LOG_BATCH.length;
+  quiet(() => ws.reviewStrategy(t, { nowIso: NOW, peers: [], focus: { [t.id]: 'grain' } }));
+  assertEqual(t.preferred_item, 'grain', 'leader stays on its item');
+  assertEqual(ws.STRATEGY_LOG_BATCH.length, before, 'no row for an unchanged focus');
+});
+
 // ── simulateTraders (offline multi-day run + report) ───────────────────────
 console.log('\nworld_service: simulateTraders');
 

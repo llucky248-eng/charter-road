@@ -269,7 +269,17 @@ function tryGearUpgrade(trader) {
     console.log(`[${trader.name}] 🔧 Upgraded to ${nextTier.name} (${nextTier.capacity} capacity) for ${nextTier.cost}g — payback in ~${paybackTrips.toFixed(1)} trips`);
   }
 }
-const MAX_TICK = 1800; // cap elapsed seconds to avoid huge jumps (allow up to 6 trips per tick)
+const MAX_TICK = 1800; // the old per-run cap; still the live-tick window for herd counting
+// GitHub runs the 5-min cron only ~5×/day, so each run catches up the real gap
+// (in memory, no extra DB calls), capped so a long outage can't run forever.
+const MAX_CATCHUP_SECONDS = 8 * 3600;
+
+// Seconds to advance this run: real time since the newest trader update.
+function catchUpSeconds(nowMs, traders) {
+  const last = Math.max(...traders.map(t => (t.updated_at ? Date.parse(t.updated_at) : NaN)).filter(Number.isFinite));
+  if (!Number.isFinite(last)) return 0;
+  return Math.max(0, Math.min(MAX_CATCHUP_SECONDS, Math.floor((nowMs - last) / 1000)));
+}
 
 // ── Taxation & Trading Permits ────────────────────────────────────────────
 
@@ -465,6 +475,7 @@ const AGG_WATERMARK_KEY = '__agg_last_event_id';
 let PRESSURE_LAST_EVENT_ID = null; // null = never aggregated by this ticker yet
 let PRESSURE_LOADED = false;
 let PRESSURE_LEGACY_MARKER = false;
+const PRESSURE_DB = {}; // market_economy as loaded this run (to write only changes)
 let WORLD_STATE_LOADED = false; // aggregation needs the watermark from world_state
 
 // world_state.contract_regen JSON → { lastId, regen (city map without the key) }.
@@ -503,19 +514,27 @@ function parsePressureRows(rows) {
 // null) only records the newest id, so the backlog that piled up while the SQL
 // function was broken doesn't jolt prices. Returns the next map, the new
 // watermark and the market_economy rows to upsert (changed keys only).
-function foldTradeEvents(prev, events, lastId) {
+// extra: events without ids (the traders' trades left over from the catch-up)
+// that are always folded, in the same single decay step.
+function foldTradeEvents(prev, events, lastId, extra = []) {
   const newest = events.reduce((m, e) => Math.max(m, Number(e.id) || 0), lastId ?? 0);
   // First run folds no events but still decays/clamps (old rows may sit at ±0.5).
   const fresh = lastId == null ? [] : events.filter(e => Number(e.id) > lastId);
-  const next = aggregatePressure(prev, fresh);
+  const next = aggregatePressure(prev, [...extra, ...fresh]);
+  return { next, lastId: newest, rows: pressureDiffRows(prev, next) };
+}
+
+// market_economy rows that turn `before` into `after` (changed keys; a key
+// that dropped out is written back as 0).
+function pressureDiffRows(before, after) {
   const rows = [];
-  for (const k of new Set([...Object.keys(prev), ...Object.keys(next)])) {
-    const v = next[k] ?? 0;
-    if (v === (prev[k] ?? 0)) continue;
+  for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const v = after[k] ?? 0;
+    if (v === (before[k] ?? 0)) continue;
     const [city_id, item_id] = k.split(':');
     rows.push({ city_id, item_id, pressure: v });
   }
-  return { next, lastId: newest, rows };
+  return rows;
 }
 
 async function loadPressureMap() {
@@ -524,6 +543,7 @@ async function loadPressureMap() {
     const rows = await sbFetch('/rest/v1/market_economy?select=city_id,item_id,pressure') || [];
     const { map, lastId: legacy } = parsePressureRows(rows);
     Object.assign(PRESSURE_MAP, map);
+    replaceMap(PRESSURE_DB, map);
     PRESSURE_LEGACY_MARKER = legacy != null;
     PRESSURE_LAST_EVENT_ID = chooseWatermark(PRESSURE_LAST_EVENT_ID, legacy);
     PRESSURE_LOADED = true;
@@ -534,6 +554,12 @@ async function loadPressureMap() {
 }
 
 const PRESSURE_EFFECT = 1;
+
+// Replace a module-level map's contents in place (other modules hold a reference).
+function replaceMap(target, src) {
+  for (const k of Object.keys(target)) delete target[k];
+  Object.assign(target, src);
+}
 
 // Market-pressure aggregation, same rules as SQL aggregate_economy() in
 // ops/supabase_schema.sql (trader_tests checks the constants against it). Live,
@@ -770,7 +796,9 @@ function reviewStrategy(trader, { nowIso, peers: allPeers = [], focus = null }) 
     new_strategy: JSON.stringify({ preferred_item: newPreferredItem, personality: trader.personality }),
     created_at:   nowIso,
   };
-  STRATEGY_LOG_BATCH.push(logEntry);
+  // Only focus changes are stored: catch-up runs review many times per tick and
+  // trader_strategy_log is append-only (DB size on the free plan).
+  if (newPreferredItem !== oldStrategy.preferred_item) STRATEGY_LOG_BATCH.push(logEntry);
   console.log(`[STRATEGY][${trader.name}] ${decision}: ${reason}`);
 }
 
@@ -794,25 +822,6 @@ async function flushStrategyLog() {
   STRATEGY_LOG_BATCH.length = 0;
 }
 
-async function flushTradeEvents() {
-  if (TRADE_EVENTS_BATCH.length === 0) return;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/trade_events`, {
-      method: 'POST',
-      headers: { ...HEADERS, Prefer: 'return=minimal' },
-      body: JSON.stringify(TRADE_EVENTS_BATCH),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.warn('[TRADE_EVENTS] Insert failed:', body);
-    } else {
-      console.log(`[TRADE_EVENTS] Logged ${TRADE_EVENTS_BATCH.length} event(s)`);
-    }
-  } catch (e) {
-    console.warn('[TRADE_EVENTS] Flush error (non-fatal):', e.message);
-  }
-  TRADE_EVENTS_BATCH.length = 0;
-}
 
 // ── Supabase helpers ───────────────────────────────────────────────────────
 
@@ -1083,7 +1092,12 @@ async function aggregateMarketPressure(nowIso) {
         after = batch[batch.length - 1].id;
       }
     }
-    const { next, lastId, rows } = foldTradeEvents(PRESSURE_MAP, events, PRESSURE_LAST_EVENT_ID);
+    // Trader trades left from the catch-up's last partial period fold here too.
+    const leftovers = TRADE_EVENTS_BATCH.slice();
+    const { next, lastId } = foldTradeEvents(PRESSURE_MAP, events, PRESSURE_LAST_EVENT_ID, leftovers);
+    // Write the change vs the DB: player events folded here + the traders'
+    // trades folded in memory during the catch-up.
+    const rows = pressureDiffRows(PRESSURE_DB, next);
     // Save the watermark first: if the pressure write then fails, this tick's
     // events are skipped once rather than counted twice next tick.
     await sbFetch('/rest/v1/world_state?id=eq.main', {
@@ -1093,6 +1107,7 @@ async function aggregateMarketPressure(nowIso) {
     });
     const wasInit = PRESSURE_LAST_EVENT_ID == null;
     PRESSURE_LAST_EVENT_ID = lastId;
+    TRADE_EVENTS_BATCH.length = 0;
     if (rows.length) {
       await sbFetch('/rest/v1/market_economy?on_conflict=city_id,item_id', {
         method: 'POST',
@@ -1100,11 +1115,10 @@ async function aggregateMarketPressure(nowIso) {
         body: JSON.stringify(rows.map(r => ({ ...r, updated_at: nowIso }))),
       });
     }
-    for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
-    Object.assign(PRESSURE_MAP, next);
+    replaceMap(PRESSURE_MAP, next);
     console.log(wasInit
-      ? `[ECONOMY] Pressure aggregation initialised at event ${lastId} (backlog skipped)`
-      : `[ECONOMY] Folded ${events.length} trade event(s) into pressure (${rows.length} row(s) changed, last event ${lastId})${events.length >= AGG_PAGE * AGG_MAX_PAGES ? ' — more pending, continues next tick' : ''}`);
+      ? `[ECONOMY] Pressure aggregation initialised at event ${lastId} (backlog skipped; ${rows.length} row(s) written)`
+      : `[ECONOMY] Folded ${events.length} player trade event(s) into pressure (${rows.length} row(s) changed, last event ${lastId})${events.length >= AGG_PAGE * AGG_MAX_PAGES ? ' — more pending, continues next tick' : ''}`);
   } catch (e) {
     console.warn('[ECONOMY] Pressure aggregation failed (non-fatal):', e.message);
   }
@@ -1281,13 +1295,49 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, focus = null } =
 // SIM_SECONDS_PER_DAY ≈ ROUTE_SECONDS / trade_sim TRAVEL_DAYS (180s ≈ 2 days).
 const SIM_SECONDS_PER_DAY = 90;
 const SIM_STEP_SECONDS    = 60;
-const SIM_AGGREGATE_SECONDS = 300; // live: aggregateMarketPressure() runs once per world tick
+const SIM_AGGREGATE_SECONDS = 300; // pressure fold period (live catch-up and sim): the designed 5-min cadence
 const SIM_NOW_ISO         = '2000-01-01T00:00:00.000Z'; // fixed stamp for offline runs
 
 // Trip bookkeeping below needs every trip to span at least one step boundary.
 const MIN_ROUTE_SECONDS = Math.min(DEFAULT_ROUTE_SECONDS, ...Object.values(ROUTE_SECONDS));
 if (MIN_ROUTE_SECONDS <= SIM_STEP_SECONDS) {
   throw new Error(`SIM_STEP_SECONDS (${SIM_STEP_SECONDS}) must be shorter than the shortest route (${MIN_ROUTE_SECONDS}s)`);
+}
+
+// Advance all traders together by totalSeconds in SIM_STEP_SECONDS steps. Used
+// by the live tick (catch-up over the real gap since the last run) and by
+// simulateTraders. With pressure, the traders' own trade events are folded into
+// PRESSURE_MAP in memory every SIM_AGGREGATE_SECONDS and at the end, and are
+// consumed: they are never inserted into trade_events (keeps the DB small).
+// Hooks: onStep(elapsed), beforeTick(t) → token, afterTick(t, token), onFold(next).
+// tailFold: false leaves the last partial period's events in TRADE_EVENTS_BATCH
+// for aggregateMarketPressure to fold with the player events (one decay, live).
+// startMs: stamp each step with startMs + elapsed (live catch-up) instead of nowIso.
+function advanceTraders(traders, totalSeconds, {
+  nowIso, startMs = null, pressure = true, tailFold = true, onRescue, onStep, beforeTick, afterTick, onFold,
+} = {}) {
+  const board = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
+  const evStart = TRADE_EVENTS_BATCH.length;
+  const fold = () => {
+    const next = aggregatePressure(PRESSURE_MAP, TRADE_EVENTS_BATCH.slice(evStart));
+    TRADE_EVENTS_BATCH.length = evStart;
+    replaceMap(PRESSURE_MAP, next);
+    if (onFold) onFold(next);
+  };
+  for (let elapsed = 0; elapsed < totalSeconds; elapsed += SIM_STEP_SECONDS) {
+    if (onStep) onStep(elapsed);
+    if (pressure && elapsed > 0 && elapsed % SIM_AGGREGATE_SECONDS === 0) fold();
+    const peers = snapshotPeers(traders);
+    const dt = Math.min(SIM_STEP_SECONDS, totalSeconds - elapsed);
+    const stepIso = Number.isFinite(startMs) ? new Date(startMs + (elapsed + dt) * 1000).toISOString() : nowIso;
+    for (const t of traders) {
+      const token = beforeTick ? beforeTick(t) : null;
+      tickTrader(t, dt, { nowIso: stepIso, peers, onRescue, focus: board });
+      board[t.id] = t.preferred_item || null;
+      if (afterTick) afterTick(t, token);
+    }
+  }
+  if (pressure && tailFold && totalSeconds > 0) fold(); // the tail, so nothing is left over
 }
 
 function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
@@ -1324,50 +1374,44 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
     const market = { maxPressure: 0, minPressure: 0 };
     const strategy = { switches: 0, herds: 0 }; // focus changes; herds = 2+ switching to one item in a live-tick window
     const switchedTo = {};
-    // Live focus board for the whole run (kept current after every review), like main()'s per tick.
-    const focus = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
     const totalSeconds = days * SIM_SECONDS_PER_DAY;
 
-    for (let elapsed = 0; elapsed < totalSeconds; elapsed += SIM_STEP_SECONDS) {
-      WORLD_STATE.day = 1 + Math.floor(elapsed / SIM_SECONDS_PER_DAY);
-      // Market pressure: fold this period's trades in, like the live DB does.
-      if (pressure && elapsed > 0 && elapsed % SIM_AGGREGATE_SECONDS === 0) {
-        // Consume the events, as the SQL does by DELETE (keeps memory bounded).
-        const next = aggregatePressure(PRESSURE_MAP, TRADE_EVENTS_BATCH.slice(saved.tradeEvents));
-        TRADE_EVENTS_BATCH.length = saved.tradeEvents;
-        for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
-        Object.assign(PRESSURE_MAP, next);
+    advanceTraders(traders, totalSeconds, {
+      nowIso: SIM_NOW_ISO, pressure, onRescue,
+      onStep: (elapsed) => {
+        WORLD_STATE.day = 1 + Math.floor(elapsed / SIM_SECONDS_PER_DAY);
+        // Herds are counted per live-tick window (MAX_TICK), where live reviews share a board.
+        if (elapsed % MAX_TICK === 0) {
+          for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
+          for (const k of Object.keys(switchedTo)) delete switchedTo[k];
+        }
+      },
+      onFold: (next) => {
         for (const v of Object.values(next)) {
           market.maxPressure = Math.max(market.maxPressure, v);
           market.minPressure = Math.min(market.minPressure, v);
         }
-      }
-      const peers = snapshotPeers(traders);
-      // Herds are counted per live-tick window (MAX_TICK), where live reviews share a board.
-      if (elapsed % MAX_TICK === 0) {
-        for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
-        for (const k of Object.keys(switchedTo)) delete switchedTo[k];
-      }
-      for (const t of traders) {
-        const focusBefore = t.preferred_item;
-        // Routes take ≥ 180s and a step is 60s, so a trip that ends in this step
-        // was already on the road when the step began: its origin is from_id now.
-        const fromBefore = t.state === 'traveling' ? t.from_id : null;
-        const cargoBefore = Object.values(t.inv || {}).reduce((a, q) => a + (q || 0), 0);
-        tickTrader(t, Math.min(SIM_STEP_SECONDS, totalSeconds - elapsed), { nowIso: SIM_NOW_ISO, peers, onRescue, focus });
-        if (focusBefore && t.preferred_item !== focusBefore) { // a first pick is not a switch
+      },
+      // Routes take ≥ 180s and a step is 60s, so a trip that ends in this step
+      // was already on the road when the step began: its origin is from_id now.
+      beforeTick: (t) => ({
+        focus: t.preferred_item,
+        from: t.state === 'traveling' ? t.from_id : null,
+        cargo: Object.values(t.inv || {}).reduce((a, q) => a + (q || 0), 0),
+      }),
+      afterTick: (t, before) => {
+        if (before.focus && t.preferred_item !== before.focus) { // a first pick is not a switch
           strategy.switches += 1;
           if (t.preferred_item) switchedTo[t.preferred_item] = (switchedTo[t.preferred_item] || 0) + 1;
         }
-        focus[t.id] = t.preferred_item || null;
         for (const h of t.profit_history) {
           if (h.trip > lastTrip[t.id]) {
-            trips.push({ trader: t.id, from: fromBefore, to: h.to, item: h.item, profit: h.profit, empty: cargoBefore === 0 });
+            trips.push({ trader: t.id, from: before.from, to: h.to, item: h.item, profit: h.profit, empty: before.cargo === 0 });
             lastTrip[t.id] = h.trip;
           }
         }
-      }
-    }
+      },
+    });
     for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
     return buildTraderReport({ days, seed, traders, trips, rescues, pressure, market, strategy });
   } finally {
@@ -1375,8 +1419,7 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
     for (const k of Object.keys(WORLD_STATE)) delete WORLD_STATE[k];
     Object.assign(WORLD_STATE, saved.world);
     WORLD_EVENTS.length = 0; WORLD_EVENTS.push(...saved.events);
-    for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
-    Object.assign(PRESSURE_MAP, saved.pressure);
+    replaceMap(PRESSURE_MAP, saved.pressure);
     for (const k of Object.keys(MARKET_DRIFT)) delete MARKET_DRIFT[k];
     Object.assign(MARKET_DRIFT, saved.drift);
     for (const k of Object.keys(CITY_TREASURY)) delete CITY_TREASURY[k];
@@ -1476,22 +1519,33 @@ async function main() {
       : '[WORLD SIM] No traders found — seeding initial state');
     traders = TRADER_DEFS.map((def, i) => makeSeedTrader(def, i, nowIso));
   } else {
-    // Snapshot all traders before ticking so strategy reviews can compare peers
-    const peers = snapshotPeers(traders);
-    const focus = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
-    traders = traders.map(t => {
-      const lastTick = t.updated_at ? new Date(t.updated_at).getTime() : now;
-      const elapsed  = Math.min(MAX_TICK, (now - lastTick) / 1000);
-      tickTrader(t, elapsed, { nowIso, peers, focus });
-      return t;
-    });
+    // Catch up the real time since the last run, all in memory: trader trades
+    // move PRESSURE_MAP directly (written once in aggregateMarketPressure).
+    // Without the pressure map or the watermark, that write can't happen and
+    // hours of trader pressure would be lost, so wait for the next run instead.
+    if (!PRESSURE_LOADED || !WORLD_STATE_LOADED) {
+      console.warn('[WORLD SIM] Pressure or world state not loaded; skipping the catch-up this run');
+    } else {
+      const elapsed = catchUpSeconds(now, traders);
+      const before = Object.fromEntries(traders.map(t => [t.id, { trips: t.trips_completed || 0, gold: t.gold, rescues: 0 }]));
+      const onRescue = ({ trader }) => { before[trader].rescues += 1; };
+      const log = console.log;
+      console.log = () => {}; // per-trip lines would flood the Actions log; summary below
+      try {
+        advanceTraders(traders, elapsed, { nowIso, startMs: now - elapsed * 1000, tailFold: false, onRescue });
+      } finally { console.log = log; }
+      console.log(`[WORLD SIM] Caught up ${Math.round(elapsed / 60)} min of trading`);
+      for (const t of traders) {
+        const b = before[t.id];
+        console.log(`[${t.name}] ${(t.trips_completed || 0) - b.trips} trip(s), gold ${b.gold}→${t.gold}, gear ${t.gear_tier || 0}, focus ${t.preferred_item || '-'}${b.rescues ? `, ⚠️ ${b.rescues} stranded rescue(s)` : ''}`);
+      }
+    }
   }
 
   await upsertTraders(traders);
   console.log(`[WORLD SIM] Upserted ${traders.length} traders`);
 
   await flushStrategyLog();
-  await flushTradeEvents();
 
   // Population growth: cities grow proportional to THIS tick's tax revenue only
   // (CITY_TREASURY was pre-loaded from DB at start; delta_tax = what was added this tick)
@@ -1560,6 +1614,11 @@ export {
   netSellPrice,
   decideRoute,
   tickTrader,
+  advanceTraders,
+  catchUpSeconds,
+  pressureDiffRows,
+  TRADE_EVENTS_BATCH,
+  STRATEGY_LOG_BATCH,
   reviewStrategy,
   focusScores,
   stuckRescueGold,

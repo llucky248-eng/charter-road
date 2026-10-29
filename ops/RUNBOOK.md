@@ -98,6 +98,18 @@ depend on the client being honest):
   run instead of leaving dangling local state. Residual: a committed-but-unacked
   write still reverts locally and desyncs until the next world sync — closing it
   needs server-issued transaction IDs to reconcile against.
+- **Catch-up ticks and the Supabase free plan** (Oct 2026): GitHub runs the
+  5-min world-sim cron only ~5×/day. Each run now advances traders by the real
+  gap since the last run (capped at 8h) in memory (`advanceTraders`), so the
+  world keeps pace without more runs. Each run makes one request fewer than
+  before (no trader `trade_events` insert; the free plan doesn't cap requests
+  anyway); what matters is the 500 MB database
+  and ~5 GB/month egress. To stay small, trader trades are folded straight into
+  pressure and are **no longer inserted into `trade_events`** (only player
+  trades are), and `trader_strategy_log` stores focus changes only. Both tables
+  are append-only for the anon key; prune now and then:
+  `DELETE FROM trade_events WHERE created_at < NOW() - INTERVAL '7 days';`
+  `DELETE FROM trader_strategy_log WHERE created_at < NOW() - INTERVAL '30 days';`
 - **Market aggregation moved into the world ticker** (Oct 2026): the deployed
   SQL `aggregate_economy()` failed on every call (`UPDATE requires a WHERE
   clause` — Supabase safeupdate), freezing market pressure. `world_service.mjs`
