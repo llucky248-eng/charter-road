@@ -383,7 +383,7 @@ test('foldTradeEvents: folds only events after the watermark; writes changed row
   const row = (city, item) => r.rows.find(x => x.city_id === city && x.item_id === item);
   assert(Math.abs(row('a', 'grain').pressure - a) < 1e-12, 'a:grain row');
   assertEqual(row('b', 'ore').pressure, 0, 'dropped key is written back as 0');
-  assertEqual(row(ws.AGG_WATERMARK.city_id, ws.AGG_WATERMARK.item_id).pressure, 7, 'watermark row');
+  assert(!r.rows.some(x => x.city_id === '__agg__'), 'no marker row in market_economy any more');
 });
 
 test('foldTradeEvents: first run (no watermark) skips the backlog, but decays + clamps old values', () => {
@@ -394,6 +394,30 @@ test('foldTradeEvents: first run (no watermark) skips the backlog, but decays + 
   assertEqual(r.next['a:grain'], ws.PRESSURE_AGG.clamp, 'old 0.5 clamped to the new cap (backlog not folded)');
   assert(Math.abs(r.next['b:ore'] - 0.1 * ws.PRESSURE_AGG.decay) < 1e-12, 'decayed');
   assert(r.rows.some(x => x.city_id === 'a' && x.pressure === ws.PRESSURE_AGG.clamp), 'clamped row written');
+  assert(!r.rows.some(x => x.city_id === '__agg__'), 'no marker row');
+});
+
+test('watermark lives in world_state.contract_regen (a DB job rewrote the market_economy marker live)', () => {
+  // Live: watermark 45189 was rewritten to 0.2147 between ticks by something
+  // outside this repo that updates market_economy; the next tick then failed.
+  const regen = { valdenmere: 4245, ashport: 4242 };
+  const stored = ws.writeAggWatermark(regen, 45189);
+  assertEqual(stored.valdenmere, 4245, 'city entries kept');
+  assertEqual(regen.__agg_last_event_id, undefined, 'input not mutated');
+  const back = ws.readAggWatermark(stored);
+  assertEqual(back.lastId, 45189, 'round trip');
+  assertEqual(JSON.stringify(back.regen), JSON.stringify(regen), 'marker split out of the city map');
+  assertEqual(ws.readAggWatermark(regen).lastId, null, 'missing → null');
+  assertEqual(ws.readAggWatermark({ ...regen, __agg_last_event_id: 0.2147 }).lastId, null, 'non-integer → null (re-initialise)');
+  assertEqual(ws.readAggWatermark({ __agg_last_event_id: -3 }).lastId, null, 'negative → null');
+  assertEqual(ws.readAggWatermark(null).lastId, null, 'no column → null');
+});
+
+test('chooseWatermark: world_state first, then a still-valid legacy marker, else re-initialise', () => {
+  assertEqual(ws.chooseWatermark(500, 45189), 500, 'world_state wins');
+  assertEqual(ws.chooseWatermark(null, 45189), 45189, 'valid legacy integer is migrated');
+  assertEqual(ws.chooseWatermark(null, 0.2147), null, 'corrupted legacy value → re-initialise');
+  assertEqual(ws.chooseWatermark(null, null), null, 'nothing stored');
 });
 
 test('newestEventId: rejects a malformed response instead of recording watermark 0', () => {

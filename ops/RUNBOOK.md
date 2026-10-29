@@ -103,8 +103,14 @@ depend on the client being honest):
   clause` — Supabase safeupdate), freezing market pressure. `world_service.mjs`
   now aggregates each tick itself (`aggregateMarketPressure` → pure
   `foldTradeEvents`, same rules as the SQL): it reads `trade_events` newer than a
-  watermark kept in the `market_economy` marker row `('__agg__','last_event_id')`
-  and upserts the changed pressure rows. The first run only records the newest
+  watermark kept in `world_state.contract_regen.__agg_last_event_id` (saved
+  right after each fold, before the pressure write) and upserts the changed
+  pressure rows. The watermark first lived in a `market_economy` marker row
+  `('__agg__','last_event_id')`, but **something inside the database also updates
+  `market_economy`**: it rewrote that marker from 45189 to 0.2147 within an hour.
+  The ticker now deletes that row. Look in Supabase → Database → Cron Jobs and
+  Triggers for an old aggregation job and disable it; it double-counts pressure
+  with the old, stronger settings. The first run only records the newest
   event id, so the backlog left while the RPC was broken is skipped (no price
   jolt). Settings were softened at the same time to 0.002/unit and ±0.15 (were
   0.02 and ±0.5: one cart moved a price 36%). Browsers no longer call the RPC.

@@ -442,10 +442,11 @@ async function loadWorldState() {
           if (Array.isArray(board)) CONTRACT_BOARDS[cid] = board;
         }
       }
-      if (row.contract_regen && typeof row.contract_regen === 'object') {
-        for (const [cid, lastDay] of Object.entries(row.contract_regen)) {
-          if (Number.isFinite(lastDay)) CONTRACT_REGEN_DAY[cid] = lastDay;
-        }
+      const { lastId, regen } = readAggWatermark(row.contract_regen);
+      PRESSURE_LAST_EVENT_ID = lastId;
+      WORLD_STATE_LOADED = true;
+      for (const [cid, lastDay] of Object.entries(regen)) {
+        if (Number.isFinite(lastDay)) CONTRACT_REGEN_DAY[cid] = lastDay;
       }
     }
   } catch (e) {
@@ -453,12 +454,39 @@ async function loadWorldState() {
   }
 }
 
-// The id of the newest trade event already folded into pressure is kept in a
-// marker row of market_economy (no schema change; the anon key can't delete
-// trade_events, so events are consumed by id instead of by DELETE).
+// The id of the newest trade event already folded into pressure (events are
+// consumed by id: the anon key can't delete trade_events). It is stored in
+// world_state.contract_regen under AGG_WATERMARK_KEY (server-only JSON, no
+// schema change). It used to live in a market_economy marker row, but
+// something DB-side that updates market_economy rewrote it (45189 → 0.2147)
+// between ticks; AGG_WATERMARK names that legacy row so it can be removed.
 const AGG_WATERMARK = { city_id: '__agg__', item_id: 'last_event_id' };
+const AGG_WATERMARK_KEY = '__agg_last_event_id';
 let PRESSURE_LAST_EVENT_ID = null; // null = never aggregated by this ticker yet
 let PRESSURE_LOADED = false;
+let PRESSURE_LEGACY_MARKER = false;
+let WORLD_STATE_LOADED = false; // aggregation needs the watermark from world_state
+
+// world_state.contract_regen JSON → { lastId, regen (city map without the key) }.
+// Anything but a non-negative integer counts as missing, so a bad value makes
+// the next tick re-initialise instead of failing.
+function readAggWatermark(contractRegen) {
+  const regen = { ...(contractRegen && typeof contractRegen === 'object' ? contractRegen : {}) };
+  const raw = regen[AGG_WATERMARK_KEY];
+  delete regen[AGG_WATERMARK_KEY];
+  return { lastId: Number.isInteger(raw) && raw >= 0 ? raw : null, regen };
+}
+
+// Watermark to use this tick: world_state's, else a still-valid id from the
+// legacy market_economy marker row (one-time migration), else null.
+function chooseWatermark(fromWorldState, fromLegacyRow) {
+  if (fromWorldState != null) return fromWorldState;
+  return Number.isInteger(fromLegacyRow) && fromLegacyRow >= 0 ? fromLegacyRow : null;
+}
+
+function writeAggWatermark(regen, lastId) {
+  return lastId == null ? { ...regen } : { ...regen, [AGG_WATERMARK_KEY]: lastId };
+}
 
 // market_economy rows → { map: {'city:item': pressure}, lastId } (marker row split out).
 function parsePressureRows(rows) {
@@ -474,10 +502,9 @@ function parsePressureRows(rows) {
 // Pure: fold trade events newer than lastId into pressure. First run (lastId
 // null) only records the newest id, so the backlog that piled up while the SQL
 // function was broken doesn't jolt prices. Returns the next map, the new
-// watermark and the market_economy rows to upsert (changed keys + marker).
+// watermark and the market_economy rows to upsert (changed keys only).
 function foldTradeEvents(prev, events, lastId) {
   const newest = events.reduce((m, e) => Math.max(m, Number(e.id) || 0), lastId ?? 0);
-  const marker = { ...AGG_WATERMARK, pressure: newest };
   // First run folds no events but still decays/clamps (old rows may sit at ±0.5).
   const fresh = lastId == null ? [] : events.filter(e => Number(e.id) > lastId);
   const next = aggregatePressure(prev, fresh);
@@ -488,7 +515,6 @@ function foldTradeEvents(prev, events, lastId) {
     const [city_id, item_id] = k.split(':');
     rows.push({ city_id, item_id, pressure: v });
   }
-  rows.push(marker);
   return { next, lastId: newest, rows };
 }
 
@@ -496,11 +522,12 @@ async function loadPressureMap() {
   try {
     for (const key of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[key];
     const rows = await sbFetch('/rest/v1/market_economy?select=city_id,item_id,pressure') || [];
-    const { map, lastId } = parsePressureRows(rows);
+    const { map, lastId: legacy } = parsePressureRows(rows);
     Object.assign(PRESSURE_MAP, map);
-    PRESSURE_LAST_EVENT_ID = lastId;
+    PRESSURE_LEGACY_MARKER = legacy != null;
+    PRESSURE_LAST_EVENT_ID = chooseWatermark(PRESSURE_LAST_EVENT_ID, legacy);
     PRESSURE_LOADED = true;
-    console.log(`[PRESSURE] Loaded ${Object.keys(map).length} pressure entries (last folded event ${lastId ?? 'none'})`);
+    console.log(`[PRESSURE] Loaded ${Object.keys(map).length} pressure entries (last folded event ${PRESSURE_LAST_EVENT_ID ?? 'none'})`);
   } catch (e) {
     console.warn('[PRESSURE] Failed to load (non-fatal):', e.message);
   }
@@ -1038,6 +1065,9 @@ function newestEventId(rows) {
 const AGG_PAGE = 1000, AGG_MAX_PAGES = 20;
 async function aggregateMarketPressure(nowIso) {
   if (!PRESSURE_LOADED) { console.warn('[ECONOMY] Pressure map not loaded; skipping aggregation'); return; }
+  // Without world_state we don't know the watermark: re-initialising would
+  // silently skip every event since the last tick, so wait for the next one.
+  if (!WORLD_STATE_LOADED) { console.warn('[ECONOMY] World state not loaded; skipping aggregation'); return; }
   try {
     const events = [];
     if (PRESSURE_LAST_EVENT_ID == null) {
@@ -1054,19 +1084,41 @@ async function aggregateMarketPressure(nowIso) {
       }
     }
     const { next, lastId, rows } = foldTradeEvents(PRESSURE_MAP, events, PRESSURE_LAST_EVENT_ID);
-    await sbFetch('/rest/v1/market_economy?on_conflict=city_id,item_id', {
-      method: 'POST',
-      headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(rows.map(r => ({ ...r, updated_at: nowIso }))),
+    // Save the watermark first: if the pressure write then fails, this tick's
+    // events are skipped once rather than counted twice next tick.
+    await sbFetch('/rest/v1/world_state?id=eq.main', {
+      method: 'PATCH',
+      headers: { ...HEADERS, Prefer: 'return=minimal' },
+      body: JSON.stringify({ contract_regen: writeAggWatermark(CONTRACT_REGEN_DAY, lastId) }),
     });
+    const wasInit = PRESSURE_LAST_EVENT_ID == null;
+    PRESSURE_LAST_EVENT_ID = lastId;
+    if (rows.length) {
+      await sbFetch('/rest/v1/market_economy?on_conflict=city_id,item_id', {
+        method: 'POST',
+        headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(rows.map(r => ({ ...r, updated_at: nowIso }))),
+      });
+    }
     for (const k of Object.keys(PRESSURE_MAP)) delete PRESSURE_MAP[k];
     Object.assign(PRESSURE_MAP, next);
-    console.log(PRESSURE_LAST_EVENT_ID == null
+    console.log(wasInit
       ? `[ECONOMY] Pressure aggregation initialised at event ${lastId} (backlog skipped)`
-      : `[ECONOMY] Folded ${events.length} trade event(s) into pressure (${rows.length - 1} row(s) changed, last event ${lastId})${events.length >= AGG_PAGE * AGG_MAX_PAGES ? ' — more pending, continues next tick' : ''}`);
-    PRESSURE_LAST_EVENT_ID = lastId;
+      : `[ECONOMY] Folded ${events.length} trade event(s) into pressure (${rows.length} row(s) changed, last event ${lastId})${events.length >= AGG_PAGE * AGG_MAX_PAGES ? ' — more pending, continues next tick' : ''}`);
   } catch (e) {
     console.warn('[ECONOMY] Pressure aggregation failed (non-fatal):', e.message);
+  }
+  // Separate from aggregation: a failed cleanup must not undo the fold above.
+  if (PRESSURE_LEGACY_MARKER) {
+    try {
+      await sbFetch(`/rest/v1/market_economy?city_id=eq.${AGG_WATERMARK.city_id}&item_id=eq.${AGG_WATERMARK.item_id}`, {
+        method: 'DELETE', headers: { ...HEADERS, Prefer: 'return=minimal' },
+      });
+      PRESSURE_LEGACY_MARKER = false;
+      console.log('[ECONOMY] Removed the legacy market_economy watermark row');
+    } catch (e) {
+      console.warn('[ECONOMY] Could not remove the legacy watermark row (non-fatal):', e.message);
+    }
   }
 }
 
@@ -1474,7 +1526,7 @@ async function main() {
         market_drift:     MARKET_DRIFT,
         market_drift_day: MARKET_DRIFT_DAY,
         contract_boards:  CONTRACT_BOARDS,
-        contract_regen:   CONTRACT_REGEN_DAY,
+        contract_regen:   writeAggWatermark(CONTRACT_REGEN_DAY, PRESSURE_LAST_EVENT_ID),
       }),
     });
     console.log(`[WORLD_STATE] Saved drift (day ${MARKET_DRIFT_DAY}), ${WORLD_EVENTS.length} event(s), ${Object.keys(CONTRACT_BOARDS).length} contract board(s)`);
@@ -1514,6 +1566,9 @@ export {
   cheapestBuy,
   aggregatePressure,
   foldTradeEvents,
+  readAggWatermark,
+  chooseWatermark,
+  writeAggWatermark,
   newestEventId,
   parsePressureRows,
   AGG_WATERMARK,
