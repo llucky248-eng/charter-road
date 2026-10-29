@@ -120,9 +120,14 @@ depend on the client being honest):
   pressure rows. The watermark first lived in a `market_economy` marker row
   `('__agg__','last_event_id')`, but **something inside the database also updates
   `market_economy`**: it rewrote that marker from 45189 to 0.2147 within an hour.
-  The ticker now deletes that row. Look in Supabase → Database → Cron Jobs and
-  Triggers for an old aggregation job and disable it; it double-counts pressure
-  with the old, stronger settings. The first run only records the newest
+  The ticker now deletes that row. The culprit was found and **paused on
+  2026-10-29**: pg_cron job 1 `world-tick` (`SELECT world_tick()` every 10 min,
+  an old SQL trader ticker writing `world_traders`, `market_economy` and
+  `trade_events`) and job 2 `economy-aggregate` (`SELECT aggregate_economy()`
+  hourly), via `select cron.alter_job(job_id := N, active := false);`
+  (re-enable with `active := true`; the functions are kept). Traders were
+  re-seeded afterwards. Check with
+  `select jobid, jobname, schedule, active from cron.job;`. The first run only records the newest
   event id, so the backlog left while the RPC was broken is skipped (no price
   jolt). Settings were softened at the same time to 0.002/unit and ±0.15 (were
   0.02 and ±0.5: one cart moved a price 36%). Browsers no longer call the RPC.
