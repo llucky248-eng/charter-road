@@ -854,6 +854,58 @@ test('copy_leader does not pile a 3rd trader onto an item two already hold', () 
 });
 
 // ── One shared route-picker ─────────────────────────────────────────────────
+console.log('\nworld_service: gold sink (living costs)');
+
+test('livingCost: nothing up to the comfort line, a share of the excess above it', () => {
+  const { comfort, rate } = ws.LIVING_COSTS;
+  assert(comfort > 0 && rate > 0 && rate < 1, `LIVING_COSTS ${JSON.stringify(ws.LIVING_COSTS)}`);
+  assertEqual(ws.livingCost(0), 0, 'broke');
+  assertEqual(ws.livingCost(comfort), 0, 'at the line');
+  assertEqual(ws.livingCost(comfort + 1000), Math.floor(1000 * rate), '1000 over');
+  assertEqual(ws.livingCost(String(comfort + 1000)), Math.floor(1000 * rate), 'numeric string from the DB');
+  assertEqual(ws.livingCost(NaN), 0, 'garbage');
+});
+
+test('living costs are paid on every arrival and drain a hoard', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  t.gold = 140000; // a live trader before the sink
+  const spent = [];
+  quiet(() => ws.tickTrader(t, 3600, { nowIso: NOW, peers: [], onLivingCost: e => spent.push(e) }));
+  assert(t.trips_completed >= 3, `trips ${t.trips_completed}`);
+  assertEqual(spent.length, t.trips_completed, 'one charge per arrival');
+  assert(spent.every(e => e.trader === t.id && e.amount > 0), JSON.stringify(spent.slice(0, 2)));
+  assert(t.gold < 140000 * 0.8, `gold should fall well below 140000 (got ${t.gold})`);
+});
+
+test('a rich trader buys the next cart without the payback check', () => {
+  const reserve = ws.upgradeReserve(3, 'valdenmere');
+  const history = [1, 2, 3].map(trip => ({ trip, profit: 30, item: 'grain', to: 'ironholt' })); // payback ≫ 15 trips
+  const base = { ...ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW), gear_tier: 2, profit_history: history };
+  const modest = { ...base, gold: 2000 + reserve + 10 };
+  quiet(() => ws.tryGearUpgrade(modest));
+  assertEqual(modest.gear_tier, 2, 'can afford it but payback too slow → keep the wagon');
+  const rich = { ...base, gold: 2000 + reserve + ws.LIVING_COSTS.comfort };
+  quiet(() => ws.tryGearUpgrade(rich));
+  assertEqual(rich.gear_tier, 3, 'cost + reserve + comfort → upgrade');
+});
+
+test('10 years: wealth levels off instead of growing forever, nobody goes broke', () => {
+  const r = sim({ days: 3650, seed: 7 });
+  const cap = 3 * ws.LIVING_COSTS.comfort;
+  for (const t of r.traders) {
+    assert(t.endGold > t.startGold, `${t.id}: ${t.startGold}g → ${t.endGold}g`);
+    assert(t.endGold < cap, `${t.id} ends with ${t.endGold}g (cap ${cap}; ~30000 before the sink)`);
+    assertEqual(t.rescues, 0, `${t.id} rescues`);
+    assert(t.livingCosts > 0, `${t.id} livingCosts ${t.livingCosts}`);
+  }
+  assertEqual(r.totals.livingCosts, r.traders.reduce((s, t) => s + t.livingCosts, 0), 'totals.livingCosts');
+});
+
+test('30 days: living costs don\'t touch a young economy', () => {
+  const r = sim({ days: 30, seed: 1 });
+  assertEqual(r.totals.livingCosts, 0, 'nobody is past the comfort line yet');
+});
+
 console.log('\nsingle source of trader logic');
 
 const mainSrc = readFileSync(join(ROOT, 'src/main.js'), 'utf8');

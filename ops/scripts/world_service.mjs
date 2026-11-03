@@ -241,6 +241,20 @@ function upgradeReserve(tier, cityId) {
   return Math.ceil(GEAR_TIERS[tier].capacity * cheapestBuy({ cityId, perWeight: true }));
 }
 
+// ── Gold sink: living costs ───────────────────────────────────────────────
+// Without a sink, trader gold only grows (live traders reached ~140k gold in
+// five days). On every arrival a trader spends a share of the gold it holds
+// above a comfort line: upkeep, crew, a house in town. The gold leaves the
+// economy (not paid to a treasury). Wealth then levels off where
+// living costs match trip profit: comfort + profit per trip / rate.
+const LIVING_COSTS = { comfort: 3000, rate: 0.03 };
+
+function livingCost(gold) {
+  const g = Number(gold);
+  if (!Number.isFinite(g) || g <= LIVING_COSTS.comfort) return 0;
+  return Math.floor((g - LIVING_COSTS.comfort) * LIVING_COSTS.rate);
+}
+
 function tryGearUpgrade(trader) {
   const currentTier = trader.gear_tier || 0;
   const nextTier    = GEAR_TIERS[currentTier + 1];
@@ -262,7 +276,10 @@ function tryGearUpgrade(trader) {
   const extraProfitPerTrip = profitPerUnit * extraCap;
   const paybackTrips = extraProfitPerTrip > 0 ? nextTier.cost / extraProfitPerTrip : Infinity;
 
-  if (paybackTrips <= 15 || nextTier.tier === 1) {
+  // A trader still past the comfort line after paying would only spend the gold on
+  // living costs, so it buys the bigger cart even when payback is slow.
+  const rich = (trader.gold || 0) >= nextTier.cost + upgradeReserve(nextTier.tier, here) + LIVING_COSTS.comfort;
+  if (paybackTrips <= 15 || nextTier.tier === 1 || rich) {
     // First upgrade skips the ROI check (still needs cost + reserve, checked above)
     trader.gold      -= nextTier.cost;
     trader.gear_tier  = nextTier.tier;
@@ -1150,7 +1167,7 @@ function snapshotPeers(traders) {
 // Advance one trader by `elapsed` seconds. Deterministic: the time stamp comes
 // from nowIso and every random choice from a seeded rng, so the same snapshot
 // always replays the same way. peers = pre-tick snapshot for strategy reviews.
-function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, focus = null } = {}) {
+function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, onLivingCost, focus = null } = {}) {
   if (typeof nowIso !== 'string') throw new Error('tickTrader needs { nowIso }');
   // Process elapsed time in micro-steps so multiple trips can complete in one tick
   const STEP = 60; // seconds per micro-step
@@ -1274,6 +1291,13 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, focus = null } =
         // Gear upgrade check (every trip)
         tryGearUpgrade(t);
 
+        // Gold sink: living costs on whatever is left above the comfort line.
+        const living = livingCost(t.gold);
+        if (living > 0) {
+          t.gold -= living;
+          if (onLivingCost) onLivingCost({ trader: t.id, amount: living });
+        }
+
         // Strategy review every N trips
         const reviewAt = t.review_at_trips || 3;
         if (t.trips_completed >= reviewAt) {
@@ -1314,7 +1338,7 @@ if (MIN_ROUTE_SECONDS <= SIM_STEP_SECONDS) {
 // for aggregateMarketPressure to fold with the player events (one decay, live).
 // startMs: stamp each step with startMs + elapsed (live catch-up) instead of nowIso.
 function advanceTraders(traders, totalSeconds, {
-  nowIso, startMs = null, pressure = true, tailFold = true, onRescue, onStep, beforeTick, afterTick, onFold,
+  nowIso, startMs = null, pressure = true, tailFold = true, onRescue, onLivingCost, onStep, beforeTick, afterTick, onFold,
 } = {}) {
   const board = Object.fromEntries(traders.map(t => [t.id, t.preferred_item || null]));
   const evStart = TRADE_EVENTS_BATCH.length;
@@ -1332,7 +1356,7 @@ function advanceTraders(traders, totalSeconds, {
     const stepIso = Number.isFinite(startMs) ? new Date(startMs + (elapsed + dt) * 1000).toISOString() : nowIso;
     for (const t of traders) {
       const token = beforeTick ? beforeTick(t) : null;
-      tickTrader(t, dt, { nowIso: stepIso, peers, onRescue, focus: board });
+      tickTrader(t, dt, { nowIso: stepIso, peers, onRescue, onLivingCost, focus: board });
       board[t.id] = t.preferred_item || null;
       if (afterTick) afterTick(t, token);
     }
@@ -1371,13 +1395,15 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
     const lastTrip = Object.fromEntries(traders.map(t => [t.id, 0]));
     const rescues = Object.fromEntries(traders.map(t => [t.id, 0]));
     const onRescue = ({ trader }) => { rescues[trader] += 1; };
+    const living = Object.fromEntries(traders.map(t => [t.id, 0]));
+    const onLivingCost = ({ trader, amount }) => { living[trader] += amount; };
     const market = { maxPressure: 0, minPressure: 0 };
     const strategy = { switches: 0, herds: 0 }; // focus changes; herds = 2+ switching to one item in a live-tick window
     const switchedTo = {};
     const totalSeconds = days * SIM_SECONDS_PER_DAY;
 
     advanceTraders(traders, totalSeconds, {
-      nowIso: SIM_NOW_ISO, pressure, onRescue,
+      nowIso: SIM_NOW_ISO, pressure, onRescue, onLivingCost,
       onStep: (elapsed) => {
         WORLD_STATE.day = 1 + Math.floor(elapsed / SIM_SECONDS_PER_DAY);
         // Herds are counted per live-tick window (MAX_TICK), where live reviews share a board.
@@ -1413,7 +1439,7 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
       },
     });
     for (const n of Object.values(switchedTo)) if (n >= 2) strategy.herds += 1;
-    return buildTraderReport({ days, seed, traders, trips, rescues, pressure, market, strategy });
+    return buildTraderReport({ days, seed, traders, trips, rescues, living, pressure, market, strategy });
   } finally {
     console.log = log;
     for (const k of Object.keys(WORLD_STATE)) delete WORLD_STATE[k];
@@ -1429,7 +1455,7 @@ function simulateTraders({ days = 30, seed = 1, pressure = true } = {}) {
   }
 }
 
-function buildTraderReport({ days, seed, traders, trips, rescues, pressure, market, strategy }) {
+function buildTraderReport({ days, seed, traders, trips, rescues, living = {}, pressure, market, strategy }) {
   const round = (x, d = 4) => Math.round(x * 10 ** d) / 10 ** d;
   const items = {};
   const routes = {};
@@ -1465,6 +1491,7 @@ function buildTraderReport({ days, seed, traders, trips, rescues, pressure, mark
       profit: t.total_profit, trips: t.trips_completed,
       gearTier: t.gear_tier || 0, preferredItem: t.preferred_item,
       rescues: rescues[t.id] || 0, emptyTrips: emptyBy[t.id] || 0,
+      livingCosts: living[t.id] || 0,
     })),
     items,
     routes: routeList.slice(0, 10),
@@ -1478,6 +1505,7 @@ function buildTraderReport({ days, seed, traders, trips, rescues, pressure, mark
       trips: trips.length,
       emptyTrips: trips.length - loaded.length,
       rescues: Object.values(rescues).reduce((a, b) => a + b, 0),
+      livingCosts: Object.values(living).reduce((a, b) => a + b, 0),
       profit: traders.reduce((s, t) => s + (t.total_profit || 0), 0),
       goldStart: traders.reduce((s, t) => s + t.start_gold, 0),
       goldEnd: traders.reduce((s, t) => s + t.gold, 0),
@@ -1527,17 +1555,18 @@ async function main() {
       console.warn('[WORLD SIM] Pressure or world state not loaded; skipping the catch-up this run');
     } else {
       const elapsed = catchUpSeconds(now, traders);
-      const before = Object.fromEntries(traders.map(t => [t.id, { trips: t.trips_completed || 0, gold: t.gold, rescues: 0 }]));
+      const before = Object.fromEntries(traders.map(t => [t.id, { trips: t.trips_completed || 0, gold: t.gold, rescues: 0, living: 0 }]));
       const onRescue = ({ trader }) => { before[trader].rescues += 1; };
+      const onLivingCost = ({ trader, amount }) => { before[trader].living += amount; };
       const log = console.log;
       console.log = () => {}; // per-trip lines would flood the Actions log; summary below
       try {
-        advanceTraders(traders, elapsed, { nowIso, startMs: now - elapsed * 1000, tailFold: false, onRescue });
+        advanceTraders(traders, elapsed, { nowIso, startMs: now - elapsed * 1000, tailFold: false, onRescue, onLivingCost });
       } finally { console.log = log; }
       console.log(`[WORLD SIM] Caught up ${Math.round(elapsed / 60)} min of trading`);
       for (const t of traders) {
         const b = before[t.id];
-        console.log(`[${t.name}] ${(t.trips_completed || 0) - b.trips} trip(s), gold ${b.gold}→${t.gold}, gear ${t.gear_tier || 0}, focus ${t.preferred_item || '-'}${b.rescues ? `, ⚠️ ${b.rescues} stranded rescue(s)` : ''}`);
+        console.log(`[${t.name}] ${(t.trips_completed || 0) - b.trips} trip(s), gold ${b.gold}→${t.gold}, gear ${t.gear_tier || 0}, focus ${t.preferred_item || '-'}${b.living ? `, living costs ${b.living}g` : ''}${b.rescues ? `, ⚠️ ${b.rescues} stranded rescue(s)` : ''}`);
       }
     }
   }
@@ -1633,6 +1662,8 @@ export {
   AGG_WATERMARK,
   PRESSURE_AGG,
   tryGearUpgrade,
+  LIVING_COSTS,
+  livingCost,
   upgradeReserve,
   snapshotPeers,
   simulateTraders,
