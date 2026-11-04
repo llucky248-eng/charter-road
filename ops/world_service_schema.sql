@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS world_traders (
 
 ALTER TABLE world_traders ADD COLUMN IF NOT EXISTS permits  JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE world_traders ADD COLUMN IF NOT EXISTS gear_tier INT  NOT NULL DEFAULT 0;
+-- Gold paid for the cargo on board, so trip profit is revenue minus what was paid.
+-- NULL (rows from before this column) falls back to an estimate in world_service.mjs.
+ALTER TABLE world_traders ADD COLUMN IF NOT EXISTS cargo_cost INT DEFAULT NULL;
 
 ALTER TABLE world_traders ENABLE ROW LEVEL SECURITY;
 

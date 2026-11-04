@@ -52,6 +52,7 @@ function makeSeedTrader(def, index = 0, nowIso) {
     profit_history:  [],
     gear_tier:       0,   // explicit so a reset upsert clears any accumulated tier
     permits:         {},  // explicit so a reset upsert clears any accumulated permits
+    cargo_cost:      0,   // gold paid for the cargo on board (0 when empty)
     updated_at:      nowIso,
   };
 }
@@ -1193,6 +1194,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, onLivingCost, fo
           const units = route.units || 0;
           if (units > 0) {
             t.gold -= buy * units;
+            t.cargo_cost = buy * units; // what this trip really paid, for its profit on arrival
             t.inv = { [route.itemId]: units };
             // Record buy event for market pressure
             TRADE_EVENTS_BATCH.push({
@@ -1204,6 +1206,7 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, onLivingCost, fo
             });
           } else {
             t.inv = {};
+            t.cargo_cost = 0;
           }
         }
 
@@ -1250,12 +1253,19 @@ function tickTrader(t, elapsed, { nowIso, peers = [], onRescue, onLivingCost, fo
           console.log(`[${t.name}] Paid ${taxPaid}g tax (${Math.round(taxRate*100)}%) to ${t.to_id}`);
           addTaxRevenue(t.to_id, taxPaid, 'tax');
         }
-        const cargoCost = Object.entries(t.inv || {}).reduce((sum, [itemId, qty]) => {
-          if (!qty) return sum;
-          const item = ITEMS.find(i => i.id === itemId);
-          if (!item) return sum;
-          return sum + (buyPrice(t.from_id, item) * qty);
-        }, 0);
+        // Profit is against what was paid at departure. Re-pricing the cargo at the
+        // source on arrival (the old way) counted price moves during the trip as
+        // losses: 64% of real profit went unrecorded. The estimate is only for a
+        // trader that left before cargo_cost existed.
+        const cargoCost = Number.isFinite(Number(t.cargo_cost)) && t.cargo_cost != null
+          ? Number(t.cargo_cost)
+          : Object.entries(t.inv || {}).reduce((sum, [itemId, qty]) => {
+            if (!qty) return sum;
+            const item = ITEMS.find(i => i.id === itemId);
+            if (!item) return sum;
+            return sum + (buyPrice(t.from_id, item) * qty);
+          }, 0);
+        t.cargo_cost = 0;
         const tripProfit = revenue - cargoCost;
         t.gold += revenue;
         // Anti-softlock rescue (NOT a per-trip subsidy): only fires when a trader
@@ -1662,6 +1672,7 @@ export {
   AGG_WATERMARK,
   PRESSURE_AGG,
   tryGearUpgrade,
+  GEAR_TIERS,
   LIVING_COSTS,
   livingCost,
   upgradeReserve,
