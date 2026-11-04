@@ -736,9 +736,14 @@ test('with live (gentler) pressure: traders stay healthy over 30 and 120 days', 
     assert(r.diversity.hhi <= 0.25, `seed ${seed}: HHI ${r.diversity.hhi}`);
     assert(r.diversity.topItemShare <= 0.40, `seed ${seed}: top item ${r.diversity.topItemShare}`);
   }
-  const long = sim({ days: 120, seed: 1, pressure: true });
-  for (const t of long.traders) {
-    assert(t.endGold > t.startGold, `${t.id}: ${t.startGold}g → ${t.endGold}g`);
+  // Worth = gold + what its carts cost: a trader that just bought a cart is not poorer.
+  const gearSpent = tier => ws.GEAR_TIERS.slice(1, tier + 1).reduce((s, g) => s + g.cost, 0);
+  for (const seed of [1, 2, 3, 7, 42]) {
+    const long = sim({ days: 120, seed, pressure: true });
+    for (const t of long.traders) {
+      const worth = t.endGold + gearSpent(t.gearTier);
+      assert(worth > t.startGold, `seed ${seed} ${t.id}: ${t.startGold}g → ${t.endGold}g + gear ${t.gearTier}`);
+    }
   }
 });
 
@@ -904,6 +909,68 @@ test('10 years: wealth levels off instead of growing forever, nobody goes broke'
 test('30 days: living costs don\'t touch a young economy', () => {
   const r = sim({ days: 30, seed: 1 });
   assertEqual(r.totals.livingCosts, 0, 'nobody is past the comfort line yet');
+});
+
+console.log('\nworld_service: trip profit = what the trip really made');
+
+// Replays a run and checks every recorded trip profit against the gold the trip
+// really moved: revenue on arrival minus what was paid at departure.
+function tripProfitAudit(days) {
+  const COST = [0, 200, 800, 2000];
+  const traders = ws.TRADER_DEFS.map((d, i) => ws.makeSeedTrader(d, i, NOW));
+  const paid = {}, living = {};
+  const out = { trips: 0, mismatches: 0, first: null };
+  quiet(() => ws.advanceTraders(traders, days * 90, { nowIso: NOW,
+    onLivingCost: ({ trader, amount }) => { living[trader] = (living[trader] || 0) + amount; },
+    beforeTick: t => { living[t.id] = 0; return { state: t.state, gold: t.gold, trips: t.trips_completed, gear: t.gear_tier || 0 }; },
+    afterTick: (t, k) => {
+      if (k.state === 'in_city' && t.state === 'traveling') paid[t.id] = k.gold - t.gold;
+      else if (t.trips_completed > k.trips && paid[t.id] != null) {
+        const upgrade = (t.gear_tier || 0) > k.gear ? COST[t.gear_tier] : 0;
+        const real = (t.gold - k.gold + living[t.id] + upgrade) - paid[t.id];
+        const rec = t.profit_history[t.profit_history.length - 1].profit;
+        out.trips++;
+        if (rec !== real) { out.mismatches++; out.first ||= { trader: t.id, trip: t.trips_completed, recorded: rec, real }; }
+        paid[t.id] = null;
+      }
+    } }));
+  return out;
+}
+
+test('every recorded trip profit equals revenue minus what was paid (not today\'s price)', () => {
+  // Before: cost was re-priced at the source on arrival, so 64% of real profit
+  // went unrecorded and 21% of trips looked like losses (4% really were).
+  const a = tripProfitAudit(365);
+  assert(a.trips > 300, `trips ${a.trips}`);
+  assertEqual(a.mismatches, 0, `mismatched trips (first: ${JSON.stringify(a.first)})`);
+});
+
+test('departure stores cargo_cost; arrival clears it; seed trader starts at 0', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  assertEqual(t.cargo_cost, 0, 'seed cargo_cost');
+  t.gold = 500; t.city_timer = 0;
+  const g0 = t.gold;
+  tick(t, 60, { nowIso: NOW, peers: [] });
+  assertEqual(t.state, 'traveling', 'departed');
+  assertEqual(t.cargo_cost, g0 - t.gold, 'cargo_cost = gold spent on cargo');
+  tick(t, 600, { nowIso: NOW, peers: [] });
+  assert(t.trips_completed >= 1, 'arrived');
+  if (t.state === 'in_city') assertEqual(t.cargo_cost, 0, 'cleared after selling');
+});
+
+test('a trader already on the road without cargo_cost still records a profit', () => {
+  const t = ws.makeSeedTrader(ws.TRADER_DEFS[0], 0, NOW);
+  t.gold = 500; t.city_timer = 0;
+  tick(t, 60, { nowIso: NOW, peers: [] });
+  delete t.cargo_cost; // row written before this column existed
+  tick(t, 600, { nowIso: NOW, peers: [] });
+  const h = t.profit_history[t.profit_history.length - 1];
+  assert(h && Number.isFinite(h.profit), `profit ${h && h.profit}`);
+});
+
+test('world_traders schema has the cargo_cost column', () => {
+  const sql = readFileSync(join(ROOT, 'ops/world_service_schema.sql'), 'utf8');
+  assert(/ADD COLUMN IF NOT EXISTS cargo_cost\s+INT\b/i.test(sql), 'ALTER TABLE world_traders ADD COLUMN IF NOT EXISTS cargo_cost INT');
 });
 
 console.log('\nsingle source of trader logic');
