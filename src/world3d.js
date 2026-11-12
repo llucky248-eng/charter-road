@@ -33,7 +33,7 @@ export function createWorld3D(host, core) {
   const {
     groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
     sunForHour, buildingSpec, ndcToCanvas, advanceHour, ORE_COLORS, HORSE_PAL, WAGON_PAL,
-    findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
+    findTileRooms, planCityDecor, townsfolkRoutes, walkerAt, strideAmp, WALK_MIN_SPEED,
     characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
     vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor,
     carriageStruggle,
@@ -1038,19 +1038,24 @@ export function createWorld3D(host, core) {
     u.lastX = x; u.lastZ = z;
     // Callers without velocity/facing (NPCs) get both from smoothed motion.
     u.spd = (u.spd || 0) + ((dt > 0 ? step / dt : 0) - (u.spd || 0)) * Math.min(1, dt * 10);
-    if (moving === undefined) moving = u.spd > 0.25;
+    // Walk only while really moving: the caller's flag alone left the legs
+    // frozen mid-stride against a wall or behind an open menu.
+    const walking = moving !== false && u.spd > WALK_MIN_SPEED;
     if (!facing && step > 1e-4) facing = { x: dx, y: dz };
     if (facing && (facing.x || facing.y)) u.yaw = lerpAngle(u.yaw, facingToYaw(facing.x, facing.y), 1 - Math.exp(-14 * dt));
     c.position.set(x, surfaceY(x, z), z);
     c.rotation.y = u.yaw;
-    // Walk cycle driven by distance travelled (feet don't skate); idle sway otherwise.
+    // Walk cycle driven by distance travelled (feet don't skate); the stride
+    // eases in and out (strideAmp) and the idle sway fades in as it settles.
+    u.amp = strideAmp(u.amp, walking, dt);
+    const amp = u.amp, idle = 1 - amp;
     const ph = u.dist * 7.5;
-    const swing = moving ? Math.sin(ph) * 0.65 : 0;
+    const swing = Math.sin(ph) * 0.65 * amp;
     u.limbs.legL.rotation.z = swing; u.limbs.legR.rotation.z = -swing;
     u.limbs.armL.rotation.z = -swing * 0.8; u.limbs.armR.rotation.z = swing * 0.8;
-    u.rig.position.y = moving ? Math.abs(Math.cos(ph)) * 0.05 : 0;
-    u.rig.rotation.x = moving ? 0 : Math.sin(t * 0.0018 + x) * 0.025;
-    u.rig.scale.y = CHAR_SCALE * (moving ? 1 : 1 + Math.sin(t * 0.0025 + z) * 0.01);
+    u.rig.position.y = Math.abs(Math.cos(ph)) * 0.05 * amp;
+    u.rig.rotation.x = Math.sin(t * 0.0018 + x) * 0.025 * idle;
+    u.rig.scale.y = CHAR_SCALE * (1 + Math.sin(t * 0.0025 + z) * 0.01 * idle);
     c.visible = true; u.seen = true;
   }
 

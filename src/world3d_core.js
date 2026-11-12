@@ -59,6 +59,18 @@ export function facingToYaw(fx, fy) {
   return Math.atan2(-fy, fx);
 }
 
+// Walk cycle: how far the limbs swing (0 = standing, 1 = full stride). Eases
+// toward the target at a frame-rate independent rate, so a character that
+// starts or stops mid-stride settles instead of snapping its legs straight.
+export const WALK_MIN_SPEED = 0.25; // tiles/s of real movement before limbs swing
+const STRIDE_RATE = 14;             // 1/s: ~95% of the way in 0.2 s
+export function strideAmp(prev, walking, dt) {
+  const a = Number.isFinite(prev) ? Math.min(1, Math.max(0, prev)) : 0;
+  if (!(dt > 0)) return a;
+  const k = 1 - Math.exp(-STRIDE_RATE * dt);
+  return a + ((walking ? 1 : 0) - a) * k;
+}
+
 // Interpolate angles along the shortest arc.
 export function lerpAngle(a, b, t) {
   let d = (b - a) % (Math.PI * 2);

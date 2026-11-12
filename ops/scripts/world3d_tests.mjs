@@ -34,7 +34,7 @@ const { groundTileFor, propKindFor, cameraRig, facingToYaw, lerpAngle,
         findTileRooms, planCityDecor, townsfolkRoutes, walkerAt,
         characterParts, CHAR_HEIGHT, CHAR_PIVOTS,
         vnoise, hillDepthMap, cornerHeight, bridgeAt, wildDecorFor, terrainCategory, terrainColor,
-        carriageStruggle } = core;
+        carriageStruggle, strideAmp, WALK_MIN_SPEED } = core;
 
 console.log('\n=== world3d_core: ground substitution ===');
 test('flat terrain keeps its own art', () => {
@@ -595,6 +595,39 @@ test('carriageStruggle is deterministic and NaN-safe', () => {
   eq(JSON.stringify(carriageStruggle('swamp', 1.3)), JSON.stringify(carriageStruggle('swamp', 1.3)));
   const s = carriageStruggle('forest', NaN);
   for (const v of Object.values(s)) assert(Number.isFinite(v), 'finite');
+});
+
+console.log('\n=== world3d_core: walk cycle eases in and out ===');
+const w3dSrc = readFileSync(join(ROOT, 'src/world3d.js'), 'utf8');
+test('strideAmp: starting to walk ramps up over a few frames, never snaps', () => {
+  const a1 = strideAmp(0, true, 1 / 60);
+  assert(a1 > 0 && a1 < 0.25, `first frame ${a1}`);
+  let a = 0; for (let i = 0; i < 21; i++) a = strideAmp(a, true, 1 / 60); // 0.35 s
+  assert(a > 0.95 && a <= 1, `after 0.35 s ${a}`);
+});
+test('strideAmp: stopping settles the legs instead of snapping them straight', () => {
+  let a = 1, prev = 1;
+  for (let i = 0; i < 21; i++) { a = strideAmp(a, false, 1 / 60); assert(prev - a < 0.25, `jump ${prev - a}`); prev = a; }
+  assert(a < 0.05 && a >= 0, `after 0.35 s ${a}`);
+});
+test('strideAmp is frame-rate independent and stays in [0, 1]', () => {
+  let a60 = 0, a30 = 0;
+  for (let i = 0; i < 12; i++) a60 = strideAmp(a60, true, 1 / 60);
+  for (let i = 0; i < 6; i++) a30 = strideAmp(a30, true, 1 / 30);
+  close(a60, a30, 1e-9, `60 fps ${a60} vs 30 fps ${a30}`);
+  eq(strideAmp(0.4, true, 0), 0.4, 'dt 0 keeps it');
+  for (const [p, m, dt] of [[5, true, 1], [-3, false, 1], [NaN, true, 0.1], [0.5, true, -1], [0.5, false, NaN]]) {
+    const v = strideAmp(p, m, dt);
+    assert(Number.isFinite(v) && v >= 0 && v <= 1, `strideAmp(${p}, ${m}, ${dt}) = ${v}`);
+  }
+});
+test('characters walk only while they really move (no frozen stride against a wall or behind a menu)', () => {
+  assert(WALK_MIN_SPEED > 0 && WALK_MIN_SPEED < 1, `WALK_MIN_SPEED ${WALK_MIN_SPEED}`);
+  const i = w3dSrc.indexOf('function syncCharacter');
+  const body = w3dSrc.slice(i, w3dSrc.indexOf('\n  }\n', i));
+  assert(i > 0, 'syncCharacter found');
+  assert(/strideAmp\(/.test(body), 'syncCharacter eases the stride with strideAmp');
+  assert(/u\.spd\s*>\s*WALK_MIN_SPEED/.test(body), 'walking needs real movement (u.spd > WALK_MIN_SPEED), not just the caller flag');
 });
 
 console.log(`\n${'─'.repeat(40)}\nResults: ${passed} passed, ${failed} failed`);
