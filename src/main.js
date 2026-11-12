@@ -79,7 +79,7 @@
   // --- QA harness (used by Playwright CI)
   const NPC_DIAG_ENABLED = new URLSearchParams(location.search).get('npcdiag') === '1';
 
-  const NPC_DIAG_BUILD = 'v0.5.59'; // single version - updated by ops/scripts/bump_version.mjs
+  const NPC_DIAG_BUILD = 'v0.5.60'; // single version - updated by ops/scripts/bump_version.mjs
   const __NPCDIAG_STATE = {
     enabled: NPC_DIAG_ENABLED,
     state: 'init',
@@ -916,6 +916,7 @@ ${line4}`;
       /** Snapshot of AI traders for assertions (state, fromId, toId, cityTimer). */
       qaAiTraders: () => AI_TRADERS.map(t => ({
         id: t.id, state: t.state, fromId: t.fromId, toId: t.toId, x: t.x, y: t.y,
+        facing: t.facing ? { x: t.facing.x, y: t.facing.y } : null,
         itemId: t.itemId, cityTimer: t.cityTimer ?? 0,
       })),
     };
@@ -4547,6 +4548,11 @@ async function syncTradersFromServer() {
           t.pathIdx = Math.min(Math.floor(row.progress * path.length), path.length - 1);
           const wp  = path[t.pathIdx];
           if (wp) { t.x = wp.x; t.y = wp.y; }
+          const nx = path[t.pathIdx + 1];
+          if (wp && nx && (nx.x !== wp.x || nx.y !== wp.y)) {
+            const d = Math.hypot(nx.x - wp.x, nx.y - wp.y);
+            t.facing = { x: (nx.x - wp.x) / d, y: (nx.y - wp.y) / d };
+          }
         }
       }
     }
@@ -4684,7 +4690,8 @@ function updateAiTraders(dt) {
       continue;
     }
 
-    // Move
+    // Move, facing the way the wagon drives (renderers default to east).
+    t.facing = { x: dx / dist, y: dy / dist };
     t.x += (dx / dist) * t.speed * dt;
     t.y += (dy / dist) * t.speed * dt;
 
@@ -6911,7 +6918,7 @@ function drawNpcBubble() {
 
   // Iteration notes (rendered into the bottom textbox)
   const ITERATION = {
-    version: 'v0.5.59',
+    version: 'v0.5.60',
     whatsNew: [
       'Trading feels alive: when you buy, coins fly from your gold into the goods and the goods fly into your pack; when you sell, your goods go to the merchant and a shower of coins flies into your purse. The row you traded flashes (blue for buying, gold for selling), your gold total bounces with a floating "+24g" or "−12g", and the trade buttons press in when tapped. (Calmer if your device asks for reduced motion.)',
       'You can now see the going get tough: in a swamp your wagon sinks into the mud and rocks while the horse high-steps, mud splashes and ripples spread from the wheels and bubbles pop around you; in a forest the wagon lurches over roots, leaves rain down and twigs snap. Sweat drops roll off your trader the whole way, and a "🌀 Stuck in swamp −72%" or "🌲 Thick forest −55%" note tells you why you slowed down.',
@@ -8635,7 +8642,7 @@ function drawNpcBubble() {
   function saveGame(silent = false) {
     const state = {
       saveVersion: SAVE_SCHEMA_VERSION,
-      buildVersion: 'v0.5.59',
+      buildVersion: 'v0.5.60',
       savedAt: Date.now(),
       player: {
         x: player.x,
@@ -16322,6 +16329,9 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
           {
             const api = __QA.api;
             const seenTraveling = new Set();
+            // Wagons must face the way they drive (they used to always face east).
+            let facingChecks = 0, facingBad = null;
+            const prevPos = {};
             // Tick ~40s of game time (well past the local fallback threshold).
             // Watch every frame so a trader that departs + arrives between samples
             // is still counted.
@@ -16329,10 +16339,20 @@ if (IS_MOBILE && (isDown('ArrowLeft') || isDown('ArrowRight') || isDown('ArrowUp
               api.step(1/60);
               for (const t of api.qaAiTraders()) {
                 if (t.state === 'traveling') seenTraveling.add(t.id);
+                const p0 = prevPos[t.id];
+                prevPos[t.id] = { x: t.x, y: t.y };
+                if (t.state !== 'traveling' || !p0) continue;
+                const mx = t.x - p0.x, my = t.y - p0.y, md = Math.hypot(mx, my);
+                if (md < 0.5 || md > 20) continue; // standing still, or a snap
+                facingChecks++;
+                const dot = t.facing ? (mx * t.facing.x + my * t.facing.y) / (md * Math.hypot(t.facing.x, t.facing.y)) : -2;
+                if (!(dot > 0.9) && !facingBad) facingBad = { id: t.id, move: [mx.toFixed(2), my.toFixed(2)], facing: t.facing };
               }
             }
             assert(seenTraveling.size > 0,
               `traders: at least one should depart locally when server isn't ticking (saw ${seenTraveling.size} traveling)`);
+            assert(facingChecks > 0, 'traders: some trader movement to check facing against');
+            assert(!facingBad, `traders: wagon should face the way it moves (${JSON.stringify(facingBad)})`);
           }
 
           qaPass('save/load + autosave + contracts + npc dialogue + npc walkers + mobile bubbles + city walking + navigation + per-player save + gear-save + setplayer-gear + city-arrival-save + full-save + mining + mining-sites + trader-fallback + loot-popups + popup-lifecycle + road-event-ui');
